@@ -394,6 +394,9 @@ export default function CreateReviewScreen() {
   );
 
   const showExtractionError = draft.extractionStatus === 'degraded' && !!draft.extractionError;
+  const needsManualProducts =
+    draft.status === 'review_required' ||
+    (draft.products.length === 0 && draft.status !== 'processing');
 
   const headerNote = (
     <View style={{ marginBottom: 10, gap: 8 }}>
@@ -457,10 +460,43 @@ export default function CreateReviewScreen() {
           ) : null}
         </View>
       ) : null}
+      {needsManualProducts ? (
+        <View
+          style={[
+            styles.errorBanner,
+            {
+              borderColor: isLight ? 'rgba(14,165,233,0.45)' : 'rgba(56,189,248,0.4)',
+              backgroundColor: isLight ? 'rgba(224,242,254,0.95)' : 'rgba(12,74,110,0.35)',
+            },
+          ]}
+        >
+          <Text style={[styles.errorBannerTitle, { color: isLight ? '#0369A1' : '#E0F2FE' }]}>
+            No products extracted
+          </Text>
+          <Text style={[styles.errorBannerBody, { color: isLight ? '#0C4A6E' : '#BAE6FD' }]}>
+            {draft.extractionError?.message ??
+              'We could not confidently identify shoppable products. Add product links manually to continue.'}
+          </Text>
+          <TouchableOpacity
+            style={{ marginTop: 8 }}
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/create/manual',
+              })
+            }
+          >
+            <Text style={{ color: isLight ? '#0284C7' : '#38BDF8', fontWeight: '800' }}>
+              Add products manually
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <Text style={[styles.headerNote, { color: isLight ? '#475569' : '#94A3B8' }]}>
-        {draft.extractionStatus === 'ok'
-          ? 'Deselect anything you do not want in the feed. Affiliate column shows the wrapped buy link provider.'
-          : 'Preview rows are unchecked by default. Only select items you intentionally want to publish after fixing extraction.'}
+        {needsManualProducts
+          ? 'Use manual product links for this reel, then publish from that flow.'
+          : draft.extractionStatus === 'ok'
+            ? 'Deselect anything you do not want in the feed. Affiliate column shows the wrapped buy link provider.'
+            : 'Preview rows are unchecked by default. Only select items you intentionally want to publish after fixing extraction.'}
       </Text>
     </View>
   );

@@ -115,6 +115,7 @@ function mapEdgeToDraft(body: EdgeIngestBody): IngestDraftPayload {
   if (body.status === 'failed') status = 'failed';
   else if (body.status === 'processing') status = 'processing';
   else if (body.status === 'ready_for_review') status = 'ready_for_review';
+  else if (body.status === 'review_required') status = 'review_required';
   else if (body.status === 'rejected') status = 'rejected';
 
   return {
@@ -171,6 +172,7 @@ async function pollIngestUntilDraftReady(
     const done =
       data?.status === 'draft' ||
       data?.status === 'ready_for_review' ||
+      data?.status === 'review_required' ||
       data?.status === 'failed' ||
       data?.status === 'rejected';
     if (done) {
@@ -251,6 +253,7 @@ export async function loadIngestDraftPayload(ingestId: string): Promise<IngestDr
   if (rowStatus === 'failed') status = 'failed';
   else if (rowStatus === 'processing') status = 'processing';
   else if (rowStatus === 'ready_for_review') status = 'ready_for_review';
+  else if (rowStatus === 'review_required') status = 'review_required';
   else if (rowStatus === 'rejected') status = 'rejected';
 
   return {
@@ -498,7 +501,11 @@ export async function submitIngestUrl(
       } catch {
         /** Race: poll ended just before worker wrote `draft`; one final read avoids a false failure. */
         const late = await loadIngestDraftPayload(draft.ingestId);
-        if (late?.status === 'draft' || late?.status === 'ready_for_review') {
+        if (
+          late?.status === 'draft' ||
+          late?.status === 'ready_for_review' ||
+          late?.status === 'review_required'
+        ) {
           draft = late;
           setCurationDraft(draft.ingestId, draft);
           curationLogIngestResult({

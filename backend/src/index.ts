@@ -3,12 +3,15 @@ import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { detectPlatform, extractYouTubeVideoId } from './pipeline/detect';
-import { runBackendIngestPipeline } from './pipeline/extractionExecutor';
 import { ingestLog } from './pipeline/ingestLog';
 import { createManualIngest } from './manualIngest';
 import { createSupabaseAdmin, createSupabaseUserClient } from './supabase';
 import { handlePublishIngest } from './publish';
 import { logger } from './logger';
+import { enqueueIngestPipeline } from './workers/queue';
+import { runProgressiveIngestPipeline } from './stages/orchestrator';
+import { startIngestPipelineWorker } from './workers/ingestPipelineWorker';
+import { getEnv } from './env';
 
 if (typeof globalThis.btoa !== 'function') {
   Object.assign(globalThis, {
@@ -315,17 +318,25 @@ app.post('/ingest', async (req, res) => {
       sourceHost: parsed.hostname,
     });
 
-    setImmediate(() => {
-      void runBackendIngestPipeline(admin, ingestId, httpTraceId).catch((err) => {
-        logger.error({ err, ingestId }, 'ingest.background_pipeline_failed');
+    try {
+      await enqueueIngestPipeline({ ingestRequestId: ingestId, traceId: httpTraceId });
+      ingestLog('info', 'ingest.enqueued_bullmq', {
+        httpTraceId,
+        ingestId,
+        platform,
       });
-    });
-
-    ingestLog('info', 'ingest.enqueued_inline_worker', {
-      httpTraceId,
-      ingestId,
-      platform,
-    });
+    } catch (enqueueErr) {
+      ingestLog('warn', 'ingest.bullmq_enqueue_failed_fallback', {
+        httpTraceId,
+        ingestId,
+        message: (enqueueErr as Error).message?.slice(0, 200),
+      });
+      setImmediate(() => {
+        void runProgressiveIngestPipeline(admin, ingestId, httpTraceId).catch((err) => {
+          logger.error({ err, ingestId }, 'ingest.background_pipeline_failed');
+        });
+      });
+    }
 
     res.json({
       ingestId,
@@ -353,6 +364,15 @@ app.post('/ingest', async (req, res) => {
   }
 });
 
-app.listen(PORT,HOST, () => {
+if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
+  try {
+    startIngestPipelineWorker();
+    logger.info('embedded ingest-pipeline worker started');
+  } catch (e) {
+    logger.warn({ err: e }, 'embedded ingest worker failed to start — use npm run worker or fallback path');
+  }
+}
+
+app.listen(PORT, HOST, () => {
   logger.info({ PORT, HOST }, 'mystash-backend listening');
 });

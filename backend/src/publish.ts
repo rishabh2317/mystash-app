@@ -1,7 +1,9 @@
 import type { Request, Response } from 'express';
 import { createSupabaseAdmin, createSupabaseUserClient } from './supabase';
+import { wrapAffiliateDestination } from './pipeline/affiliate';
 import { detectPlatform, extractYouTubeVideoId } from './pipeline/detect';
 import { transformToEmbedUrl } from './pipeline/embed';
+import { NoopCatalogMatcher } from './products/catalogMatcher';
 import { resolveSelectedDraftProducts } from './publishResolveDrafts';
 import { logger } from './logger';
 
@@ -142,15 +144,49 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
 
     const videoId = videoRow.id as string;
 
-    const productInserts = drafts.map((d, i) => ({
-      video_id: videoId,
-      name: d.name,
-      price: d.price,
-      image: d.image || 'https://picsum.photos/seed/vp/400/400',
-      affiliate_url: d.affiliate_url,
-      provider: d.provider,
-      sort_order: i,
-    }));
+    // Catalog match (stub) then affiliate wrap — never during extraction.
+    await new NoopCatalogMatcher().match(
+      drafts.map((d) => ({
+        name: d.name,
+        category: 'unknown',
+        brand: null,
+        model: null,
+        confidence: 1,
+        evidence: {
+          summary: '',
+          frames: [],
+          frameCount: 0,
+          logoHits: [],
+          transcriptMentions: false,
+          ocrMentions: false,
+        },
+        sources: [],
+        externalId: d.external_id,
+        merchantUrl: d.affiliate_url ?? undefined,
+      })),
+    );
+
+    const productInserts = await Promise.all(
+      drafts.map(async (d, i) => {
+        const destination =
+          d.affiliate_url && d.affiliate_url.startsWith('http')
+            ? d.affiliate_url
+            : `https://www.google.com/search?q=${encodeURIComponent(d.name)}`;
+        const wrapped = await wrapAffiliateDestination(destination, {
+          ingestId,
+          index: i,
+        });
+        return {
+          video_id: videoId,
+          name: d.name,
+          price: d.price,
+          image: d.image || 'https://picsum.photos/seed/vp/400/400',
+          affiliate_url: wrapped.affiliateUrl,
+          provider: wrapped.provider === 'fallback' ? d.provider || 'canonical' : wrapped.provider,
+          sort_order: i,
+        };
+      }),
+    );
 
     await admin.from('video_products').insert(productInserts);
 

@@ -37,7 +37,7 @@ export interface IngestDraftPayload {
   thumbnail?: string;
   stashScore?: number;
   products: DraftProduct[];
-  status: 'draft' | 'ready_for_review' | 'queued' | 'failed' | 'processing' | 'rejected';
+  status: 'draft' | 'ready_for_review' | 'review_required' | 'queued' | 'failed' | 'processing' | 'rejected';
   errorMessage?: string;
   /** e.g. `openai`, `gemini`, `manual`, or dev `mock_offline`. */
   extractionSource?: string;
