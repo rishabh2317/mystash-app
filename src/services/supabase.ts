@@ -4,7 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Product, Video } from '@/src/mocks/videos';
 import { createClient } from '@supabase/supabase-js';
 
-// Environment variables from .env file
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -37,25 +36,73 @@ export interface DatabaseVideo {
   updated_at?: string;
 }
 
-export interface DatabaseVideoProduct {
+type CatalogJoin = {
+  id: string;
+  name: string;
+  brand?: string | null;
+  price: string | null;
+  image_url: string | null;
+  merchant: string | null;
+  merchant_url: string | null;
+  affiliate_url: string | null;
+  verification_status: string | null;
+  description?: string | null;
+  availability?: string | null;
+  last_verified_at?: string | null;
+  currency?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+type VideoProductRow = {
   id: string;
   video_id: string;
-  name: string;
-  price: string;
-  image: string;
-  affiliate_url: string | null;
-  provider: string | null;
   sort_order: number;
+  catalog_product_id: string | null;
+  /** Legacy denormalized cache — only used when catalog join is missing. */
+  name?: string;
+  price?: string;
+  image?: string | null;
+  affiliate_url?: string | null;
+  merchant_url?: string | null;
+  provider?: string | null;
+  catalog_products?: CatalogJoin | CatalogJoin[] | null;
+};
+
+function unwrapCatalog(row: VideoProductRow): CatalogJoin | null {
+  const c = row.catalog_products;
+  if (!c) return null;
+  return Array.isArray(c) ? c[0] ?? null : c;
 }
 
-function mapRowToProduct(row: DatabaseVideoProduct): Product {
+/** Map UI product exclusively from catalog_products when linked. */
+function mapRowToProduct(row: VideoProductRow): Product {
+  const cat = unwrapCatalog(row);
+  if (cat) {
+    const buy =
+      (cat.affiliate_url && cat.affiliate_url.startsWith('http') && cat.affiliate_url) ||
+      (cat.merchant_url && cat.merchant_url.startsWith('http') && cat.merchant_url) ||
+      undefined;
+    return {
+      id: cat.id,
+      name: cat.name,
+      price: cat.price || '—',
+      image: cat.image_url || 'https://picsum.photos/seed/product/200/200',
+      affiliate_url: buy,
+      provider: cat.merchant ?? undefined,
+      merchant_url: cat.merchant_url ?? undefined,
+      catalog_product_id: cat.id,
+    };
+  }
+  // Legacy rows without catalog FK — still never call external providers at read time.
   return {
     id: row.id,
-    name: row.name,
-    price: row.price,
+    name: row.name || 'Product',
+    price: row.price || '—',
     image: row.image || 'https://picsum.photos/seed/product/200/200',
-    affiliate_url: row.affiliate_url ?? undefined,
+    affiliate_url: row.affiliate_url ?? row.merchant_url ?? undefined,
     provider: row.provider ?? undefined,
+    merchant_url: row.merchant_url ?? undefined,
+    catalog_product_id: row.catalog_product_id ?? undefined,
   };
 }
 
@@ -66,7 +113,7 @@ function mapVideoRow(video: DatabaseVideo, products: Product[]): Video {
     thumbnail: video.thumbnail,
     creator_name: video.creator_name,
     stash_score: video.stash_score,
-    product_name: video.product_name,
+    product_name: products[0]?.name || video.product_name,
     embed_url: video.embed_url,
     video_title: video.video_title,
     curator_id: video.curator_id,
@@ -80,15 +127,22 @@ async function fetchProductsForVideos(videoIds: string[]): Promise<Map<string, P
 
   const { data, error } = await supabase
     .from('video_products')
-    .select('id, video_id, name, price, image, affiliate_url, provider, sort_order')
+    .select(
+      `id, video_id, sort_order, catalog_product_id, name, price, image, affiliate_url, merchant_url, provider,
+       catalog_products (
+         id, name, brand, price, image_url, merchant, merchant_url, affiliate_url,
+         verification_status, description, availability, last_verified_at, currency, metadata
+       )`,
+    )
     .in('video_id', videoIds)
     .order('sort_order', { ascending: true });
 
   if (error || !data) {
+    if (error) console.error('video_products catalog join error:', error.code, error.message);
     return map;
   }
 
-  for (const row of data as DatabaseVideoProduct[]) {
+  for (const row of data as VideoProductRow[]) {
     const list = map.get(row.video_id) ?? [];
     list.push(mapRowToProduct(row));
     map.set(row.video_id, list);
@@ -128,17 +182,11 @@ export async function fetchVideoById(id: string): Promise<Video | null> {
 
 export async function insertVideo(video: Omit<DatabaseVideo, 'id' | 'created_at' | 'updated_at'>): Promise<DatabaseVideo | null> {
   try {
-    const { data, error } = await supabase
-      .from('videos')
-      .insert([video])
-      .select()
-      .single();
-
+    const { data, error } = await supabase.from('videos').insert([video]).select().single();
     if (error) {
       console.error('Error inserting video:', error);
       return null;
     }
-
     return data as DatabaseVideo;
   } catch (error) {
     console.error('Error inserting video:', error);
@@ -148,18 +196,11 @@ export async function insertVideo(video: Omit<DatabaseVideo, 'id' | 'created_at'
 
 export async function updateVideo(id: string, updates: Partial<DatabaseVideo>): Promise<DatabaseVideo | null> {
   try {
-    const { data, error } = await supabase
-      .from('videos')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
-
+    const { data, error } = await supabase.from('videos').update(updates).eq('id', id).select().single();
     if (error) {
       console.error('Error updating video:', error);
       return null;
     }
-
     return data as DatabaseVideo;
   } catch (error) {
     console.error('Error updating video:', error);
@@ -169,16 +210,11 @@ export async function updateVideo(id: string, updates: Partial<DatabaseVideo>): 
 
 export async function deleteVideo(id: string): Promise<boolean> {
   try {
-    const { error } = await supabase
-      .from('videos')
-      .delete()
-      .eq('id', id);
-
+    const { error } = await supabase.from('videos').delete().eq('id', id);
     if (error) {
       console.error('Error deleting video:', error);
       return false;
     }
-
     return true;
   } catch (error) {
     console.error('Error deleting video:', error);

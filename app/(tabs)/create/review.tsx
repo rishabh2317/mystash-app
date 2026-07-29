@@ -1,5 +1,10 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import {
+  ProductDetailsSheet,
+  ReviewProductCard,
+  type ProductDetailsActionConfig,
+} from '@/components/commerce';
 import { getCurationDraft, removeCurationDraft } from '@/src/state/curationDraftStore';
 import { curationLog } from '@/src/logging/curationLog';
 import {
@@ -8,7 +13,9 @@ import {
   publishIngestSelection,
   rejectIngestRequest,
 } from '@/src/services/curation';
+import { draftProductToViewModel } from '@/src/services/catalogProductMapper';
 import { requestFeedReload } from '@/src/services/feedRefresh';
+import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { DraftProduct, IngestDraftPayload } from '@/src/types/curation';
 import { buildInstagramEmbedHtml } from '@/src/utils/instagramWebViewEmbed';
 import {
@@ -17,7 +24,6 @@ import {
   resolveYoutubeParentOrigin,
 } from '@/src/utils/youtubeWebViewEmbed';
 import { transformToReviewEmbedUrl } from '@/src/utils/videoUtils';
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -25,9 +31,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Linking,
   StyleSheet,
-  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -54,6 +58,8 @@ export default function CreateReviewScreen() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [pollingBusy, setPollingBusy] = useState(false);
+  const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
+  const [detailsVisible, setDetailsVisible] = useState(false);
 
   const youtubeParentOrigin = useMemo(() => resolveYoutubeParentOrigin(), []);
 
@@ -295,8 +301,45 @@ export default function CreateReviewScreen() {
     );
   }
 
-  const toggle = (id: string) => {
-    setSelected((s) => ({ ...s, [id]: !s[id] }));
+  const openDetails = (product: CatalogProductViewModel) => {
+    setDetailsProduct(product);
+    setDetailsVisible(true);
+  };
+
+  const closeDetails = () => {
+    setDetailsVisible(false);
+    setDetailsProduct(null);
+  };
+
+  const refreshDraftFromCatalog = async () => {
+    if (!ingestIdParam) return;
+    try {
+      const d = await loadOrResumeIngestDraft(ingestIdParam);
+      if (d) setDraft(d);
+      Alert.alert('Refreshed', 'Product metadata reloaded from the catalog.');
+    } catch (e) {
+      Alert.alert('Refresh failed', normalizeIngestError(e));
+    }
+  };
+
+  const detailsActions: ProductDetailsActionConfig = {
+    enabled: ['replace', 'refresh', 'remove'],
+    onReplace: () => {
+      closeDetails();
+      router.push('/(tabs)/create/manual');
+    },
+    onRefresh: () => {
+      void refreshDraftFromCatalog();
+    },
+    onRemove: (product) => {
+      const draftItem = draft?.products.find(
+        (p) => p.catalogProductId === product.id || p.id === product.id,
+      );
+      if (draftItem?.id) {
+        setSelected((s) => ({ ...s, [draftItem.id]: false }));
+      }
+      closeDetails();
+    },
   };
 
   const selectedIds = draft.products.filter((p) => p.id && selected[p.id]).map((p) => p.id);
@@ -343,55 +386,22 @@ export default function CreateReviewScreen() {
     ]);
   };
 
-  const renderItem = ({ item }: { item: DraftProduct }) => (
-    <View
-      style={[
-        styles.card,
-        {
-          borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)',
-          backgroundColor: isLight ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.06)',
-        },
-      ]}
-    >
-      {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.thumb} contentFit="cover" />
-      ) : (
-        <View style={[styles.thumb, styles.thumbPlaceholder]} />
-      )}
-      <View style={styles.cardBody}>
-        <Text style={[styles.name, { color: isLight ? '#111827' : '#F8FAFC' }]} numberOfLines={2}>
-          {item.name}
-        </Text>
-        <Text style={[styles.meta, { color: isLight ? '#64748B' : '#94A3B8' }]}>
-          {item.price} · {item.provider}
-          {item.confidence != null && item.confidence > 0
-            ? ` · ${Math.round(item.confidence * 100)}% match`
-            : item.confidence === 0
-              ? ' · preview row'
-              : ''}
-        </Text>
-        <View style={styles.row}>
-          <Text style={{ color: isLight ? '#334155' : '#CBD5E1', fontSize: 13 }}>Include</Text>
-          <Switch value={!!selected[item.id]} onValueChange={() => toggle(item.id)} />
-        </View>
-        {item.affiliateUrl ? (
-          <TouchableOpacity
-            onPress={async () => {
-              try {
-                await Linking.openURL(item.affiliateUrl);
-              } catch {
-                Alert.alert('Error', 'Could not open the product link.');
-              }
-            }}
-            accessibilityRole="link"
-            accessibilityLabel="View product in browser"
-          >
-            <Text style={[styles.viewProductLink, { color: isLight ? '#0EA5E9' : '#38BDF8' }]}>View product</Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
-    </View>
-  );
+  const renderItem = ({ item }: { item: DraftProduct }) => {
+    const vm = draftProductToViewModel(item);
+    return (
+      <ReviewProductCard
+        product={vm}
+        isLight={isLight}
+        included={!!selected[item.id]}
+        onToggleInclude={(v) => setSelected((s) => ({ ...s, [item.id]: v }))}
+        onOpenDetails={openDetails}
+        confidence={item.confidence}
+        extractionHint={
+          item.resolutionStatus ? item.resolutionStatus.toLowerCase() : null
+        }
+      />
+    );
+  };
 
   const showExtractionError = draft.extractionStatus === 'degraded' && !!draft.extractionError;
   const needsManualProducts =
@@ -495,8 +505,8 @@ export default function CreateReviewScreen() {
         {needsManualProducts
           ? 'Use manual product links for this reel, then publish from that flow.'
           : draft.extractionStatus === 'ok'
-            ? 'Deselect anything you do not want in the feed. Affiliate column shows the wrapped buy link provider.'
-            : 'Preview rows are unchecked by default. Only select items you intentionally want to publish after fixing extraction.'}
+            ? 'Tap a product for details. Use Include to choose what publishes to the feed.'
+            : 'Preview rows are unchecked by default. Tap a card for details; only include what you want to publish.'}
       </Text>
     </View>
   );
@@ -528,6 +538,13 @@ export default function CreateReviewScreen() {
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.publishBtnText}>Publish</Text>}
         </TouchableOpacity>
       </View>
+      <ProductDetailsSheet
+        visible={detailsVisible}
+        product={detailsProduct}
+        isLight={isLight}
+        onClose={closeDetails}
+        actions={detailsActions}
+      />
     </View>
   );
 }
@@ -555,21 +572,6 @@ const styles = StyleSheet.create({
   errorBannerTitle: { fontSize: 14, fontWeight: '800' },
   errorBannerBody: { fontSize: 13, lineHeight: 18 },
   errorBannerDetail: { fontSize: 11, lineHeight: 16, marginTop: 2 },
-  viewProductLink: { fontSize: 13, fontWeight: '700', marginTop: 6 },
-  card: {
-    flexDirection: 'row',
-    borderRadius: 14,
-    borderWidth: 1,
-    overflow: 'hidden',
-    gap: 12,
-    padding: 10,
-  },
-  thumb: { width: 72, height: 72, borderRadius: 10 },
-  thumbPlaceholder: { backgroundColor: '#334155' },
-  cardBody: { flex: 1, justifyContent: 'center', gap: 4 },
-  name: { fontSize: 15, fontWeight: '700' },
-  meta: { fontSize: 12 },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
   footer: {
     position: 'absolute',
     bottom: 0,

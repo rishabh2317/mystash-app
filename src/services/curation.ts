@@ -76,6 +76,7 @@ type EdgeIngestBody = {
     currency?: string;
     provider: string;
     affiliateUrl: string;
+    merchantUrl?: string;
     image?: string;
     confidence?: number;
   }>;
@@ -125,16 +126,28 @@ function mapEdgeToDraft(body: EdgeIngestBody): IngestDraftPayload {
     videoTitle: body.videoTitle,
     thumbnail: body.thumbnail,
     stashScore: body.stashScore,
-    products: body.products.map((p) => ({
-      id: p.id,
-      name: p.name,
-      price: p.price,
-      currency: p.currency,
-      provider: p.provider,
-      affiliateUrl: p.affiliateUrl,
-      image: p.image,
-      confidence: p.confidence,
-    })),
+    products: body.products.map((p) => {
+      let merchant: string | undefined;
+      if (p.merchantUrl) {
+        try {
+          merchant = new URL(p.merchantUrl).hostname.replace(/^www\./, '');
+        } catch {
+          merchant = undefined;
+        }
+      }
+      return {
+        id: p.id,
+        name: p.name,
+        price: p.price,
+        currency: p.currency,
+        provider: p.provider,
+        affiliateUrl: p.affiliateUrl,
+        merchantUrl: p.merchantUrl,
+        merchant,
+        image: p.image,
+        confidence: p.confidence,
+      };
+    }),
     status,
     errorMessage: body.errorMessage,
     extractionSource: body.extractionSource,
@@ -200,7 +213,14 @@ export async function loadIngestDraftPayload(ingestId: string): Promise<IngestDr
 
   const { data: rows } = await supabase
     .from('ingest_draft_products')
-    .select('external_id, name, price, currency, image, affiliate_url, provider, confidence')
+    .select(
+      `external_id, name, price, currency, image, affiliate_url, merchant_url, provider, confidence, brand,
+       catalog_product_id, resolution_status,
+       catalog_products (
+         id, name, brand, merchant, merchant_url, affiliate_url, image_url, price, currency,
+         description, availability, verification_status, last_verified_at, metadata
+       )`,
+    )
     .eq('ingest_request_id', ingestId);
 
   const { data: extMeta } = await supabase
@@ -237,16 +257,102 @@ export async function loadIngestDraftPayload(ingestId: string): Promise<IngestDr
       ? (extPayload.pipelineMeta as ExtractionPipelineMetaClient)
       : undefined;
 
-  const products: IngestDraftPayload['products'] = (rows ?? []).map((r) => ({
-    id: r.external_id as string,
-    name: r.name as string,
-    price: r.price as string,
-    currency: (r.currency as string) ?? undefined,
-    provider: (r.provider as string) ?? 'unknown',
-    affiliateUrl: r.affiliate_url as string,
-    image: (r.image as string) ?? undefined,
-    confidence: (r.confidence as number) ?? undefined,
-  }));
+  type CatJoin = {
+    id: string;
+    name: string;
+    price: string | null;
+    image_url: string | null;
+    merchant: string | null;
+    merchant_url: string | null;
+    affiliate_url: string | null;
+    brand: string | null;
+    currency: string | null;
+    description: string | null;
+    availability: string | null;
+    verification_status: string | null;
+    last_verified_at: string | null;
+    metadata: Record<string, unknown> | null;
+  };
+
+  const products: IngestDraftPayload['products'] = (rows ?? []).map((r) => {
+    const rawCat = (r as { catalog_products?: CatJoin | CatJoin[] | null }).catalog_products;
+    const cat = Array.isArray(rawCat) ? rawCat[0] : rawCat;
+    const catalogProductId =
+      (r.catalog_product_id as string) || cat?.id || undefined;
+    const resolutionRaw = (r.resolution_status as string) || cat?.verification_status;
+    const resolutionStatus =
+      resolutionRaw === 'VERIFIED' || resolutionRaw === 'UNVERIFIED' || resolutionRaw === 'UNRESOLVED'
+        ? resolutionRaw
+        : undefined;
+
+    if (cat) {
+      const merchantUrl = cat.merchant_url || undefined;
+      const affiliateUrl =
+        (cat.affiliate_url && cat.affiliate_url.startsWith('http') ? cat.affiliate_url : '') ||
+        (merchantUrl && merchantUrl.startsWith('http') ? merchantUrl : '');
+      return {
+        id: r.external_id as string,
+        name: cat.name,
+        price: cat.price || '—',
+        currency: cat.currency ?? undefined,
+        provider: cat.merchant || 'catalog',
+        affiliateUrl,
+        merchantUrl,
+        merchant: cat.merchant ?? undefined,
+        image: cat.image_url ?? undefined,
+        confidence: (r.confidence as number) ?? undefined,
+        catalogProductId,
+        resolutionStatus,
+        brand: cat.brand,
+        description: cat.description,
+        catalogRow: {
+          id: cat.id,
+          name: cat.name,
+          brand: cat.brand,
+          merchant: cat.merchant,
+          merchant_url: cat.merchant_url,
+          affiliate_url: cat.affiliate_url,
+          image_url: cat.image_url,
+          price: cat.price,
+          currency: cat.currency,
+          description: cat.description,
+          availability: cat.availability,
+          verification_status: cat.verification_status,
+          last_verified_at: cat.last_verified_at,
+          metadata: cat.metadata,
+        },
+      };
+    }
+
+    const merchantUrl = (r.merchant_url as string) || undefined;
+    let merchant: string | undefined = (r.provider as string) || undefined;
+    if (merchantUrl) {
+      try {
+        merchant = new URL(merchantUrl).hostname.replace(/^www\./, '');
+      } catch {
+        /* keep provider */
+      }
+    }
+    if (merchant === 'ai_extract' || merchant === 'unknown' || merchant === 'serper') {
+      merchant = undefined;
+    }
+    return {
+      id: r.external_id as string,
+      name: r.name as string,
+      price: r.price as string,
+      currency: (r.currency as string) ?? undefined,
+      provider: (r.provider as string) ?? 'unknown',
+      affiliateUrl: (r.affiliate_url as string) || '',
+      merchantUrl,
+      merchant,
+      image: (r.image as string) ?? undefined,
+      confidence: (r.confidence as number) ?? undefined,
+      catalogProductId,
+      resolutionStatus,
+      brand: (r.brand as string) ?? null,
+      catalogRow: null,
+    };
+  });
 
   const rowStatus = ir.status as string;
   let status: IngestDraftPayload['status'] = 'draft';

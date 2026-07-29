@@ -25,8 +25,18 @@ export interface DraftProduct {
   currency?: string;
   provider: string;
   affiliateUrl: string;
+  /** Merchant PDP URL (shoppable destination before affiliate wrap). */
+  merchantUrl?: string;
+  /** Display merchant label (hostname / brand shop). */
+  merchant?: string;
   image?: string;
   confidence?: number;
+  catalogProductId?: string;
+  resolutionStatus?: 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED';
+  brand?: string | null;
+  description?: string | null;
+  /** Persisted catalog join for CatalogProductViewModel mapping. */
+  catalogRow?: import('./catalogProduct').CatalogProductRow | null;
 }
 
 export interface IngestDraftPayload {
