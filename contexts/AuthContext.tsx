@@ -139,11 +139,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: formatSignInError(error as { message: string; code?: string }) };
       },
       signInWithGoogle: async () => {
-        // Must match an entry in Supabase Dashboard → Authentication → URL Configuration → Redirect URLs.
-        const redirectTo = Linking.createURL('/');
+        // Use a real Expo Router route, not the app root. The exact generated
+        // value must be allowlisted in Supabase Auth → URL Configuration.
+        const redirectTo = Linking.createURL('auth/callback');
         if (__DEV__) {
           console.log(
-            '[auth] INFO (not an error): add this redirect URL in Supabase → Auth → URL Configuration if Google sign-in fails:',
+            '[auth] OAuth redirect URL (allowlist this exact value in Supabase):',
             redirectTo,
           );
         }
