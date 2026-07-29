@@ -64,6 +64,7 @@ export function catalogRowToViewModel(row: CatalogProductRow): CatalogProductVie
 
   return {
     id: row.id,
+    catalogProductId: row.id,
     title: row.name,
     brand: row.brand ?? null,
     merchant: row.merchant ?? null,
@@ -73,8 +74,6 @@ export function catalogRowToViewModel(row: CatalogProductRow): CatalogProductVie
     shortDescription,
     specifications: parseSpecs(meta),
     verificationStatus: asVerification(row.verification_status),
-    merchantUrl: row.merchant_url ?? null,
-    affiliateUrl: row.affiliate_url ?? null,
     availability: row.availability ?? null,
     price: cleanPrice(row.price),
     currency: row.currency ?? null,
@@ -107,10 +106,10 @@ export function draftProductToViewModel(
     return mapped;
   }
 
-  const id = draft.catalogProductId || draft.id;
   const hero = draft.image?.startsWith('http') ? draft.image : null;
   return {
-    id,
+    id: draft.id,
+    catalogProductId: draft.catalogProductId ?? null,
     title: draft.name,
     brand: draft.brand ?? null,
     merchant: draft.merchant ?? draft.provider ?? null,
@@ -120,20 +119,12 @@ export function draftProductToViewModel(
     shortDescription: draft.description?.slice(0, 160) ?? null,
     specifications: {},
     verificationStatus: draft.resolutionStatus ?? 'UNRESOLVED',
-    merchantUrl: draft.merchantUrl ?? null,
-    affiliateUrl: draft.affiliateUrl?.startsWith('http') ? draft.affiliateUrl : null,
     availability: null,
     price: cleanPrice(draft.price),
     currency: draft.currency ?? null,
     lastVerifiedAt: null,
     metadataCompleteness: null,
   };
-}
-
-export function viewProductUrl(product: CatalogProductViewModel): string | null {
-  if (product.affiliateUrl?.startsWith('http')) return product.affiliateUrl;
-  if (product.merchantUrl?.startsWith('http')) return product.merchantUrl;
-  return null;
 }
 
 export function displayHeroUri(product: CatalogProductViewModel): string {

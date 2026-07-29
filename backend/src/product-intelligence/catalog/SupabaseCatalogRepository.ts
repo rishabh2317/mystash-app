@@ -26,11 +26,15 @@ function mapProduct(row: Row): CatalogProduct {
     imageUrl: (row.image_url as string) ?? null,
     merchant: (row.merchant as string) ?? null,
     merchantUrl: (row.merchant_url as string) ?? null,
+    preferredShoppingUrl: (row.preferred_shopping_url as string) ?? null,
     affiliateUrl: (row.affiliate_url as string) ?? null,
+    shoppingProvider: (row.shopping_provider as string) ?? null,
     currency: (row.currency as string) ?? null,
     price: (row.price as string) ?? null,
     status: (row.status as CatalogProduct['status']) ?? 'ACTIVE',
     verificationStatus: (row.verification_status as CatalogProduct['verificationStatus']) ?? 'UNVERIFIED',
+    verificationProvider:
+      (row.verification_provider as string) ?? (row.verification_source as string) ?? null,
     verificationSource: (row.verification_source as string) ?? null,
     verificationVersion: (row.verification_version as string) ?? null,
     lastVerifiedAt: (row.last_verified_at as string) ?? null,
@@ -135,11 +139,15 @@ export class SupabaseCatalogRepository implements CatalogRepository {
         image_url: input.imageUrl ?? null,
         merchant: input.merchant ?? null,
         merchant_url: input.merchantUrl ?? null,
+        preferred_shopping_url: input.preferredShoppingUrl ?? input.merchantUrl ?? null,
         affiliate_url: input.affiliateUrl ?? null,
+        shopping_provider:
+          input.shoppingProvider ?? (input.preferredShoppingUrl || input.merchantUrl ? 'merchant' : null),
         currency: input.currency ?? null,
         price: input.price ?? null,
         status: 'ACTIVE',
         verification_status: input.verificationStatus,
+        verification_provider: input.verificationProvider ?? input.verificationSource,
         verification_source: input.verificationSource,
         verification_version: input.verificationVersion,
         last_verified_at:
@@ -176,7 +184,11 @@ export class SupabaseCatalogRepository implements CatalogRepository {
     if (patch.imageUrl !== undefined) row.image_url = patch.imageUrl;
     if (patch.merchant !== undefined) row.merchant = patch.merchant;
     if (patch.merchantUrl !== undefined) row.merchant_url = patch.merchantUrl;
+    if (patch.preferredShoppingUrl !== undefined) {
+      row.preferred_shopping_url = patch.preferredShoppingUrl;
+    }
     if (patch.affiliateUrl !== undefined) row.affiliate_url = patch.affiliateUrl;
+    if (patch.shoppingProvider !== undefined) row.shopping_provider = patch.shoppingProvider;
     if (patch.currency !== undefined) row.currency = patch.currency;
     if (patch.price !== undefined) row.price = patch.price;
     if (patch.availability !== undefined) row.availability = patch.availability;
@@ -185,6 +197,9 @@ export class SupabaseCatalogRepository implements CatalogRepository {
       if (patch.verificationStatus === 'VERIFIED' && patch.lastVerifiedAt === undefined) {
         row.last_verified_at = new Date().toISOString();
       }
+    }
+    if (patch.verificationProvider !== undefined) {
+      row.verification_provider = patch.verificationProvider;
     }
     if (patch.verificationSource !== undefined) row.verification_source = patch.verificationSource;
     if (patch.verificationVersion !== undefined) row.verification_version = patch.verificationVersion;

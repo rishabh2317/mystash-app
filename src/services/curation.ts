@@ -217,7 +217,7 @@ export async function loadIngestDraftPayload(ingestId: string): Promise<IngestDr
       `external_id, name, price, currency, image, affiliate_url, merchant_url, provider, confidence, brand,
        catalog_product_id, resolution_status,
        catalog_products (
-         id, name, brand, merchant, merchant_url, affiliate_url, image_url, price, currency,
+         id, name, brand, merchant, image_url, price, currency,
          description, availability, verification_status, last_verified_at, metadata
        )`,
     )
@@ -263,8 +263,6 @@ export async function loadIngestDraftPayload(ingestId: string): Promise<IngestDr
     price: string | null;
     image_url: string | null;
     merchant: string | null;
-    merchant_url: string | null;
-    affiliate_url: string | null;
     brand: string | null;
     currency: string | null;
     description: string | null;
@@ -286,18 +284,13 @@ export async function loadIngestDraftPayload(ingestId: string): Promise<IngestDr
         : undefined;
 
     if (cat) {
-      const merchantUrl = cat.merchant_url || undefined;
-      const affiliateUrl =
-        (cat.affiliate_url && cat.affiliate_url.startsWith('http') ? cat.affiliate_url : '') ||
-        (merchantUrl && merchantUrl.startsWith('http') ? merchantUrl : '');
       return {
         id: r.external_id as string,
         name: cat.name,
         price: cat.price || '—',
         currency: cat.currency ?? undefined,
         provider: cat.merchant || 'catalog',
-        affiliateUrl,
-        merchantUrl,
+        affiliateUrl: '',
         merchant: cat.merchant ?? undefined,
         image: cat.image_url ?? undefined,
         confidence: (r.confidence as number) ?? undefined,
@@ -310,8 +303,6 @@ export async function loadIngestDraftPayload(ingestId: string): Promise<IngestDr
           name: cat.name,
           brand: cat.brand,
           merchant: cat.merchant,
-          merchant_url: cat.merchant_url,
-          affiliate_url: cat.affiliate_url,
           image_url: cat.image_url,
           price: cat.price,
           currency: cat.currency,

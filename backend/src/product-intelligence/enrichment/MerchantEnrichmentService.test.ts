@@ -27,20 +27,22 @@ describe('computeMetadataCompleteness', () => {
         image: 'https://img.example/a.jpg',
         description: 'A long enough product description for scoring.',
         merchant: 'Apple',
-        price: '999',
+        price: 'USD 999',
+        currency: 'USD',
+        availability: 'In stock',
         specifications: { Color: 'Midnight' },
       }),
       100,
     );
   });
 
-  it('scores title+merchant only', () => {
+  it('does not count merchant as product metadata', () => {
     assert.equal(
       computeMetadataCompleteness({
         title: 'MacBook',
         merchant: 'Apple',
       }),
-      30,
+      25,
     );
   });
 });

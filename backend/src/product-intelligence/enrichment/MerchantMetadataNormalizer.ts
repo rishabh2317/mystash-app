@@ -1,5 +1,10 @@
 import { ProductNormalizer } from '../normalizer/ProductNormalizer';
 import { detectMerchantLabel } from './merchantDetect';
+import {
+  computeWeightedMetadataCompleteness,
+  validPriceValue,
+  type CompletenessInput,
+} from './MetadataQuality';
 import type { MerchantProductMetadata } from './types';
 
 const INC_SUFFIX =
@@ -26,28 +31,11 @@ function shortDesc(description: string | null, max = 160): string | null {
   return `${(lastSpace > 80 ? cut.slice(0, lastSpace) : cut).trim()}…`;
 }
 
-/**
- * Completeness 0–100 per Objective.docx:
- * Title 20, Brand 15, Thumbnail 20, Description 15, Merchant 10, Price 10, Specs 10.
- */
-export function computeMetadataCompleteness(meta: {
-  title?: string | null;
-  brand?: string | null;
-  image?: string | null;
-  description?: string | null;
-  merchant?: string | null;
-  price?: string | null;
-  specifications?: Record<string, string>;
-}): number {
-  let score = 0;
-  if (meta.title && meta.title.trim().length >= 2) score += 20;
-  if (meta.brand && meta.brand.trim().length >= 2) score += 15;
-  if (meta.image && /^https?:\/\//i.test(meta.image)) score += 20;
-  if (meta.description && meta.description.trim().length >= 20) score += 15;
-  if (meta.merchant && meta.merchant.trim().length >= 2) score += 10;
-  if (meta.price && /\d/.test(meta.price)) score += 10;
-  if (meta.specifications && Object.keys(meta.specifications).length > 0) score += 10;
-  return score;
+/** Backward-compatible export for callers; implementation is now weighted. */
+export function computeMetadataCompleteness(
+  meta: CompletenessInput & { merchant?: string | null },
+): number {
+  return computeWeightedMetadataCompleteness(meta);
 }
 
 export class MerchantMetadataNormalizer {
@@ -96,8 +84,7 @@ export class MerchantMetadataNormalizer {
         ? { ...raw.specifications }
         : {};
 
-    const price =
-      raw.price && raw.price !== '—' && /\d/.test(raw.price) ? raw.price.trim() : null;
+    const price = validPriceValue(raw.price, raw.currency);
 
     const meta: MerchantProductMetadata = {
       title: titleNorm.name || titleRaw,

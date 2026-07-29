@@ -1,6 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getProductIntelligenceConfig } from './config';
-import { FallbackAffiliateProvider } from './affiliate/FallbackAffiliateProvider';
 import {
   SupabaseCatalogRepository,
   SupabaseMatchHistoryWriter,
@@ -52,15 +51,19 @@ export function createProductIntelligence(
   const cache = new SupabaseSearchCandidateCache(admin);
   const discovery = createDiscoveryProvider(cfg, cache);
   const enrichment = new MerchantEnrichmentService(new TavilyMerchantExtractor(admin));
-  const search = new TavilyEnrichedPdpSearchStrategy(discovery, enrichment, ingestId, traceId);
-  const affiliate = new FallbackAffiliateProvider(admin, cfg.affiliateCacheTtlMs);
+  const search = new TavilyEnrichedPdpSearchStrategy(
+    discovery,
+    enrichment,
+    ingestId,
+    traceId,
+    cfg.metadataEnrichMaxCandidates,
+  );
   const drafts = new SupabaseDraftUpdater(admin);
   const history = new SupabaseMatchHistoryWriter(admin);
 
   const resolver = new ProductResolver(
     catalog,
     search,
-    affiliate,
     drafts,
     history,
     cfg,

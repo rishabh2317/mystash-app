@@ -42,4 +42,23 @@ describe('ProductSearchQueryBuilder', () => {
     assert.notEqual(result.query, 'headphones');
     assert.match(result.query, /Sony WH-1000XM6/i);
   });
+
+  it('removes noisy extraction words from the query', () => {
+    const draft: AiDraftInput = {
+      draftId: 'd',
+      externalId: 'e',
+      name: 'Adidas Messi Signature Boots titled Rating product',
+      brand: 'Adidas',
+      model: 'F50',
+      category: 'boots',
+      confidence: 0.9,
+      videoTitle: 'Best official product review video',
+    };
+    const result = buildProductSearchQuery(draft, new ProductNormalizer().normalize(draft));
+
+    assert.match(result.query, /Adidas/i);
+    assert.match(result.query, /F50/i);
+    assert.doesNotMatch(result.query, /\b(titled|rating|product|review|video|best|official)\b/i);
+    assert.ok(result.terms.length <= 6);
+  });
 });

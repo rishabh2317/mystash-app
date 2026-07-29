@@ -3,10 +3,7 @@ export interface Product {
   name: string;
   price: string;
   image: string;
-  /** Resolved affiliate / deep link — Buy Now should open this when set */
-  affiliate_url?: string;
   provider?: string;
-  merchant_url?: string;
   catalog_product_id?: string;
 }
 

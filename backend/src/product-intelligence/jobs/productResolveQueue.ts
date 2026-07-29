@@ -76,7 +76,7 @@ async function syncVideoProductFromCatalog(
       image: cat.image_url,
       provider: cat.merchant ?? 'catalog',
       merchant_url: cat.merchant_url ?? merchantUrl,
-      affiliate_url: cat.affiliate_url ?? affiliateUrl ?? cat.merchant_url ?? '',
+      affiliate_url: cat.affiliate_url ?? affiliateUrl ?? null,
       resolution_status: resolutionStatus,
     })
     .eq('id', videoProductId);

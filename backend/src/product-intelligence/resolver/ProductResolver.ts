@@ -4,9 +4,9 @@ import type {
   AiDraftInput,
   CatalogProduct,
   ResolveDraftResult,
+  SearchCandidate,
   VerificationStatus,
 } from '../domain/types';
-import type { AffiliateProvider } from '../interfaces/AffiliateProvider';
 import type {
   CatalogRepository,
   DraftUpdater,
@@ -16,9 +16,20 @@ import type { SearchStrategy } from '../interfaces/ProductSearchProvider';
 import { LocalCatalogSearch } from '../catalog/LocalCatalogSearch';
 import { MatchScorer } from '../matcher/MatchScorer';
 import { ProductNormalizer } from '../normalizer/ProductNormalizer';
+import {
+  mergeEnrichedCandidates,
+  validPriceValue,
+} from '../enrichment/MetadataMergeService';
 import { emitPiEvent } from '../observability';
 import { scoreProductSpecificity } from '../specificity/ProductSpecificityScorer';
 import { buildProductSearchQuery } from '../search/ProductSearchQueryBuilder';
+import { classifyCandidatePage } from '../search/CandidatePageClassifier';
+import { scoreCandidateDecisions } from '../scoring/CandidateScoring';
+import {
+  pickVerificationMerchantUrl,
+  resolveShoppingDestination,
+} from '../../shopping/ShoppingDestinationResolver';
+import { ingestLog } from '../../pipeline/ingestLog';
 
 function aiFieldProvenance(provider = 'ai'): Record<string, { source: string; provider?: string }> {
   return {
@@ -27,6 +38,40 @@ function aiFieldProvenance(provider = 'ai'): Record<string, { source: string; pr
     price: { source: 'ai', provider },
     heroImage: { source: 'ai', provider },
   };
+}
+
+function sourceHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function logCandidateDecision(
+  candidate: SearchCandidate,
+  decision: {
+    selectedForMetadata: boolean;
+    selectedForShopping: boolean;
+    rejectionReason: string | null;
+    shoppingScore?: number;
+  },
+): void {
+  const scores = scoreCandidateDecisions(candidate);
+  ingestLog('info', 'candidate.decision', {
+    svc: 'product-intelligence',
+    merchant: candidate.merchant ?? sourceHost(candidate.merchantUrl),
+    candidateType: candidate.candidatePageType ?? 'retailer_pdp',
+    metadataScore: candidate.metadataScore ?? scores.metadataScore,
+    shoppingScore: decision.shoppingScore ?? candidate.shoppingScore ?? scores.shoppingScore,
+    sourceAuthority: candidate.sourceAuthority ?? scores.sourceAuthority,
+    pdpScore: candidate.pdpScore ?? 0,
+    metadataCompleteness: scores.metadataCompleteness,
+    shoppingEligible: candidate.shoppingEligible ?? false,
+    selectedForMetadata: decision.selectedForMetadata,
+    selectedForShopping: decision.selectedForShopping,
+    rejectionReason: decision.rejectionReason,
+  });
 }
 
 export type BackgroundResolveEnqueuer = {
@@ -45,7 +90,6 @@ export class ProductResolver {
   constructor(
     private readonly catalog: CatalogRepository,
     private readonly search: SearchStrategy,
-    private readonly affiliate: AffiliateProvider,
     private readonly drafts: DraftUpdater,
     private readonly history: MatchHistoryWriter,
     private readonly cfg: ProductIntelligenceConfig,
@@ -284,27 +328,45 @@ export class ProductResolver {
       );
     }
 
-    const scoredBest = this.scorer.pickBest(
-      norm,
-      searchResult.candidates,
-      this.cfg.verificationMatchMin,
+    const metadataCandidates = searchResult.candidates.filter(
+      (c) =>
+        c.enrichmentSucceeded === true &&
+        this.scorer.score(norm, c).score >= this.cfg.verificationMatchMin,
     );
-    const best =
-      scoredBest &&
-      scoredBest.candidate.enrichmentSucceeded === true &&
-      scoredBest.candidate.pdpVerdict === 'pdp' &&
-      scoredBest.candidate.sourceTier !== 'editorial' &&
-      (scoredBest.candidate.pdpScore ?? 0) >= this.cfg.pdpClassifierMin
-        ? scoredBest
-        : null;
-    if (scoredBest && !best) {
-      emitPiEvent('pdp.rejected', {
-        draftId: draft.draftId,
-        pdpClassifierScore: scoredBest.candidate.pdpScore ?? null,
-        reason: scoredBest.candidate.pdpReasons?.join(',') ?? 'missing_enrichment_or_pdp_evidence',
-      });
-    }
-    if (!best) {
+    const commerceCandidates = metadataCandidates.filter(
+      (c) => {
+        const usage = classifyCandidatePage({
+          url: c.merchantUrl,
+          sourceTier: c.sourceTier,
+        });
+        return (
+          (c.shoppingEligible ?? usage.shoppingEligible) &&
+          c.pdpVerdict === 'pdp' &&
+          (c.pdpScore ?? 0) >= this.cfg.pdpClassifierMin
+        );
+      },
+    );
+
+    if (!metadataCandidates.length) {
+      const metadataCandidateUrls = new Set(
+        metadataCandidates.map((candidate) => candidate.merchantUrl),
+      );
+      for (const candidate of searchResult.candidates) {
+        logCandidateDecision(candidate, {
+          selectedForMetadata: false,
+          selectedForShopping: false,
+          rejectionReason: metadataCandidateUrls.has(candidate.merchantUrl)
+            ? 'no_purchasable_offer'
+            : candidate.enrichmentSucceeded
+              ? 'below_match_threshold'
+              : 'enrichment_failed',
+        });
+      }
+      const scoredBest = this.scorer.pickBest(
+        norm,
+        searchResult.candidates,
+        this.cfg.verificationMatchMin,
+      );
       emitPiEvent('search.succeeded_empty', { draftId: draft.draftId, reason: 'no_score' });
       const created = await this.upsertCatalog(draft.catalogProductId, {
         name: norm.name,
@@ -355,83 +417,199 @@ export class ProductResolver {
       );
     }
 
-    const verifiedDecision = draft.catalogProductId ? 'updated_verified' : 'created_verified';
-    const enrichmentProvider =
-      typeof best.candidate.enrichmentMeta?.enrichmentProvider === 'string'
-        ? best.candidate.enrichmentMeta.enrichmentProvider
-        : searchResult.provider;
+    const merged = mergeEnrichedCandidates(metadataCandidates);
+    ingestLog('info', 'metadata.merge.completed', {
+      svc: 'product-intelligence',
+      draftId: draft.draftId,
+      metadataSources: merged.metadataSources.join(','),
+      metadataCompleteness: merged.metadataCompleteness,
+      fieldCount: Object.keys(merged.metadataSourceMap).length,
+    });
+
+    const verification = pickVerificationMerchantUrl(
+      commerceCandidates.map((c) => ({
+        url: c.merchantUrl,
+        sourceTier: c.sourceTier,
+        merchant: c.merchant,
+        candidatePageType: c.candidatePageType,
+        shoppingEligible: c.shoppingEligible,
+        sourceAuthority: c.sourceAuthority,
+        pdpScore: c.pdpScore,
+        availability:
+          typeof c.enrichmentMeta?.availability === 'string'
+            ? c.enrichmentMeta.availability
+            : null,
+        affiliateSupported: false,
+      })),
+    );
+    const shopping = resolveShoppingDestination(
+      commerceCandidates.map((c) => ({
+        url: c.merchantUrl,
+        sourceTier: c.sourceTier,
+        merchant: c.merchant,
+        candidatePageType: c.candidatePageType,
+        shoppingEligible: c.shoppingEligible,
+        sourceAuthority: c.sourceAuthority,
+        pdpScore: c.pdpScore,
+        availability:
+          typeof c.enrichmentMeta?.availability === 'string'
+            ? c.enrichmentMeta.availability
+            : null,
+        affiliateSupported: false,
+      })),
+    );
+
+    const metadataWinners = new Set(
+      Object.values(merged.metadataSourceMap).map((field) => field.source),
+    );
+    const metadataCandidateUrls = new Set(
+      metadataCandidates.map((candidate) => candidate.merchantUrl),
+    );
+    for (const candidate of searchResult.candidates) {
+      const selectedForMetadata = metadataWinners.has(sourceHost(candidate.merchantUrl));
+      const selectedShoppingOffer = shopping?.offers.find(
+        (offer) => offer.url === candidate.merchantUrl,
+      );
+      const selectedForShopping =
+        shopping?.preferredShoppingUrl === candidate.merchantUrl;
+      logCandidateDecision(candidate, {
+        selectedForMetadata,
+        selectedForShopping,
+        shoppingScore: selectedShoppingOffer?.shoppingScore,
+        rejectionReason: selectedForShopping
+          ? null
+          : !metadataCandidateUrls.has(candidate.merchantUrl)
+            ? candidate.enrichmentSucceeded
+              ? 'below_match_threshold'
+              : 'enrichment_failed'
+            : candidate.shoppingEligible
+              ? 'lower_shopping_score'
+              : 'not_shopping_eligible',
+      });
+    }
+
+    const decisionCandidates = commerceCandidates.length
+      ? commerceCandidates
+      : metadataCandidates;
+    const matchScores = decisionCandidates.map((c) => this.scorer.score(norm, c));
+    const bestMatch = matchScores.reduce((a, b) => (a.score >= b.score ? a : b));
+    const bestPdpScore = Math.max(...decisionCandidates.map((c) => c.pdpScore ?? 0));
+
+    const hasShoppingOffer = commerceCandidates.length > 0;
+    const verificationStatus: VerificationStatus = hasShoppingOffer
+      ? 'VERIFIED'
+      : 'UNVERIFIED';
+    const resolutionDecision = draft.catalogProductId
+      ? hasShoppingOffer
+        ? 'updated_verified'
+        : 'updated_metadata_only'
+      : hasShoppingOffer
+        ? 'created_verified'
+        : 'created_metadata_only';
+    const fieldProvenance: Record<
+      string,
+      {
+        source: string;
+        provider?: string;
+        confidence: number;
+        value: unknown;
+        metadataScore: number;
+      }
+    > = {};
+    for (const [field, entry] of Object.entries(merged.metadataSourceMap)) {
+      fieldProvenance[field] = {
+        source: 'merchant',
+        provider: entry.source,
+        confidence: entry.confidence,
+        value: entry.value,
+        metadataScore: entry.metadataScore,
+      };
+    }
+
     const created = await this.upsertCatalog(draft.catalogProductId, {
-      name: best.candidate.title || norm.name,
+      name: merged.title || norm.name,
       normalizedName: norm.normalizedName,
       canonicalSlug: norm.canonicalSlugBase,
-      brand: best.candidate.brand ?? norm.brand,
+      brand: merged.brand ?? norm.brand,
       model: norm.model,
       category: norm.category,
-      description: best.candidate.description ?? null,
-      imageUrl: best.candidate.image ?? norm.imageHint,
-      merchant: best.candidate.merchant,
-      merchantUrl: best.candidate.merchantUrl,
-      price: best.candidate.price ?? norm.priceHint,
-      currency: best.candidate.currency ?? norm.currencyHint,
-      verificationStatus: 'VERIFIED',
+      description: merged.description ?? null,
+      imageUrl: merged.heroImage ?? norm.imageHint,
+      merchant: verification?.merchant ?? merged.merchant,
+      merchantUrl: verification?.merchantUrl ?? null,
+      preferredShoppingUrl: shopping?.preferredShoppingUrl ?? null,
+      shoppingProvider: shopping?.shoppingProvider ?? null,
+      price: merged.price ?? validPriceValue(norm.priceHint, norm.currencyHint),
+      currency: merged.currency ?? norm.currencyHint,
+      verificationStatus,
       verificationSource: searchResult.provider,
+      verificationProvider: searchResult.provider,
       verificationVersion: this.cfg.verificationVersion,
       aiConfidence: norm.aiConfidence,
-      matchConfidence: best.match.matchConfidence,
-      verificationConfidence: Math.min(1, best.match.score + 0.1),
+      matchConfidence: bestMatch.matchConfidence,
+      verificationConfidence: Math.min(1, bestMatch.score + (hasShoppingOffer ? 0.1 : 0)),
       aliases: norm.aliases,
       metadata: {
         source: searchResult.provider,
-        ...(best.candidate.description ? { description: best.candidate.description } : {}),
-        ...(best.candidate.enrichmentMeta ?? {}),
-        field_provenance: {
-          title: { source: 'merchant', provider: enrichmentProvider },
-          brand: {
-            source: best.candidate.brand ? 'merchant' : 'ai',
-            provider: best.candidate.brand ? enrichmentProvider : 'ai',
-          },
-          price: {
-            source: best.candidate.price ? 'merchant' : 'ai',
-            provider: best.candidate.price ? enrichmentProvider : 'ai',
-          },
-          heroImage: {
-            source: best.candidate.image ? 'merchant' : 'ai',
-            provider: best.candidate.image ? enrichmentProvider : 'ai',
-          },
-          merchant: { source: 'discovery', provider: searchResult.provider },
-          description: { source: 'merchant', provider: enrichmentProvider },
-        },
+        ...(merged.description ? { description: merged.description } : {}),
+        ...(merged.shortDescription ? { short_description: merged.shortDescription } : {}),
+        specifications: merged.specifications,
+        gallery: merged.gallery,
+        primary_image: merged.heroImage,
+        availability: merged.availability,
+        metadata_completeness: merged.metadataCompleteness,
+        metadataSources: merged.metadataSources,
+        metadataSourceMap: merged.metadataSourceMap,
+        metadataCandidates: metadataCandidates.map((candidate) => {
+          const usage = classifyCandidatePage({
+            url: candidate.merchantUrl,
+            sourceTier: candidate.sourceTier,
+          });
+          return {
+            url: candidate.merchantUrl,
+            sourceTier: candidate.sourceTier ?? 'retailer',
+            candidatePageType: candidate.candidatePageType ?? usage.pageType,
+            shoppingEligible: candidate.shoppingEligible ?? usage.shoppingEligible,
+            sourceAuthority:
+              candidate.sourceAuthority ?? scoreCandidateDecisions(candidate).sourceAuthority,
+            metadataScore:
+              candidate.metadataScore ?? scoreCandidateDecisions(candidate).metadataScore,
+          };
+        }),
+        shopping_candidates: shopping?.offers ?? [],
+        field_provenance: fieldProvenance,
         scores: {
           specificity: specificity.score,
-          pdpClassifier: best.candidate.pdpScore ?? null,
-          candidate: best.candidate.score,
-          match: best.match.score,
-          metadataCompleteness:
-            typeof best.candidate.enrichmentMeta?.metadata_completeness === 'number'
-              ? best.candidate.enrichmentMeta.metadata_completeness
-              : null,
+          pdpClassifier: bestPdpScore,
+          match: bestMatch.score,
+          metadataCompleteness: merged.metadataCompleteness,
+          enrichedCandidateCount: metadataCandidates.length,
+          shoppingCandidateCount: commerceCandidates.length,
         },
         verification: {
-          decision: verifiedDecision,
-          reason: best.match.reason,
-          status: 'VERIFIED',
+          decision: resolutionDecision,
+          reason: bestMatch.reason,
+          status: verificationStatus,
           source: searchResult.provider,
-          sourceTier: best.candidate.sourceTier ?? 'retailer',
+          sourceTier: verification?.sourceTier ?? 'retailer',
           version: this.cfg.verificationVersion,
         },
       },
     });
-    emitPiEvent('catalog.created_verified', { catalogId: created.id });
+    emitPiEvent(
+      hasShoppingOffer ? 'catalog.created_verified' : 'catalog.created_unverified',
+      { catalogId: created.id },
+    );
     return this.finishWithCatalog(
       draft,
       norm.aiConfidence,
       created,
-      best.match.score,
-      verifiedDecision,
-      best.match.reason,
+      bestMatch.score,
+      resolutionDecision,
+      bestMatch.reason,
       {
         specificityScore: specificity.score,
-        pdpClassifierScore: best.candidate.pdpScore ?? null,
+        pdpClassifierScore: bestPdpScore,
       },
     );
   }
@@ -456,9 +634,18 @@ export class ProductResolver {
           imageUrl: input.imageUrl ?? existing.imageUrl,
           merchant: input.merchant ?? existing.merchant,
           merchantUrl: input.merchantUrl ?? existing.merchantUrl,
+          preferredShoppingUrl:
+            input.preferredShoppingUrl !== undefined
+              ? input.preferredShoppingUrl
+              : existing.preferredShoppingUrl,
+          shoppingProvider:
+            input.shoppingProvider !== undefined
+              ? input.shoppingProvider
+              : existing.shoppingProvider,
           price: input.price ?? existing.price,
           currency: input.currency ?? existing.currency,
           verificationStatus: input.verificationStatus,
+          verificationProvider: input.verificationProvider ?? input.verificationSource,
           verificationSource: input.verificationSource,
           verificationVersion: input.verificationVersion,
           aiConfidence: input.aiConfidence,
@@ -468,7 +655,14 @@ export class ProductResolver {
         });
       }
     }
-    return this.catalog.create(input);
+    return this.catalog.create({
+      ...input,
+      preferredShoppingUrl:
+        input.preferredShoppingUrl ?? input.merchantUrl ?? null,
+      shoppingProvider:
+        input.shoppingProvider ??
+        (input.preferredShoppingUrl || input.merchantUrl ? 'merchant' : null),
+    });
   }
 
   private async finishWithCatalog(
@@ -483,20 +677,8 @@ export class ProductResolver {
       pdpClassifierScore: null,
     },
   ): Promise<ResolveDraftResult> {
+    // preferredShoppingUrl is owned by commerce priority resolution — never force it to merchantUrl.
     const merchantUrl = product.merchantUrl;
-    let affiliateUrl: string | null = product.affiliateUrl;
-    if (merchantUrl) {
-      const aff = await this.affiliate.resolve({
-        merchantUrl,
-        catalogProductId: product.id,
-        ingestId: this.ingestId,
-      });
-      affiliateUrl = aff.affiliateUrl;
-      emitPiEvent('affiliate.resolved', { provider: aff.provider, catalogId: product.id });
-      if (affiliateUrl && affiliateUrl !== product.affiliateUrl) {
-        product = await this.catalog.update(product.id, { affiliateUrl });
-      }
-    }
 
     const status: VerificationStatus = product.verificationStatus;
     const result: ResolveDraftResult = {
@@ -504,7 +686,9 @@ export class ProductResolver {
       resolutionStatus: status === 'UNRESOLVED' ? 'UNRESOLVED' : status,
       catalogProductId: product.id,
       merchantUrl,
-      affiliateUrl,
+      // Affiliate generation is not part of verification. ShoppingResolver
+      // decides the destination at click time and ignores legacy wrappers.
+      affiliateUrl: null,
       aiConfidence,
       matchConfidence: matchScore,
       decision,
@@ -513,7 +697,7 @@ export class ProductResolver {
       specificityScore: quality.specificityScore,
       pdpClassifierScore: quality.pdpClassifierScore,
     };
-    const provenance = product.metadata.field_provenance;
+    const provenance = product.metadata.metadataSourceMap ?? product.metadata.field_provenance;
     emitPiEvent('verification.decided', {
       draftId: draft.draftId,
       catalogId: product.id,
@@ -523,6 +707,11 @@ export class ProductResolver {
       specificityScore: quality.specificityScore,
       pdpClassifierScore: quality.pdpClassifierScore,
       matchScore,
+      preferredShoppingUrl: product.preferredShoppingUrl,
+      shoppingProvider: product.shoppingProvider,
+      metadataSources: Array.isArray(product.metadata.metadataSources)
+        ? product.metadata.metadataSources.join(',')
+        : null,
       metadataSourceMap: provenance ? JSON.stringify(provenance).slice(0, 500) : null,
     });
     await this.persistDraft(result, product);

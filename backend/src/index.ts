@@ -13,6 +13,7 @@ import { runProgressiveIngestPipeline } from './stages/orchestrator';
 import { startIngestPipelineWorker } from './workers/ingestPipelineWorker';
 import { startProductResolveWorker } from './product-intelligence';
 import { getEnv } from './env';
+import { createProductRedirectHandler } from './shopping/productRedirect';
 
 if (typeof globalThis.btoa !== 'function') {
   Object.assign(globalThis, {
@@ -32,6 +33,8 @@ app.use(express.json({ limit: '512kb' }));
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
+
+app.get('/products/:id/redirect', createProductRedirectHandler(createSupabaseAdmin()));
 
 /**
  * Same contract as Edge `ingest-url`: Bearer user JWT; creates `ingest_requests` and returns immediately.

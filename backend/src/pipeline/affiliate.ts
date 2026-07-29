@@ -6,12 +6,13 @@
 
 import { ingestLog } from './ingestLog';
 import { getEnv } from '../env';
+import { getAffiliateConfig } from '../shopping/affiliateConfig';
 
 export type AffiliateResult = {
   affiliateUrl: string;
   provider: string;
   /** Which branch in the plan chain was selected (for audit). */
-  chain: 'cuelinks' | 'impact' | 'fallback';
+  chain: 'cuelinks' | 'impact' | 'none';
 };
 
 export type AffiliateWrapContext = {
@@ -33,6 +34,17 @@ export async function wrapAffiliateDestination(
   ctx?: AffiliateWrapContext,
 ): Promise<AffiliateResult> {
   const host = destinationHost(destinationUrl);
+  const config = getAffiliateConfig();
+  if (!config.enabled) {
+    ingestLog('info', 'affiliate.disabled', {
+      ingestId: ctx?.ingestId,
+      traceId: ctx?.traceId,
+      index: ctx?.index,
+      destinationHost: host,
+    });
+    return { affiliateUrl: '', provider: 'none', chain: 'none' };
+  }
+
   const cuelinksKey = getEnv('CUELINKS_API_KEY');
   const impactSid = getEnv('IMPACT_SITE_ID');
 
@@ -61,10 +73,13 @@ export async function wrapAffiliateDestination(
     ingestLog('info', 'affiliate.impact_skip_no_env', baseFields);
   }
 
-  const encoded = encodeURIComponent(destinationUrl);
+  ingestLog('warn', 'affiliate.provider.not_configured', {
+    ...baseFields,
+    provider: config.provider,
+  });
   return {
-    affiliateUrl: `https://mystash.go.link/?d=${encoded}`,
-    provider: 'fallback',
-    chain: 'fallback',
+    affiliateUrl: '',
+    provider: 'none',
+    chain: 'none',
   };
 }

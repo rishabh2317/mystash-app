@@ -8,7 +8,7 @@ import { pdpSearchHintsAls } from './pdpSearchHints';
 import { TavilyEnrichedPdpSearchStrategy } from './TavilyEnrichedPdpSearchStrategy';
 
 describe('TavilyEnrichedPdpSearchStrategy integration', () => {
-  it('ranks Serper URLs then enriches only the best PDP', async () => {
+  it('enriches multiple shortlisted PDPs instead of stopping at the first success', async () => {
     const discovery: ProductSearchProvider = {
       name: 'serper',
       async search(): Promise<SearchResult> {
@@ -42,21 +42,32 @@ describe('TavilyEnrichedPdpSearchStrategy integration', () => {
       },
     };
 
-    let extractedUrl: string | null = null;
+    const extracted: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
     const extractor: MerchantExtractor = {
       name: 'mock',
       async extract(input) {
-        extractedUrl = input.merchantUrl;
+        extracted.push(input.merchantUrl);
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        inFlight -= 1;
+        const isApple = input.merchantUrl.includes('apple.com');
         return {
-          title: 'MacBook Air M4 13-inch',
-          brand: 'Apple',
-          image: 'https://store.apple.com/hero.jpg',
-          primaryImage: 'https://store.apple.com/hero.jpg',
-          description: 'The most capable MacBook Air yet with M4.',
+          title: isApple ? 'MacBook Air M4 13-inch' : 'Apple MacBook Air M4',
+          brand: isApple ? 'Apple' : null,
+          image: isApple ? 'https://store.apple.com/hero.jpg' : 'https://m.media-amazon.com/I/800x800.jpg',
+          primaryImage: isApple
+            ? 'https://store.apple.com/hero.jpg'
+            : 'https://m.media-amazon.com/I/800x800.jpg',
+          description: isApple ? 'The most capable MacBook Air yet with M4.' : null,
           merchantUrl: input.merchantUrl,
-          price: '99900',
-          currency: 'INR',
-          specifications: { Chip: 'M4', Display: '13.6 inch' },
+          price: isApple ? null : '99900',
+          currency: isApple ? null : 'INR',
+          specifications: isApple
+            ? ({ Chip: 'M4' } as Record<string, string>)
+            : ({ Display: '13.6 inch' } as Record<string, string>),
           provider: 'mock',
           extractedAt: new Date().toISOString(),
         };
@@ -68,6 +79,7 @@ describe('TavilyEnrichedPdpSearchStrategy integration', () => {
       new MerchantEnrichmentService(extractor),
       'ingest-1',
       'trace-1',
+      5,
     );
 
     const result = await pdpSearchHintsAls.run(
@@ -76,19 +88,14 @@ describe('TavilyEnrichedPdpSearchStrategy integration', () => {
     );
 
     assert.equal(result.kind, 'Succeeded');
-    assert.equal(extractedUrl, 'https://www.apple.com/in/macbook-air/');
+    assert.ok(extracted.includes('https://www.apple.com/in/macbook-air/'));
+    assert.ok(extracted.includes('https://www.amazon.in/dp/mac'));
+    assert.ok(maxInFlight >= 2, 'independent enrichments should overlap');
     if (result.kind === 'Succeeded') {
-      assert.equal(result.candidates.length, 1);
-      const c = result.candidates[0]!;
-      assert.equal(c.title, 'MacBook Air M4 13-inch');
-      assert.equal(c.image, 'https://store.apple.com/hero.jpg');
-      assert.equal(c.merchant, 'Apple');
-      assert.equal(c.sourceTier, 'official');
-      assert.equal(c.enrichmentMeta?.metadata_completeness, 100);
-      assert.deepEqual(c.enrichmentMeta?.specifications, {
-        Chip: 'M4',
-        Display: '13.6 inch',
-      });
+      assert.ok(result.candidates.length >= 2);
+      assert.ok(result.candidates.every((c) => c.enrichmentSucceeded === true));
+      assert.ok(result.candidates.some((c) => c.sourceTier === 'official'));
+      assert.ok(result.candidates.some((c) => /amazon\./i.test(c.merchantUrl)));
     }
   });
 
@@ -150,6 +157,7 @@ describe('TavilyEnrichedPdpSearchStrategy integration', () => {
     assert.equal(result.kind, 'Succeeded');
     assert.equal(attempted.length, 2);
     if (result.kind === 'Succeeded') {
+      assert.equal(result.candidates.length, 1);
       assert.equal(result.candidates[0]?.merchantUrl, 'https://shop.example/products/nike-air-max-95');
       assert.equal(result.candidates[0]?.enrichmentSucceeded, true);
       assert.equal(result.candidates[0]?.pdpVerdict, 'pdp');

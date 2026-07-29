@@ -7,27 +7,38 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { openProductShopping } from '@/src/services/shoppingClick';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 import { mockVideos } from '@/src/mocks/videos';
 
-function ProductCard({ product, router }: { product: Product; router: any }) {
+function ProductCard({
+  product,
+  router,
+  videoId,
+}: {
+  product: Product;
+  router: any;
+  videoId?: string;
+}) {
   // Temporary mock implementation since CartProvider is removed
   const addToCart = (product: Product) => {
     console.log('Added to cart:', product.name);
   };
   const handleBuyNow = async () => {
-    const url = product.affiliate_url;
-    if (!url) {
-      Alert.alert('Link unavailable', 'No affiliate link for this product yet.');
+    if (!product.catalog_product_id) {
+      Alert.alert('Link unavailable', 'No shopping destination is available for this item yet.');
       return;
     }
     try {
-      await Linking.openURL(url);
+      await openProductShopping({
+        catalogProductId: product.catalog_product_id,
+        videoId,
+      });
     } catch {
       Alert.alert('Error', 'Could not open the product link');
     }
@@ -166,7 +177,7 @@ export default function ProductListScreen() {
           <Text style={styles.sectionTitle}>All Products</Text>
           
           {video.products?.map((product) => (
-            <ProductCard key={product.id} product={product} router={router} />
+            <ProductCard key={product.id} product={product} router={router} videoId={video.id} />
           ))}
         </View>
         

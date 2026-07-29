@@ -2,11 +2,11 @@ import type { Request, Response } from 'express';
 import { createSupabaseAdmin, createSupabaseUserClient } from './supabase';
 import { detectPlatform, extractYouTubeVideoId } from './pipeline/detect';
 import { transformToEmbedUrl } from './pipeline/embed';
-import { FallbackAffiliateProvider } from './product-intelligence/affiliate/FallbackAffiliateProvider';
 import { getProductIntelligenceConfig } from './product-intelligence/config';
 import { enqueueProductResolve } from './product-intelligence/jobs/productResolveQueue';
 import { resolveSelectedDraftProducts } from './publishResolveDrafts';
 import { logger } from './logger';
+import { validHttpUrl } from './shopping/urlValidation';
 
 export async function handlePublishIngest(req: Request, res: Response): Promise<void> {
   try {
@@ -144,8 +144,7 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
     }
 
     const videoId = videoRow.id as string;
-    const piCfg = getProductIntelligenceConfig();
-    const affiliate = new FallbackAffiliateProvider(admin, piCfg.affiliateCacheTtlMs);
+    const backgroundResolve = getProductIntelligenceConfig().backgroundResolve;
 
     // Validation only: name required. External/catalog failures must not block publish.
     for (const d of drafts) {
@@ -167,7 +166,8 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       image_url: string | null;
       merchant: string | null;
       merchant_url: string | null;
-      affiliate_url: string | null;
+      preferred_shopping_url: string | null;
+      shopping_provider: string | null;
       verification_status: string | null;
     };
     const catalogById = new Map<string, CatalogRow>();
@@ -175,7 +175,7 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       const { data: cats } = await admin
         .from('catalog_products')
         .select(
-          'id, name, price, image_url, merchant, merchant_url, affiliate_url, verification_status',
+          'id, name, price, image_url, merchant, merchant_url, preferred_shopping_url, shopping_provider, verification_status',
         )
         .in('id', catalogIds);
       for (const c of cats ?? []) {
@@ -200,6 +200,8 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
             normalized_name: d.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(),
             image_url: d.image,
             merchant_url: d.merchant_url,
+            preferred_shopping_url: d.merchant_url,
+            shopping_provider: d.merchant_url ? 'merchant' : null,
             price: d.price,
             status: 'ACTIVE',
             verification_status: 'UNRESOLVED',
@@ -208,7 +210,7 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
             updated_at: new Date().toISOString(),
           })
           .select(
-            'id, name, price, image_url, merchant, merchant_url, affiliate_url, verification_status',
+            'id, name, price, image_url, merchant, merchant_url, preferred_shopping_url, shopping_provider, verification_status',
           )
           .single();
         if (cErr || !created) {
@@ -228,29 +230,19 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
         d.resolution_status = 'UNRESOLVED';
       }
 
-      const merchantUrl =
-        (cat.merchant_url && cat.merchant_url.startsWith('http') ? cat.merchant_url : null) ||
-        (d.merchant_url && d.merchant_url.startsWith('http') ? d.merchant_url : null);
-      let affiliateUrl =
-        (cat.affiliate_url && cat.affiliate_url.startsWith('http') ? cat.affiliate_url : null) ||
-        (d.affiliate_url && d.affiliate_url.startsWith('http') ? d.affiliate_url : null);
-
-      if (merchantUrl && !affiliateUrl) {
-        try {
-          const wrapped = await affiliate.resolve({
-            merchantUrl,
-            catalogProductId: cat.id,
-            ingestId,
-            index: i,
-          });
-          affiliateUrl = wrapped.affiliateUrl;
-          await admin
-            .from('catalog_products')
-            .update({ affiliate_url: affiliateUrl, updated_at: new Date().toISOString() })
-            .eq('id', cat.id);
-        } catch (e) {
-          logger.warn({ err: e, ingestId }, 'publish.affiliate_resolve_failed_continue');
-        }
+      const merchantUrl = validHttpUrl(cat.merchant_url) ?? validHttpUrl(d.merchant_url);
+      // Prefer catalog commerce destination when present; never overwrite with merchantUrl.
+      const preferredShoppingUrl =
+        validHttpUrl(cat.preferred_shopping_url) ?? merchantUrl;
+      if (merchantUrl && !validHttpUrl(cat.preferred_shopping_url)) {
+        await admin
+          .from('catalog_products')
+          .update({
+            preferred_shopping_url: preferredShoppingUrl,
+            shopping_provider: cat.shopping_provider ?? 'merchant',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', cat.id);
       }
 
       const resolutionStatus =
@@ -267,7 +259,8 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
         price: cat.price || d.price || '—',
         image: cat.image_url || d.image || 'https://picsum.photos/seed/vp/400/400',
         merchant_url: merchantUrl,
-        affiliate_url: affiliateUrl || merchantUrl || '',
+        // This column is affiliate-only. ShoppingResolver handles merchant fallback.
+        affiliate_url: null,
         provider: cat.merchant || d.provider || 'catalog',
         sort_order: i,
         catalog_product_id: cat.id,
@@ -292,7 +285,7 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       if (
         row &&
         (d.resolution_status === 'UNRESOLVED' || !d.catalog_product_id) &&
-        piCfg.backgroundResolve
+        backgroundResolve
       ) {
         try {
           await enqueueProductResolve({

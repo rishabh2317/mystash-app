@@ -29,6 +29,9 @@ function stub(partial: Partial<CatalogProduct> & { id: string; name: string }): 
     mergedIntoId: null,
     metadata: {},
     ...partial,
+    preferredShoppingUrl: partial.preferredShoppingUrl ?? null,
+    shoppingProvider: partial.shoppingProvider ?? null,
+    verificationProvider: partial.verificationProvider ?? partial.verificationSource ?? null,
   };
 }
 

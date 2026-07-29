@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { AffiliateProvider } from '../interfaces/AffiliateProvider';
 import type { CatalogRepository, DraftUpdater, MatchHistoryWriter } from '../interfaces/CatalogRepository';
 import type { SearchStrategy } from '../interfaces/ProductSearchProvider';
 import type { CatalogProduct, CreateCatalogInput, SearchResult } from '../domain/types';
@@ -21,11 +20,14 @@ function catalogStub(overrides: Partial<CatalogProduct> = {}): CatalogProduct {
     imageUrl: null,
     merchant: 'shop.example',
     merchantUrl: 'https://shop.example/p/bike',
+    preferredShoppingUrl: 'https://shop.example/p/bike',
     affiliateUrl: null,
+    shoppingProvider: 'merchant',
     currency: null,
     price: null,
     status: 'ACTIVE',
     verificationStatus: 'VERIFIED',
+    verificationProvider: 'google_cse',
     verificationSource: 'google_cse',
     verificationVersion: 'v1',
     lastVerifiedAt: new Date().toISOString(),
@@ -110,16 +112,6 @@ describe('ProductResolver', () => {
         };
       },
     };
-    const affiliate: AffiliateProvider = {
-      name: 't',
-      async resolve() {
-        return {
-          affiliateUrl: 'https://mystash.go.link/?d=x',
-          provider: 't',
-          expiresAt: new Date(Date.now() + 1000),
-        };
-      },
-    };
     const updates: unknown[] = [];
     const drafts: DraftUpdater = {
       async updateResolution(u) {
@@ -133,7 +125,6 @@ describe('ProductResolver', () => {
     const resolver = new ProductResolver(
       mockRepo(store),
       search,
-      affiliate,
       drafts,
       history,
       cfg,
@@ -171,22 +162,11 @@ describe('ProductResolver', () => {
         return { kind: 'Succeeded', provider: 'mock', candidates: [] };
       },
     };
-    const affiliate: AffiliateProvider = {
-      name: 't',
-      async resolve() {
-        return {
-          affiliateUrl: 'https://mystash.go.link/?d=x',
-          provider: 't',
-          expiresAt: new Date(),
-        };
-      },
-    };
     const drafts: DraftUpdater = { async updateResolution() {} };
     const history: MatchHistoryWriter = { async write() {} };
     const resolver = new ProductResolver(
       mockRepo(store),
       search,
-      affiliate,
       drafts,
       history,
       getProductIntelligenceConfig(),
@@ -208,12 +188,6 @@ describe('ProductResolver', () => {
         return { kind: 'Failed', errorKind: 'quota', message: '429', provider: 'mock' };
       },
     };
-    const affiliate: AffiliateProvider = {
-      name: 't',
-      async resolve() {
-        throw new Error('should not affiliate');
-      },
-    };
     const drafts: DraftUpdater = { async updateResolution() {} };
     const history: MatchHistoryWriter = { async write() {} };
     const bg: BackgroundResolveEnqueuer = {
@@ -225,7 +199,6 @@ describe('ProductResolver', () => {
     const resolver = new ProductResolver(
       mockRepo(store),
       search,
-      affiliate,
       drafts,
       history,
       cfg,
@@ -258,16 +231,9 @@ describe('ProductResolver', () => {
         return { kind: 'Succeeded', provider: 'mock', candidates: [] };
       },
     };
-    const affiliate: AffiliateProvider = {
-      name: 't',
-      async resolve() {
-        throw new Error('should not affiliate');
-      },
-    };
     const resolver = new ProductResolver(
       mockRepo(store),
       search,
-      affiliate,
       { async updateResolution() {} },
       { async write() {} },
       getProductIntelligenceConfig(),
@@ -308,7 +274,6 @@ describe('ProductResolver', () => {
     const resolver = new ProductResolver(
       mockRepo(store),
       search,
-      { name: 't', async resolve() { throw new Error('should not affiliate'); } },
       { async updateResolution() {} },
       { async write() {} },
       getProductIntelligenceConfig(),

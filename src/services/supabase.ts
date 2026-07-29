@@ -43,8 +43,6 @@ type CatalogJoin = {
   price: string | null;
   image_url: string | null;
   merchant: string | null;
-  merchant_url: string | null;
-  affiliate_url: string | null;
   verification_status: string | null;
   description?: string | null;
   availability?: string | null;
@@ -62,8 +60,6 @@ type VideoProductRow = {
   name?: string;
   price?: string;
   image?: string | null;
-  affiliate_url?: string | null;
-  merchant_url?: string | null;
   provider?: string | null;
   catalog_products?: CatalogJoin | CatalogJoin[] | null;
 };
@@ -78,10 +74,6 @@ function unwrapCatalog(row: VideoProductRow): CatalogJoin | null {
 function mapRowToProduct(row: VideoProductRow): Product {
   const cat = unwrapCatalog(row);
   if (cat) {
-    const buy =
-      (cat.affiliate_url && cat.affiliate_url.startsWith('http') && cat.affiliate_url) ||
-      (cat.merchant_url && cat.merchant_url.startsWith('http') && cat.merchant_url) ||
-      undefined;
     return {
       // UI/list identity belongs to the video_products relation. Multiple
       // rows may legitimately reference the same catalog product.
@@ -89,9 +81,7 @@ function mapRowToProduct(row: VideoProductRow): Product {
       name: cat.name,
       price: cat.price || '—',
       image: cat.image_url || 'https://picsum.photos/seed/product/200/200',
-      affiliate_url: buy,
       provider: cat.merchant ?? undefined,
-      merchant_url: cat.merchant_url ?? undefined,
       catalog_product_id: cat.id,
     };
   }
@@ -101,9 +91,7 @@ function mapRowToProduct(row: VideoProductRow): Product {
     name: row.name || 'Product',
     price: row.price || '—',
     image: row.image || 'https://picsum.photos/seed/product/200/200',
-    affiliate_url: row.affiliate_url ?? row.merchant_url ?? undefined,
     provider: row.provider ?? undefined,
-    merchant_url: row.merchant_url ?? undefined,
     catalog_product_id: row.catalog_product_id ?? undefined,
   };
 }
@@ -130,9 +118,9 @@ async function fetchProductsForVideos(videoIds: string[]): Promise<Map<string, P
   const { data, error } = await supabase
     .from('video_products')
     .select(
-      `id, video_id, sort_order, catalog_product_id, name, price, image, affiliate_url, merchant_url, provider,
+      `id, video_id, sort_order, catalog_product_id, name, price, image, provider,
        catalog_products (
-         id, name, brand, price, image_url, merchant, merchant_url, affiliate_url,
+         id, name, brand, price, image_url, merchant,
          verification_status, description, availability, last_verified_at, currency, metadata
        )`,
     )

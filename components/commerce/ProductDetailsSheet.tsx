@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Dimensions,
-  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -15,8 +14,8 @@ import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
-import { viewProductUrl } from '@/src/services/catalogProductMapper';
 import { trackProductEvent } from '@/src/logging/productAnalytics';
+import { openProductShopping } from '@/src/services/shoppingClick';
 import { MerchantSection } from './MerchantSection';
 import { SpecificationGrid } from './SpecificationGrid';
 import { VerificationBadge } from './VerificationBadge';
@@ -49,7 +48,7 @@ export function ProductDetailsSheet({
       setDescExpanded(false);
       setGalleryIndex(0);
       trackProductEvent('product.details.viewed', {
-        catalogProductId: product.id,
+        catalogProductId: product.catalogProductId,
         verificationStatus: product.verificationStatus,
       });
     }
@@ -65,20 +64,21 @@ export function ProductDetailsSheet({
 
   if (!product) return null;
 
-  const buyUrl = viewProductUrl(product);
   const showPrice = !!product.price;
   const desc = product.description?.trim() || '';
   const needsReadMore = desc.length > 180;
   const descShown = descExpanded || !needsReadMore ? desc : `${desc.slice(0, 180).trim()}…`;
 
   const onViewProduct = async () => {
-    if (!buyUrl) {
-      Alert.alert('Link unavailable', 'No merchant or affiliate link for this product yet.');
+    if (!product.catalogProductId) {
+      Alert.alert('Link unavailable', 'No shopping destination is available for this product yet.');
       return;
     }
-    trackProductEvent('product.view_product.clicked', { catalogProductId: product.id });
+    trackProductEvent('product.view_product.clicked', {
+      catalogProductId: product.catalogProductId,
+    });
     try {
-      await Linking.openURL(buyUrl);
+      await openProductShopping({ catalogProductId: product.catalogProductId });
     } catch {
       Alert.alert('Error', 'Could not open the product link.');
     }

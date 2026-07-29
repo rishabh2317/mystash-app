@@ -2,6 +2,7 @@ import ReelItem from '@/components/ReelItem';
 import { ThemedText } from '@/components/themed-text';
 import type { Video } from '@/src/mocks/videos';
 import { subscribeFeedReload } from '@/src/services/feedRefresh';
+import { openProductShopping } from '@/src/services/shoppingClick';
 import { fetchVideos } from '@/src/services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -10,7 +11,6 @@ import {
   Alert,
   Dimensions,
   FlatList,
-  Linking,
   RefreshControl,
   ScrollView,
   Text,
@@ -114,12 +114,16 @@ export default function HomeScreen() {
   }).current;
 
   const handleBuyPress = useCallback(async (video: Video) => {
-    const linked = video.products?.find((p) => p.affiliate_url);
-    if (linked?.affiliate_url) {
+    const linked = video.products?.find((p) => p.catalog_product_id);
+    if (linked?.catalog_product_id) {
       try {
-        await Linking.openURL(linked.affiliate_url);
+        await openProductShopping({
+          catalogProductId: linked.catalog_product_id,
+          videoId: video.id,
+          creatorId: video.curator_id,
+        });
       } catch {
-        Alert.alert('Error', 'Could not open the affiliate link.');
+        Alert.alert('Error', 'Could not open the product link.');
       }
       return;
     }

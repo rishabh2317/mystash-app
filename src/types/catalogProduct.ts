@@ -4,6 +4,8 @@ export type CatalogVerificationStatus = 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED'
 
 export type CatalogProductViewModel = {
   id: string;
+  /** Backend catalog identity used only to request the shopping redirect. */
+  catalogProductId: string | null;
   title: string;
   brand: string | null;
   merchant: string | null;
@@ -13,8 +15,6 @@ export type CatalogProductViewModel = {
   shortDescription: string | null;
   specifications: Record<string, string>;
   verificationStatus: CatalogVerificationStatus;
-  merchantUrl: string | null;
-  affiliateUrl: string | null;
   availability: string | null;
   price: string | null;
   currency: string | null;
@@ -28,8 +28,6 @@ export type CatalogProductRow = {
   name: string;
   brand?: string | null;
   merchant?: string | null;
-  merchant_url?: string | null;
-  affiliate_url?: string | null;
   image_url?: string | null;
   price?: string | null;
   currency?: string | null;
