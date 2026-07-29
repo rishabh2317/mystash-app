@@ -40,7 +40,12 @@ export function ProductCard({ product, isLight, onPress }: Props) {
         },
       ]}
     >
-      <ProductHeroImage uri={displayHeroUri(product)} alt={product.title} style={styles.thumb} />
+      <ProductHeroImage
+        productId={product.id}
+        uri={displayHeroUri(product)}
+        alt={product.title}
+        style={styles.thumb}
+      />
       <View style={styles.body}>
         {product.brand ? (
           <Text style={[styles.brand, { color: isLight ? '#64748B' : '#94A3B8' }]} numberOfLines={1}>

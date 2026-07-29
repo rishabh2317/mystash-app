@@ -269,6 +269,12 @@ export type ProductLinkPreview = {
   currency?: string;
   image?: string;
   merchantUrl: string;
+  /** Hostname or brand site label — derived from URL / page. */
+  merchant?: string;
+  brand?: string;
+  description?: string;
+  /** Structured specs when extractor can provide them (JSON object). */
+  specifications?: Record<string, string>;
 };
 
 export type ProductLinkPreviewContext = {
@@ -335,6 +341,7 @@ async function loadFreshCanonical(
     currency: row.currency ?? undefined,
     image: row.image ?? undefined,
     merchantUrl: canonicalUrl,
+    merchant: merchantFromUrl(canonicalUrl),
   };
 }
 
@@ -452,7 +459,15 @@ async function manualScrapeProductPage(merchantUrl: string): Promise<{
 const TAVILY_GPT_MAX_MARKDOWN_CHARS = 48_000;
 const TAVILY_GPT_MAX_IMAGES = 40;
 
-type AiExtract = { name?: string; price?: string; imageUrl?: string; currency?: string };
+type AiExtract = {
+  name?: string;
+  price?: string;
+  imageUrl?: string;
+  currency?: string;
+  brand?: string;
+  description?: string;
+  specifications?: Record<string, string>;
+};
 
 function parseAiJson(raw: string): AiExtract | null {
   const trimmed = raw.trim();
@@ -491,7 +506,8 @@ async function extractCommerceFromTavilyWithGpt(
     '\n\nYour Task:\n' +
     'Identify the current sale price (look for ₹ or INR).\n' +
     "Select the absolute best high-resolution 'hero' image URL from the list that represents the product.\n" +
-    'Return only valid JSON: { "name": string, "price": string, "imageUrl": string, "currency": "INR" }.\n\n' +
+    'Return only valid JSON: { "name": string, "price": string, "imageUrl": string, "currency": "INR", "brand": string|null, "description": string|null, "specifications": object|null }.\n' +
+    'specifications should be a flat string map of product attributes when present (e.g. Color, Storage, RAM) — omit or null if unknown.\n\n' +
     'Product name hint (from prior scrape or URL): ' +
     productNameHint;
 
@@ -525,12 +541,35 @@ async function extractCommerceFromTavilyWithGpt(
   }
 }
 
+function merchantFromUrl(canonicalUrl: string): string {
+  try {
+    return new URL(canonicalUrl).hostname.replace(/^www\./i, '');
+  } catch {
+    return 'merchant';
+  }
+}
+
+function metaDescription(html: string): string | undefined {
+  const d =
+    metaTag(html, 'og:description') ??
+    metaTag(html, 'twitter:description') ??
+    metaTag(html, 'description');
+  const t = d?.replace(/\s+/g, ' ').trim();
+  return t && t.length >= 8 ? t.slice(0, 500) : undefined;
+}
+
 function toPreview(
   canonicalUrl: string,
   name: string,
   price: string,
   currency: string | undefined,
   image: string | undefined,
+  extras?: {
+    brand?: string;
+    description?: string;
+    merchant?: string;
+    specifications?: Record<string, string>;
+  },
 ): ProductLinkPreview {
   return {
     externalId: externalIdForProductUrl(canonicalUrl),
@@ -539,6 +578,10 @@ function toPreview(
     currency,
     image,
     merchantUrl: canonicalUrl,
+    merchant: extras?.merchant ?? merchantFromUrl(canonicalUrl),
+    brand: extras?.brand,
+    description: extras?.description,
+    specifications: extras?.specifications,
   };
 }
 
@@ -588,7 +631,25 @@ async function runTavilyCommerceFallback(
     image: aiImage,
     extractionSource: 'ai',
   });
-  return toPreview(canonicalUrl, aiName, aiPrice, aiCurrency, aiImage);
+  const aiBrand =
+    typeof ai?.brand === 'string' && ai.brand.trim().length >= 2 ? ai.brand.trim() : undefined;
+  const aiDesc =
+    typeof ai?.description === 'string' && ai.description.trim().length >= 8
+      ? ai.description.trim().slice(0, 500)
+      : undefined;
+  const aiSpecs =
+    ai?.specifications && typeof ai.specifications === 'object' && !Array.isArray(ai.specifications)
+      ? Object.fromEntries(
+          Object.entries(ai.specifications)
+            .filter(([, v]) => typeof v === 'string' && v.trim())
+            .map(([k, v]) => [String(k).slice(0, 64), String(v).trim().slice(0, 120)]),
+        )
+      : undefined;
+  return toPreview(canonicalUrl, aiName, aiPrice, aiCurrency, aiImage, {
+    brand: aiBrand,
+    description: aiDesc,
+    specifications: aiSpecs,
+  });
 }
 
 /**
@@ -642,7 +703,9 @@ export async function previewProductLink(
       image: scrape.image ?? null,
       extractionSource: 'scrape',
     });
-    return toPreview(canonicalUrl, scrape.name, scrape.price, scrape.currency, scrape.image);
+    return toPreview(canonicalUrl, scrape.name, scrape.price, scrape.currency, scrape.image, {
+      description: metaDescription(scrape.html),
+    });
   }
 
   const tavilyOut = await runTavilyCommerceFallback(admin, ctx, canonicalUrl, scrape.name);
@@ -662,5 +725,6 @@ export async function previewProductLink(
     scrape.price === '—' ? '—' : scrape.price,
     scrape.currency,
     scrape.image,
+    { description: metaDescription(scrape.html) },
   );
 }

@@ -17,9 +17,8 @@ function evidenceJson(p: ProductCandidate): ProductEvidence {
 }
 
 /**
- * Persist ranked canonical products from extraction.
- * Does NOT wrap affiliate links — that happens after catalog match + review (publish).
- * `affiliate_url` column stores the destination / merchant URL until post-review wrapping.
+ * Persist ranked AI draft products from extraction.
+ * merchant_url = destination hint (optional); affiliate_url left empty until Product Intelligence.
  */
 export async function persistPipelineProducts(
   admin: SupabaseClient,
@@ -38,9 +37,9 @@ export async function persistPipelineProducts(
   for (let i = 0; i < params.products.length; i++) {
     const p = params.products[i]!;
     const merchantUrl =
-      p.merchantUrl && p.merchantUrl.startsWith('http')
+      p.merchantUrl && p.merchantUrl.startsWith('http') && !p.merchantUrl.includes('google.com/search')
         ? p.merchantUrl
-        : `https://www.google.com/search?q=${encodeURIComponent(p.name)}`;
+        : null;
     const ev = evidenceJson(p);
     draftRows.push({
       ingest_request_id: params.ingestId,
@@ -49,9 +48,11 @@ export async function persistPipelineProducts(
       price: p.price ?? '—',
       currency: p.currency ?? null,
       image: p.image ?? null,
-      affiliate_url: merchantUrl,
-      provider: 'canonical',
+      merchant_url: merchantUrl,
+      affiliate_url: '',
+      provider: 'ai_extract',
       confidence: p.confidence,
+      ai_confidence: p.confidence,
       category: p.category ?? null,
       brand: p.brand,
       model: p.model,
@@ -59,6 +60,7 @@ export async function persistPipelineProducts(
       evidence: ev,
       sort_order: p.sortOrder ?? i,
       frame_refs: ev.frames ?? [],
+      resolution_status: 'UNRESOLVED',
     });
   }
 
@@ -90,12 +92,15 @@ export async function persistPipelineProducts(
       pipelineMeta: params.pipelineMeta,
       durationMs: 0,
       traceId: params.traceId,
-      affiliateDeferred: true,
+      productIntelligencePending: true,
     },
   });
 
   const update: Record<string, unknown> = {
-    status: params.status,
+    // Review must not observe pre-resolution rows and then swap their catalog
+    // identity/images underneath mounted cards. Orchestrator publishes the
+    // final status after synchronous Product Intelligence completes.
+    status: 'processing',
     updated_at: new Date().toISOString(),
   };
   if (params.thumbnail) update.thumbnail = params.thumbnail;

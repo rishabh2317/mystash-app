@@ -95,7 +95,16 @@ export function draftProductToViewModel(
   },
 ): CatalogProductViewModel {
   if (draft.catalogRow) {
-    return catalogRowToViewModel(draft.catalogRow);
+    const mapped = catalogRowToViewModel(draft.catalogRow);
+    const draftImage = draft.image?.startsWith('http') ? draft.image : null;
+    if (!mapped.heroImage && draftImage) {
+      return {
+        ...mapped,
+        heroImage: draftImage,
+        galleryImages: mapped.galleryImages.length ? mapped.galleryImages : [draftImage],
+      };
+    }
+    return mapped;
   }
 
   const id = draft.catalogProductId || draft.id;

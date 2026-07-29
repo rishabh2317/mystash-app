@@ -1,9 +1,10 @@
 import type { Request, Response } from 'express';
 import { createSupabaseAdmin, createSupabaseUserClient } from './supabase';
-import { wrapAffiliateDestination } from './pipeline/affiliate';
 import { detectPlatform, extractYouTubeVideoId } from './pipeline/detect';
 import { transformToEmbedUrl } from './pipeline/embed';
-import { NoopCatalogMatcher } from './products/catalogMatcher';
+import { FallbackAffiliateProvider } from './product-intelligence/affiliate/FallbackAffiliateProvider';
+import { getProductIntelligenceConfig } from './product-intelligence/config';
+import { enqueueProductResolve } from './product-intelligence/jobs/productResolveQueue';
 import { resolveSelectedDraftProducts } from './publishResolveDrafts';
 import { logger } from './logger';
 
@@ -143,52 +144,167 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
     }
 
     const videoId = videoRow.id as string;
+    const piCfg = getProductIntelligenceConfig();
+    const affiliate = new FallbackAffiliateProvider(admin, piCfg.affiliateCacheTtlMs);
 
-    // Catalog match (stub) then affiliate wrap — never during extraction.
-    await new NoopCatalogMatcher().match(
-      drafts.map((d) => ({
-        name: d.name,
-        category: 'unknown',
-        brand: null,
-        model: null,
-        confidence: 1,
-        evidence: {
-          summary: '',
-          frames: [],
-          frameCount: 0,
-          logoHits: [],
-          transcriptMentions: false,
-          ocrMentions: false,
-        },
-        sources: [],
-        externalId: d.external_id,
-        merchantUrl: d.affiliate_url ?? undefined,
-      })),
-    );
+    // Validation only: name required. External/catalog failures must not block publish.
+    for (const d of drafts) {
+      if (!String(d.name ?? '').trim()) {
+        res.status(400).json({ error: 'Invalid draft product: missing name' });
+        return;
+      }
+    }
 
-    const productInserts = await Promise.all(
-      drafts.map(async (d, i) => {
-        const destination =
-          d.affiliate_url && d.affiliate_url.startsWith('http')
-            ? d.affiliate_url
-            : `https://www.google.com/search?q=${encodeURIComponent(d.name)}`;
-        const wrapped = await wrapAffiliateDestination(destination, {
-          ingestId,
-          index: i,
-        });
-        return {
-          video_id: videoId,
-          name: d.name,
-          price: d.price,
-          image: d.image || 'https://picsum.photos/seed/vp/400/400',
-          affiliate_url: wrapped.affiliateUrl,
-          provider: wrapped.provider === 'fallback' ? d.provider || 'canonical' : wrapped.provider,
-          sort_order: i,
-        };
-      }),
-    );
+    const catalogIds = [
+      ...new Set(
+        drafts.map((d) => d.catalog_product_id).filter((id): id is string => !!id),
+      ),
+    ];
+    type CatalogRow = {
+      id: string;
+      name: string;
+      price: string | null;
+      image_url: string | null;
+      merchant: string | null;
+      merchant_url: string | null;
+      affiliate_url: string | null;
+      verification_status: string | null;
+    };
+    const catalogById = new Map<string, CatalogRow>();
+    if (catalogIds.length) {
+      const { data: cats } = await admin
+        .from('catalog_products')
+        .select(
+          'id, name, price, image_url, merchant, merchant_url, affiliate_url, verification_status',
+        )
+        .in('id', catalogIds);
+      for (const c of cats ?? []) {
+        catalogById.set(String((c as CatalogRow).id), c as CatalogRow);
+      }
+    }
 
-    await admin.from('video_products').insert(productInserts);
+    const productInserts = [];
+    for (let i = 0; i < drafts.length; i++) {
+      const d = drafts[i]!;
+      let cat: CatalogRow | undefined = d.catalog_product_id
+        ? catalogById.get(d.catalog_product_id)
+        : undefined;
+
+      // Guarantee catalog SoT before publish — create UNRESOLVED placeholder if missing.
+      if (!cat) {
+        const { data: created, error: cErr } = await admin
+          .from('catalog_products')
+          .insert({
+            canonical_slug: `publish-${d.id}`.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            name: d.name,
+            normalized_name: d.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(),
+            image_url: d.image,
+            merchant_url: d.merchant_url,
+            price: d.price,
+            status: 'ACTIVE',
+            verification_status: 'UNRESOLVED',
+            verification_source: 'publish_placeholder',
+            metadata: { source: 'publish_ensure_catalog' },
+            updated_at: new Date().toISOString(),
+          })
+          .select(
+            'id, name, price, image_url, merchant, merchant_url, affiliate_url, verification_status',
+          )
+          .single();
+        if (cErr || !created) {
+          res.status(500).json({ error: 'Could not persist catalog product', detail: cErr?.message });
+          return;
+        }
+        cat = created as CatalogRow;
+        catalogById.set(cat.id, cat);
+        await admin
+          .from('ingest_draft_products')
+          .update({
+            catalog_product_id: cat.id,
+            resolution_status: 'UNRESOLVED',
+          })
+          .eq('id', d.id);
+        d.catalog_product_id = cat.id;
+        d.resolution_status = 'UNRESOLVED';
+      }
+
+      const merchantUrl =
+        (cat.merchant_url && cat.merchant_url.startsWith('http') ? cat.merchant_url : null) ||
+        (d.merchant_url && d.merchant_url.startsWith('http') ? d.merchant_url : null);
+      let affiliateUrl =
+        (cat.affiliate_url && cat.affiliate_url.startsWith('http') ? cat.affiliate_url : null) ||
+        (d.affiliate_url && d.affiliate_url.startsWith('http') ? d.affiliate_url : null);
+
+      if (merchantUrl && !affiliateUrl) {
+        try {
+          const wrapped = await affiliate.resolve({
+            merchantUrl,
+            catalogProductId: cat.id,
+            ingestId,
+            index: i,
+          });
+          affiliateUrl = wrapped.affiliateUrl;
+          await admin
+            .from('catalog_products')
+            .update({ affiliate_url: affiliateUrl, updated_at: new Date().toISOString() })
+            .eq('id', cat.id);
+        } catch (e) {
+          logger.warn({ err: e, ingestId }, 'publish.affiliate_resolve_failed_continue');
+        }
+      }
+
+      const resolutionStatus =
+        cat.verification_status === 'VERIFIED' ||
+        cat.verification_status === 'UNVERIFIED' ||
+        cat.verification_status === 'UNRESOLVED'
+          ? cat.verification_status
+          : 'UNRESOLVED';
+
+      // Denormalized cache on video_products mirrors catalog for offline; UI reads catalog join.
+      productInserts.push({
+        video_id: videoId,
+        name: cat.name,
+        price: cat.price || d.price || '—',
+        image: cat.image_url || d.image || 'https://picsum.photos/seed/vp/400/400',
+        merchant_url: merchantUrl,
+        affiliate_url: affiliateUrl || merchantUrl || '',
+        provider: cat.merchant || d.provider || 'catalog',
+        sort_order: i,
+        catalog_product_id: cat.id,
+        resolution_status: resolutionStatus,
+      });
+    }
+
+    const { data: inserted, error: vpErr } = await admin
+      .from('video_products')
+      .insert(productInserts)
+      .select('id, catalog_product_id, resolution_status');
+
+    if (vpErr) {
+      res.status(500).json({ error: 'Failed to save video products', detail: vpErr.message });
+      return;
+    }
+
+    // Background resolve for UNRESOLVED published products (never blocks publish).
+    for (let i = 0; i < drafts.length; i++) {
+      const d = drafts[i]!;
+      const row = inserted?.[i];
+      if (
+        row &&
+        (d.resolution_status === 'UNRESOLVED' || !d.catalog_product_id) &&
+        piCfg.backgroundResolve
+      ) {
+        try {
+          await enqueueProductResolve({
+            draftId: d.id,
+            ingestId,
+            videoProductId: String(row.id),
+          });
+        } catch (e) {
+          logger.warn({ err: e, draftId: d.id }, 'publish.enqueue_resolve_failed');
+        }
+      }
+    }
 
     await admin
       .from('ingest_requests')

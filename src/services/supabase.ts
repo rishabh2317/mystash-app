@@ -83,7 +83,9 @@ function mapRowToProduct(row: VideoProductRow): Product {
       (cat.merchant_url && cat.merchant_url.startsWith('http') && cat.merchant_url) ||
       undefined;
     return {
-      id: cat.id,
+      // UI/list identity belongs to the video_products relation. Multiple
+      // rows may legitimately reference the same catalog product.
+      id: row.id,
       name: cat.name,
       price: cat.price || '—',
       image: cat.image_url || 'https://picsum.photos/seed/product/200/200',

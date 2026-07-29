@@ -11,6 +11,7 @@ import { logger } from './logger';
 import { enqueueIngestPipeline } from './workers/queue';
 import { runProgressiveIngestPipeline } from './stages/orchestrator';
 import { startIngestPipelineWorker } from './workers/ingestPipelineWorker';
+import { startProductResolveWorker } from './product-intelligence';
 import { getEnv } from './env';
 
 if (typeof globalThis.btoa !== 'function') {
@@ -225,7 +226,7 @@ app.post('/ingest', async (req, res) => {
 
       const { data: rows } = await admin
         .from('ingest_draft_products')
-        .select('external_id, name, price, currency, image, affiliate_url, provider, confidence')
+        .select('external_id, name, price, currency, image, affiliate_url, merchant_url, provider, confidence')
         .eq('ingest_request_id', existing.id);
 
       const products = (rows ?? []).map((r) => ({
@@ -235,6 +236,7 @@ app.post('/ingest', async (req, res) => {
         currency: r.currency ?? undefined,
         provider: r.provider ?? 'unknown',
         affiliateUrl: r.affiliate_url,
+        merchantUrl: r.merchant_url ?? undefined,
         image: r.image ?? undefined,
         confidence: r.confidence ?? undefined,
       }));
@@ -247,6 +249,36 @@ app.post('/ingest', async (req, res) => {
 
       const rowStatus = ir?.status ?? 'draft';
       const extractionPending = rowStatus === 'processing' && products.length === 0;
+
+      // Recover stuck "processing" rows (e.g. Redis was down when first enqueued).
+      if (extractionPending) {
+        try {
+          await enqueueIngestPipeline({ ingestRequestId: existing.id, traceId: httpTraceId });
+          ingestLog('info', 'ingest.duplicate_reenqueued', {
+            httpTraceId,
+            ingestId: existing.id,
+          });
+        } catch (enqueueErr) {
+          const msg = (enqueueErr as Error).message?.slice(0, 200) ?? '';
+          if (/already exists|JobId/i.test(msg)) {
+            ingestLog('info', 'ingest.duplicate_job_already_queued', {
+              httpTraceId,
+              ingestId: existing.id,
+            });
+          } else {
+            ingestLog('warn', 'ingest.duplicate_reenqueue_failed', {
+              httpTraceId,
+              ingestId: existing.id,
+              message: msg,
+            });
+            setImmediate(() => {
+              void runProgressiveIngestPipeline(admin, existing.id, httpTraceId).catch((err) => {
+                logger.error({ err, ingestId: existing.id }, 'ingest.background_pipeline_failed');
+              });
+            });
+          }
+        }
+      }
 
       ingestLog('info', 'ingest.duplicate_response', {
         httpTraceId,
@@ -370,6 +402,12 @@ if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
     logger.info('embedded ingest-pipeline worker started');
   } catch (e) {
     logger.warn({ err: e }, 'embedded ingest worker failed to start — use npm run worker or fallback path');
+  }
+  try {
+    startProductResolveWorker(createSupabaseAdmin());
+    logger.info('embedded product-resolve worker started');
+  } catch (e) {
+    logger.warn({ err: e }, 'embedded product-resolve worker failed to start');
   }
 }
 

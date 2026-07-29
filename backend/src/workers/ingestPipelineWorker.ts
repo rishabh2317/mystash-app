@@ -1,12 +1,11 @@
 import { Worker } from 'bullmq';
-import { getPipelineConfig } from '../config/pipelineConfig';
 import { logger } from '../logger';
 import { createSupabaseAdmin } from '../supabase';
 import { runProgressiveIngestPipeline } from '../stages/orchestrator';
 import { INGEST_QUEUE_NAME, type IngestPipelineJobData } from './queue';
+import { getBullmqConnection } from './redisConnection';
 
 export function startIngestPipelineWorker(): Worker<IngestPipelineJobData> {
-  const cfg = getPipelineConfig();
   const admin = createSupabaseAdmin();
 
   const worker = new Worker<IngestPipelineJobData>(
@@ -19,7 +18,7 @@ export function startIngestPipelineWorker(): Worker<IngestPipelineJobData> {
       return result;
     },
     {
-      connection: { url: cfg.redisUrl },
+      connection: getBullmqConnection(),
       concurrency: 2,
     },
   );

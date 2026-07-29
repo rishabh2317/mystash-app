@@ -4,13 +4,14 @@ import { StyleSheet, View } from 'react-native';
 import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
 
 type Props = {
+  productId: string;
   uri: string | null | undefined;
   alt: string;
   style?: object;
   contentFit?: 'cover' | 'contain';
 };
 
-export function ProductHeroImage({ uri, alt, style, contentFit = 'cover' }: Props) {
+export function ProductHeroImage({ productId, uri, alt, style, contentFit = 'cover' }: Props) {
   const source = uri && uri.startsWith('http') ? uri : CATALOG_IMAGE_PLACEHOLDER;
   return (
     <View style={[styles.wrap, style]}>
@@ -18,7 +19,7 @@ export function ProductHeroImage({ uri, alt, style, contentFit = 'cover' }: Prop
         source={{ uri: source }}
         style={StyleSheet.absoluteFill}
         contentFit={contentFit}
-        recyclingKey={source}
+        recyclingKey={`${productId}:${source}`}
         accessibilityLabel={alt}
         transition={200}
       />

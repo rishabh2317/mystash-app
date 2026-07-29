@@ -1,8 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { wrapAffiliateDestination } from './pipeline/affiliate';
 import { detectPlatform, extractYouTubeVideoId } from './pipeline/detect';
 import { ingestLog } from './pipeline/ingestLog';
-import { previewProductLink } from './pipeline/productLinkPreview';
+import { externalIdForProductUrl } from './pipeline/productLinkPreview';
+import { MerchantEnrichmentService } from './product-intelligence/enrichment/MerchantEnrichmentService';
+import { TavilyMerchantExtractor } from './product-intelligence/enrichment/TavilyMerchantExtractor';
+import { resolveIngestDrafts } from './product-intelligence';
 
 const PIPELINE_VERSION = 'manual_v1';
 
@@ -35,9 +37,12 @@ export type ManualIngestProductRow = {
   price: string;
   currency: string | null;
   image: string | null;
+  merchant_url: string | null;
   affiliate_url: string;
   provider: string | null;
   confidence: number | null;
+  ai_confidence?: number | null;
+  resolution_status?: string | null;
 };
 
 export type ManualIngestApiProduct = {
@@ -124,40 +129,52 @@ export async function createManualIngest(
   const draftRows: ManualIngestProductRow[] = [];
   const apiProducts: ManualIngestApiProduct[] = [];
 
-  const previews = await Promise.all(
-    productUrls.map((u) => previewProductLink(admin, u, { ingestId, traceId })),
+  const enrichment = new MerchantEnrichmentService(new TavilyMerchantExtractor(admin));
+  const enrichResults = await Promise.all(
+    productUrls.map((u) =>
+      enrichment.enrich({
+        merchantUrl: u,
+        ingestId,
+        traceId,
+      }),
+    ),
   );
 
-  for (let i = 0; i < previews.length; i++) {
-    const preview = previews[i]!;
-    const wrapped = await wrapAffiliateDestination(preview.merchantUrl, {
-      ingestId,
-      traceId,
-      index: i,
-    });
-
-    const provider = wrapped.provider === 'fallback' ? 'manual' : wrapped.provider;
+  for (let i = 0; i < enrichResults.length; i++) {
+    const result = enrichResults[i]!;
+    if (result.kind === 'failed') {
+      ingestLog('warn', 'manual.enrichment_failed', {
+        ingestId,
+        message: result.message,
+        url: productUrls[i]?.slice(0, 120),
+      });
+      continue;
+    }
+    const preview = result.metadata;
 
     draftRows.push({
       ingest_request_id: ingestId,
-      external_id: preview.externalId,
-      name: preview.name,
-      price: preview.price,
+      external_id: externalIdForProductUrl(preview.merchantUrl),
+      name: preview.title,
+      price: preview.price ?? '—',
       currency: preview.currency ?? null,
       image: preview.image ?? null,
-      affiliate_url: wrapped.affiliateUrl,
-      provider,
+      merchant_url: preview.merchantUrl,
+      affiliate_url: '',
+      provider: preview.merchant || 'manual',
       confidence: 1,
+      ai_confidence: 1,
+      resolution_status: 'UNRESOLVED',
     });
 
     apiProducts.push({
-      id: preview.externalId,
-      name: preview.name,
-      price: preview.price,
-      currency: preview.currency,
-      provider,
-      affiliateUrl: wrapped.affiliateUrl,
-      image: preview.image,
+      id: draftRows[draftRows.length - 1]!.external_id,
+      name: preview.title,
+      price: preview.price ?? '—',
+      currency: preview.currency ?? undefined,
+      provider: preview.merchant || 'manual',
+      affiliateUrl: '',
+      image: preview.image ?? undefined,
       confidence: 1,
     });
   }
@@ -174,6 +191,34 @@ export async function createManualIngest(
     }
   }
 
+  try {
+    await resolveIngestDrafts(admin, ingestId);
+    const { data: resolved } = await admin
+      .from('ingest_draft_products')
+      .select('external_id, name, price, currency, image, affiliate_url, provider, confidence')
+      .eq('ingest_request_id', ingestId);
+    if (resolved?.length) {
+      apiProducts.length = 0;
+      for (const r of resolved) {
+        apiProducts.push({
+          id: String(r.external_id),
+          name: String(r.name),
+          price: String(r.price),
+          currency: (r.currency as string) ?? undefined,
+          provider: String(r.provider ?? 'manual'),
+          affiliateUrl: String(r.affiliate_url ?? ''),
+          image: (r.image as string) ?? undefined,
+          confidence: Number(r.confidence) || 1,
+        });
+      }
+    }
+  } catch (e) {
+    ingestLog('warn', 'manual.product_intelligence_failed', {
+      ingestId,
+      message: (e as Error).message?.slice(0, 160),
+    });
+  }
+
   await admin.from('ingest_extractions').insert({
     ingest_request_id: ingestId,
     payload: {
@@ -185,6 +230,7 @@ export async function createManualIngest(
       pipelineMeta: {
         priceAgent: 'link_preview',
         contextSources: ['og_meta', 'json_ld'],
+        productIntelligence: true,
       },
       durationMs: 0,
       traceId,

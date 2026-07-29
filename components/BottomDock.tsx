@@ -130,7 +130,12 @@ function ProductCardFrame({
     <View style={styles.productCardColumn}>
       <Animated.View style={[styles.titaniumCardFrame, styles.layerFill, { opacity: lightOpacity }]} pointerEvents="none">
         <View style={styles.cardContent}>
-          <Image source={{ uri: product.image }} style={styles.productImage} contentFit="cover" />
+          <Image
+            source={{ uri: product.image }}
+            style={styles.productImage}
+            contentFit="cover"
+            recyclingKey={`${product.id}:${product.image}`}
+          />
           <Text style={[styles.productPrice, { color: '#1A1A1B' }]}>{product.price}</Text>
         </View>
       </Animated.View>
@@ -138,7 +143,12 @@ function ProductCardFrame({
       <Animated.View style={[styles.nebulaCardFrame, styles.layerFill, { opacity: darkOpacity }]} pointerEvents="none">
         <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={[styles.nebulaCardInner, styles.cardContent]}>
-          <Image source={{ uri: product.image }} style={styles.productImage} contentFit="cover" />
+          <Image
+            source={{ uri: product.image }}
+            style={styles.productImage}
+            contentFit="cover"
+            recyclingKey={`${product.id}:${product.image}`}
+          />
           <Text style={[styles.productPrice, { color: '#F8FAFC', textShadowColor: '#A855F7' }]}>{product.price}</Text>
         </View>
       </Animated.View>

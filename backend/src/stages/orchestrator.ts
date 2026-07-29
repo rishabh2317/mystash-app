@@ -23,6 +23,7 @@ import { YtDlpVideoProvider } from '../providers/video/YtDlpVideoProvider';
 import { ProductRanker } from '../products/ProductRanker';
 import { ProductValidator } from '../products/ProductValidator';
 import { persistPipelineProducts } from '../products/productPersist';
+import { resolveIngestDrafts } from '../product-intelligence';
 import { extractYouTubeVideoId } from '../pipeline/detect';
 import { gatherYoutubeContext } from '../pipeline/youtubeContext';
 import { getVideoExtractionCache, setVideoExtractionCache } from '../services/extractionCache';
@@ -301,6 +302,15 @@ export async function runProgressiveIngestPipeline(
         thumbnail: ingest.thumbnail as string | null,
         videoTitle: ingest.video_title as string | undefined,
       });
+      try {
+        await resolveIngestDrafts(admin, ingestRequestId, traceId);
+      } catch {
+        /* resilient: publish still allowed later */
+      }
+      await admin
+        .from('ingest_requests')
+        .update({ status: hit.payload.status, updated_at: new Date().toISOString() })
+        .eq('id', ingestRequestId);
       await finalizePipelineRun(admin, pipelineRunId, {
         cacheKey: hit.cacheKey,
         stages: ['cache'],
@@ -734,18 +744,7 @@ export async function runProgressiveIngestPipeline(
 
   emitPipelineEvent('catalog.match.complete', {
     ingestId: ingestRequestId,
-    matchCount: 0,
-    deferred: true,
-  });
-  await recordStageArtifact(admin, {
-    ingestId: ingestRequestId,
-    pipelineRunId,
-    stage: 'catalog_match',
-    provider: 'deferred',
-    payload: {
-      inputSummary: summarizeProducts(products),
-      outputSummary: { deferredUntilPublish: true },
-    },
+    deferred: false,
   });
 
   await persistPipelineProducts(admin, {
@@ -763,11 +762,27 @@ export async function runProgressiveIngestPipeline(
       priceAgent: 'reasoner',
       finalStage,
       stagesCompleted: stages,
-      affiliateDeferred: true,
+      productIntelligence: true,
     },
     thumbnail: thumbnailUrl,
     videoTitle: title || undefined,
   });
+
+  // Product Intelligence (post-extract; does not alter Stage 1–3).
+  try {
+    await resolveIngestDrafts(admin, ingestRequestId, traceId);
+    emitPipelineEvent('catalog.match.complete', { ingestId: ingestRequestId, resolved: true });
+  } catch (e) {
+    emitPipelineEvent('catalog.match.complete', {
+      ingestId: ingestRequestId,
+      resolved: false,
+      error: (e as Error).message?.slice(0, 200),
+    });
+  }
+  await admin
+    .from('ingest_requests')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', ingestRequestId);
 
   if (platform === 'youtube' && videoId) {
     await setVideoExtractionCache(admin, {
