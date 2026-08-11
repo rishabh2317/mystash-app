@@ -3,6 +3,10 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
+import {
+  type AddToCartAuthIntent,
+  appendAuthIntentToRedirectUrl,
+} from '@/src/navigation/authIntent';
 import { supabase } from '@/src/services/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -67,13 +71,21 @@ export type SignUpResult = {
   needsEmailConfirmation: boolean;
 };
 
+export type GoogleSignInOptions = {
+  /**
+   * Optional route-level auth intent to embed on OAuth redirectTo.
+   * Survives cold Google callback → auth/callback → Profile resume.
+   */
+  authIntent?: AddToCartAuthIntent | null;
+};
+
 type AuthContextValue = {
   user: User | null;
   session: Session | null;
   loading: boolean;
   signUpWithEmail: (payload: SignUpPayload) => Promise<SignUpResult>;
   signInWithEmail: (email: string, password: string) => Promise<{ error: string | null }>;
-  signInWithGoogle: () => Promise<{ error: string | null }>;
+  signInWithGoogle: (options?: GoogleSignInOptions) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 };
 
@@ -138,13 +150,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         return { error: formatSignInError(error as { message: string; code?: string }) };
       },
-      signInWithGoogle: async () => {
-        // Use a real Expo Router route, not the app root. The exact generated
-        // value must be allowlisted in Supabase Auth → URL Configuration.
-        const redirectTo = Linking.createURL('auth/callback');
+      signInWithGoogle: async (options) => {
+        // Use a real Expo Router route, not the app root. The path must be
+        // allowlisted in Supabase Auth → URL Configuration. When an ADD_TO_CART
+        // intent is present, the same route-level query params are embedded on
+        // redirectTo so a cold deep-link callback can forward them to Profile.
+        const redirectBase = Linking.createURL('auth/callback');
+        const redirectTo = appendAuthIntentToRedirectUrl(
+          redirectBase,
+          options?.authIntent ?? null,
+        );
+        alert(`redirectTo = ${redirectTo}`);
+        console.log('redirectTo =', redirectTo);
         if (__DEV__) {
           console.log(
-            '[auth] OAuth redirect URL (allowlist this exact value in Supabase):',
+            '[auth] OAuth redirect URL (allowlist auth/callback path in Supabase):',
             redirectTo,
           );
         }
@@ -155,11 +175,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             skipBrowserRedirect: true,
           },
         });
+        alert(data?.url ?? 'No URL');
 
         if (error) return { error: error.message };
         if (!data?.url) return { error: 'Unable to start Google sign in.' };
 
-        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+        // Match on path-only redirectBase. Supabase may reorder/append auth
+        // query params; expo-web-browser polyfill uses startsWith(returnUrl).
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectBase);
         if (__DEV__) {
           const urlHint = result.type === 'success' && result.url ? `${result.url.split('?')[0]}…` : '(none)';
           console.log('[auth] OAuth WebBrowser result:', result.type, urlHint);

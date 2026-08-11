@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
 import { trackProductEvent } from '@/src/logging/productAnalytics';
-import { openProductShopping } from '@/src/services/shoppingClick';
 import { MerchantSection } from './MerchantSection';
 import { SpecificationGrid } from './SpecificationGrid';
 import { VerificationBadge } from './VerificationBadge';
@@ -30,6 +29,16 @@ type Props = {
   isLight: boolean;
   onClose: () => void;
   actions?: ProductDetailsActionConfig;
+  /**
+   * Parent owns shopping redirect via shoppingClick.
+   * ProductDetailsSheet never calls openProductShopping directly.
+   */
+  onBuy?: (product: CatalogProductViewModel) => void;
+  /**
+   * Parent owns auth + Cart boundary.
+   * Only rendered when provided and catalogProductId is present.
+   */
+  onAddToCart?: (product: CatalogProductViewModel) => void;
 };
 
 export function ProductDetailsSheet({
@@ -38,6 +47,8 @@ export function ProductDetailsSheet({
   isLight,
   onClose,
   actions = NO_PRODUCT_DETAILS_ACTIONS,
+  onBuy,
+  onAddToCart,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [descExpanded, setDescExpanded] = useState(false);
@@ -68,20 +79,20 @@ export function ProductDetailsSheet({
   const desc = product.description?.trim() || '';
   const needsReadMore = desc.length > 180;
   const descShown = descExpanded || !needsReadMore ? desc : `${desc.slice(0, 180).trim()}…`;
+  const canShop = !!product.catalogProductId;
+  const showBuy = !!onBuy && canShop;
+  const showAddToCart = !!onAddToCart && canShop;
 
-  const onViewProduct = async () => {
+  const onViewProduct = () => {
     if (!product.catalogProductId) {
       Alert.alert('Link unavailable', 'No shopping destination is available for this product yet.');
       return;
     }
+    if (!onBuy) return;
     trackProductEvent('product.view_product.clicked', {
       catalogProductId: product.catalogProductId,
     });
-    try {
-      await openProductShopping({ catalogProductId: product.catalogProductId });
-    } catch {
-      Alert.alert('Error', 'Could not open the product link.');
-    }
+    onBuy(product);
   };
 
   return (
@@ -180,14 +191,43 @@ export function ProductDetailsSheet({
 
               {/* Future commerce extension points (additive): ratings, offers, coupons, similar products */}
 
-              <TouchableOpacity
-                style={[styles.primaryCta, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
-                onPress={onViewProduct}
-                accessibilityRole="button"
-                accessibilityLabel="View product in browser"
-              >
-                <Text style={styles.primaryCtaText}>View Product</Text>
-              </TouchableOpacity>
+              {showBuy ? (
+                <TouchableOpacity
+                  style={[styles.primaryCta, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
+                  onPress={onViewProduct}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View product ${product.title} in browser`}
+                >
+                  <Text style={styles.primaryCtaText}>View Product</Text>
+                </TouchableOpacity>
+              ) : !canShop && onBuy ? (
+                <TouchableOpacity
+                  style={[styles.primaryCta, { backgroundColor: isLight ? '#94A3B8' : '#475569' }]}
+                  onPress={onViewProduct}
+                  accessibilityRole="button"
+                  accessibilityLabel="Shopping link unavailable"
+                >
+                  <Text style={styles.primaryCtaText}>View Product</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {showAddToCart ? (
+                <TouchableOpacity
+                  style={[
+                    styles.addToCartCta,
+                    {
+                      borderColor: isLight ? '#0F172A' : '#F8FAFC',
+                    },
+                  ]}
+                  onPress={() => onAddToCart?.(product)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${product.title} to cart`}
+                >
+                  <Text style={[styles.addToCartText, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+                    Add to Cart
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
 
               {actions.enabled.length > 0 ? (
                 <View style={styles.secondaryRow}>
@@ -286,6 +326,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryCtaText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  addToCartCta: {
+    marginTop: 10,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  addToCartText: { fontWeight: '800', fontSize: 16 },
   secondaryRow: { marginTop: 14, gap: 8 },
   secondaryBtn: {
     paddingVertical: 10,

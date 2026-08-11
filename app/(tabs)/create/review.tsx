@@ -15,6 +15,7 @@ import {
 } from '@/src/services/curation';
 import { draftProductToViewModel } from '@/src/services/catalogProductMapper';
 import { requestFeedReload } from '@/src/services/feedRefresh';
+import { useProductBuyHandler } from '@/src/services/productActionOrchestration';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { DraftProduct, IngestDraftPayload } from '@/src/types/curation';
 import { buildInstagramEmbedHtml } from '@/src/utils/instagramWebViewEmbed';
@@ -48,6 +49,7 @@ export default function CreateReviewScreen() {
         : undefined;
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const handleBuy = useProductBuyHandler();
   const { mode } = useThemeMode();
   const isLight = mode === 'titanium';
 
@@ -544,6 +546,7 @@ export default function CreateReviewScreen() {
         isLight={isLight}
         onClose={closeDetails}
         actions={detailsActions}
+        onBuy={handleBuy}
       />
     </View>
   );

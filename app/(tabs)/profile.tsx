@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, { Extrapolate, interpolateColor, useAnimatedStyle } from 'react-native-reanimated';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { useRouter } from 'expo-router';
+import { parseAddToCartIntent } from '@/src/navigation/authIntent';
+import { requestAddToCart } from '@/src/services/cartBoundary';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 function ProfileRow({
   icon,
@@ -73,6 +75,7 @@ function ThemeToggleCard() {
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ intent?: string | string[]; catalogProductId?: string | string[] }>();
   const { mode } = useThemeMode();
   const { user, loading, signInWithEmail, signUpWithEmail, signInWithGoogle, signOut } = useAuth();
   const isLight = mode === 'titanium';
@@ -83,6 +86,19 @@ export default function ProfileScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const consumedAuthIntentRef = useRef<string | null>(null);
+
+  // OD-12: resume ADD_TO_CART after successful auth when route intent params are present.
+  useEffect(() => {
+    if (!user || loading) return;
+    const intent = parseAddToCartIntent(params);
+    if (!intent) return;
+    const consumeKey = `${intent.intent}:${intent.catalogProductId}`;
+    if (consumedAuthIntentRef.current === consumeKey) return;
+    consumedAuthIntentRef.current = consumeKey;
+    requestAddToCart(intent.catalogProductId);
+    router.replace('/(tabs)/profile');
+  }, [user, loading, params.intent, params.catalogProductId, router]);
 
   const profileName = useMemo(() => {
     if (!user) return '';
@@ -152,7 +168,10 @@ export default function ProfileScreen() {
   const onGoogleSignIn = async () => {
     setSubmitting(true);
     try {
-      const { error } = await signInWithGoogle();
+      // Forward validated Profile route intent into OAuth redirectTo so a cold
+      // Google callback can resume ADD_TO_CART without a second intent store.
+      const authIntent = parseAddToCartIntent(params);
+      const { error } = await signInWithGoogle({ authIntent });
       if (error && error !== 'Google sign in canceled.') {
         Alert.alert('Google sign in failed', error);
       }

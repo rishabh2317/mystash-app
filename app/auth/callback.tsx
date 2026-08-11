@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+import { buildProfileHrefAfterAuth } from '@/src/navigation/authIntent';
 import { supabase } from '@/src/services/supabase';
 
 export default function AuthCallbackScreen() {
@@ -12,6 +13,9 @@ export default function AuthCallbackScreen() {
     refresh_token?: string | string[];
     error?: string | string[];
     error_description?: string | string[];
+    /** Same route-level intent keys as Profile (OD-12), when present on redirectTo. */
+    intent?: string | string[];
+    catalogProductId?: string | string[];
   }>();
   const [callbackError, setCallbackError] = useState<string | null>(null);
 
@@ -19,6 +23,16 @@ export default function AuthCallbackScreen() {
     let active = true;
     const first = (value: string | string[] | undefined) =>
       Array.isArray(value) ? value[0] : value;
+
+    const goToProfile = () => {
+      // Validate intent; malformed / unsupported → plain Profile (no action).
+      router.replace(
+        buildProfileHrefAfterAuth({
+          intent: params.intent,
+          catalogProductId: params.catalogProductId,
+        }),
+      );
+    };
 
     const finalizeSession = async () => {
       try {
@@ -34,7 +48,7 @@ export default function AuthCallbackScreen() {
         if (!active) return;
 
         if (data.session) {
-          router.replace('/(tabs)/profile');
+          goToProfile();
           return;
         }
 
@@ -58,7 +72,7 @@ export default function AuthCallbackScreen() {
 
         if (!active) return;
         if (data.session) {
-          router.replace('/(tabs)/profile');
+          goToProfile();
           return;
         }
         setCallbackError('Google sign in returned without a session. Please try again.');
@@ -76,9 +90,11 @@ export default function AuthCallbackScreen() {
     };
   }, [
     params.access_token,
+    params.catalogProductId,
     params.code,
     params.error,
     params.error_description,
+    params.intent,
     params.refresh_token,
     router,
   ]);
@@ -105,4 +121,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-
