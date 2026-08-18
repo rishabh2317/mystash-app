@@ -1,11 +1,12 @@
 import { curationLog, curationLogIngestResult, curationLogIngestStart } from '@/src/logging/curationLog';
-import { setCurationDraft } from '@/src/state/curationDraftStore';
 import { supabase } from '@/src/services/supabase';
+import { setCurationDraft } from '@/src/state/curationDraftStore';
 import type {
   ExtractionPipelineMetaClient,
   IngestDraftPayload,
   IngestUrlResponse,
 } from '@/src/types/curation';
+import { mapIngestApiProductToDraft } from '@/src/services/ingestApiProductMap';
 
 /** Map Supabase / fetch failures to a single user-facing network hint (no crash). */
 export function normalizeIngestError(e: unknown): string {
@@ -79,6 +80,9 @@ type EdgeIngestBody = {
     merchantUrl?: string;
     image?: string;
     confidence?: number;
+    catalogProductId?: string;
+    resolutionStatus?: 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED';
+    brand?: string | null;
   }>;
   status: string;
   errorMessage?: string;
@@ -126,28 +130,7 @@ function mapEdgeToDraft(body: EdgeIngestBody): IngestDraftPayload {
     videoTitle: body.videoTitle,
     thumbnail: body.thumbnail,
     stashScore: body.stashScore,
-    products: body.products.map((p) => {
-      let merchant: string | undefined;
-      if (p.merchantUrl) {
-        try {
-          merchant = new URL(p.merchantUrl).hostname.replace(/^www\./, '');
-        } catch {
-          merchant = undefined;
-        }
-      }
-      return {
-        id: p.id,
-        name: p.name,
-        price: p.price,
-        currency: p.currency,
-        provider: p.provider,
-        affiliateUrl: p.affiliateUrl,
-        merchantUrl: p.merchantUrl,
-        merchant,
-        image: p.image,
-        confidence: p.confidence,
-      };
-    }),
+    products: body.products.map((p) => mapIngestApiProductToDraft(p)),
     status,
     errorMessage: body.errorMessage,
     extractionSource: body.extractionSource,
@@ -386,7 +369,7 @@ export async function listUserDraftIngests(): Promise<UserDraftIngestSummary[]> 
   const { data, error } = await supabase
     .from('ingest_requests')
     .select('id, source_url, status, video_title, thumbnail, updated_at')
-    .in('status', ['draft', 'processing', 'ready_for_review'])
+    .in('status', ['draft', 'processing', 'ready_for_review', 'review_required', 'failed'])
     .order('updated_at', { ascending: false })
     .limit(25);
 
@@ -424,6 +407,51 @@ export async function loadOrResumeIngestDraft(ingestId: string): Promise<IngestD
 
   setCurationDraft(ingestId, payload);
   return payload;
+}
+
+/** Recovery: ask the backend to re-run ProductResolver only for genuinely unresolved drafts. */
+export async function retryUnresolvedIngestDrafts(
+  ingestId: string,
+): Promise<{ ranResolver: boolean }> {
+  const ingestApiBase = getIngestApiBaseOrThrow();
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  const anon = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  if (!token) {
+    throw new Error('Sign in required.');
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${ingestApiBase}/ingest/${encodeURIComponent(ingestId)}/resolve-unresolved`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(anon ? { apikey: anon } : {}),
+      },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (isLikelyClientFetchNetworkFailure(msg)) {
+      throw new Error(backendUnreachableMessage(ingestApiBase));
+    }
+    throw e instanceof Error ? e : new Error(msg);
+  }
+
+  const raw = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = raw.length ? JSON.parse(raw) : null;
+  } catch {
+    throw new Error(`Invalid JSON from resolve-unresolved (HTTP ${res.status}).`);
+  }
+  const json = parsed as { ok?: boolean; ranResolver?: boolean; error?: string };
+  if (!res.ok) {
+    throw new Error(normalizeIngestError(json.error ?? `HTTP ${res.status}`));
+  }
+  return { ranResolver: json.ranResolver === true };
 }
 
 export type SubmitIngestUrlOptions = {
@@ -491,7 +519,7 @@ export async function submitManualProductLinks(
     );
   }
 
-  const json = parsed as EdgeIngestBody & { error?: string };
+  const json = parsed as EdgeIngestBody & { error?: string; failedProductUrls?: string[] };
   if (!res.ok) {
     throw new Error(normalizeIngestError(json.error ?? `HTTP ${res.status}`));
   }
@@ -508,7 +536,10 @@ export async function submitManualProductLinks(
     traceId: draft.traceId,
     extractionErrorCode: draft.extractionError?.code,
   });
-  return { ingestId: draft.ingestId, status: 'ok', draft };
+  const failedProductUrls = Array.isArray(json.failedProductUrls)
+    ? json.failedProductUrls.filter((u): u is string => typeof u === 'string')
+    : undefined;
+  return { ingestId: draft.ingestId, status: 'ok', draft, failedProductUrls };
 }
 
 export async function submitIngestUrl(

@@ -5,6 +5,7 @@ import type {
   CatalogVerificationStatus,
 } from '@/src/types/catalogProduct';
 import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
+import { reviewVerificationStatus } from '@/src/services/reviewResolution';
 
 function asVerification(raw: string | null | undefined): CatalogVerificationStatus {
   if (raw === 'VERIFIED' || raw === 'UNVERIFIED' || raw === 'UNRESOLVED') return raw;
@@ -95,15 +96,24 @@ export function draftProductToViewModel(
 ): CatalogProductViewModel {
   if (draft.catalogRow) {
     const mapped = catalogRowToViewModel(draft.catalogRow);
+    const catalogStatus = draft.catalogRow.verification_status;
+    const verificationStatus = reviewVerificationStatus({
+      catalogProductId: mapped.catalogProductId ?? undefined,
+      resolutionStatus:
+        catalogStatus === 'VERIFIED' || catalogStatus === 'UNVERIFIED' || catalogStatus === 'UNRESOLVED'
+          ? catalogStatus
+          : draft.resolutionStatus,
+    });
     const draftImage = draft.image?.startsWith('http') ? draft.image : null;
+    const withStatus = { ...mapped, verificationStatus };
     if (!mapped.heroImage && draftImage) {
       return {
-        ...mapped,
+        ...withStatus,
         heroImage: draftImage,
         galleryImages: mapped.galleryImages.length ? mapped.galleryImages : [draftImage],
       };
     }
-    return mapped;
+    return withStatus;
   }
 
   const hero = draft.image?.startsWith('http') ? draft.image : null;
@@ -118,10 +128,47 @@ export function draftProductToViewModel(
     description: draft.description ?? null,
     shortDescription: draft.description?.slice(0, 160) ?? null,
     specifications: {},
-    verificationStatus: draft.resolutionStatus ?? 'UNRESOLVED',
+    verificationStatus: reviewVerificationStatus(draft),
     availability: null,
     price: cleanPrice(draft.price),
     currency: draft.currency ?? null,
+    lastVerifiedAt: null,
+    metadataCompleteness: null,
+  };
+}
+
+/** Collection tag snapshot when catalog row is unavailable at read time. */
+export function tagSnapshotToViewModel(tag: {
+  id: string;
+  catalogProductId: string | null;
+  nameSnapshot: string | null;
+  imageSnapshot: string | null;
+  brandSnapshot: string | null;
+  resolutionStatus?: string | null;
+}): CatalogProductViewModel {
+  const hero = tag.imageSnapshot?.startsWith('http') ? tag.imageSnapshot : null;
+  const verification =
+    tag.resolutionStatus === 'verified'
+      ? 'VERIFIED'
+      : tag.resolutionStatus === 'unverified'
+        ? 'UNVERIFIED'
+        : 'UNRESOLVED';
+
+  return {
+    id: tag.id,
+    catalogProductId: tag.catalogProductId,
+    title: tag.nameSnapshot?.trim() || 'Product',
+    brand: tag.brandSnapshot ?? null,
+    merchant: null,
+    heroImage: hero,
+    galleryImages: hero ? [hero] : [],
+    description: null,
+    shortDescription: null,
+    specifications: {},
+    verificationStatus: verification,
+    availability: null,
+    price: null,
+    currency: null,
     lastVerifiedAt: null,
     metadataCompleteness: null,
   };

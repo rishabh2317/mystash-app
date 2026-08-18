@@ -6,6 +6,7 @@ const LABELS: Record<CatalogVerificationStatus, string> = {
   VERIFIED: 'Verified',
   UNVERIFIED: 'Unverified',
   UNRESOLVED: 'Unresolved',
+  RESOLVING: 'Resolving',
 };
 
 type Props = {
@@ -23,9 +24,13 @@ export function VerificationBadge({ status, isLight }: Props) {
         ? isLight
           ? '#FEF3C7'
           : '#78350F'
-        : isLight
-          ? '#E2E8F0'
-          : '#334155';
+        : status === 'RESOLVING'
+          ? isLight
+            ? '#E0F2FE'
+            : '#0C4A6E'
+          : isLight
+            ? '#E2E8F0'
+            : '#334155';
   const fg =
     status === 'VERIFIED'
       ? isLight
@@ -35,9 +40,13 @@ export function VerificationBadge({ status, isLight }: Props) {
         ? isLight
           ? '#92400E'
           : '#FDE68A'
-        : isLight
-          ? '#334155'
-          : '#E2E8F0';
+        : status === 'RESOLVING'
+          ? isLight
+            ? '#0369A1'
+            : '#7DD3FC'
+          : isLight
+            ? '#334155'
+            : '#E2E8F0';
 
   return (
     <View

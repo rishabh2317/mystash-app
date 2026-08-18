@@ -1,6 +1,6 @@
 /** UI-facing catalog product model — never bind screens to DB rows directly. */
 
-export type CatalogVerificationStatus = 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED';
+export type CatalogVerificationStatus = 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED' | 'RESOLVING';
 
 export type CatalogProductViewModel = {
   id: string;

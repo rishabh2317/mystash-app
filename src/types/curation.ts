@@ -69,4 +69,5 @@ export interface IngestUrlResponse {
   ingestId: string;
   status: string;
   draft?: IngestDraftPayload;
+  failedProductUrls?: string[];
 }

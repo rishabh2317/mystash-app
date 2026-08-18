@@ -1,11 +1,20 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { CreatorOnboardingPanel } from '@/components/creator/CreatorOnboardingPanel';
 import { submitManualProductLinks } from '@/src/services/curation';
+import {
+  activateCreatorAccount,
+  ensureMe,
+  type UserSettingsViewModel,
+  UserApiError,
+} from '@/src/services/userApi';
 import { isSupportedVideoUrl } from '@/src/utils/videoUtils';
+import { useCreateFlowReset } from '@/src/state/createFlowSession';
+import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -49,8 +58,63 @@ export default function ManualProductsScreen() {
         products: Array<{ id: string; name: string; price: string; image?: string; affiliateUrl: string }>;
       }
   >(null);
+  const [me, setMe] = useState<UserSettingsViewModel | null>(null);
+  const [meLoading, setMeLoading] = useState(false);
+  const [meError, setMeError] = useState<string | null>(null);
+  const [activating, setActivating] = useState(false);
 
+  const isActiveCreator = me?.creatorStatus === 'ACTIVE';
   const videoOk = isSupportedVideoUrl(videoUrl.trim());
+
+  const refreshMe = useCallback(() => {
+    if (!user) {
+      setMe(null);
+      return;
+    }
+    setMeLoading(true);
+    setMeError(null);
+    ensureMe()
+      .then(setMe)
+      .catch((e) => {
+        setMeError(e instanceof Error ? e.message : 'Could not load account');
+      })
+      .finally(() => setMeLoading(false));
+  }, [user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshMe();
+    }, [refreshMe]),
+  );
+
+  useCreateFlowReset(
+    useCallback(() => {
+      setVideoUrl('');
+      setVideoTitle('');
+      setRows(['']);
+      setBusy(false);
+      setPreview(null);
+    }, []),
+  );
+
+  const onActivateCreator = async (displayName: string | null) => {
+    setActivating(true);
+    setMeError(null);
+    try {
+      setMe(await activateCreatorAccount({ displayName }));
+      Alert.alert('You are a creator', 'You can now add Collections manually.');
+    } catch (e) {
+      setMeError(
+        e instanceof UserApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Could not activate creator',
+      );
+    } finally {
+      setActivating(false);
+    }
+  };
 
   const uniqueProductUrls = useMemo(() => {
     const seen = new Set<string>();
@@ -83,6 +147,10 @@ export default function ManualProductsScreen() {
   };
 
   const onFetchDetails = async () => {
+    if (!isActiveCreator) {
+      Alert.alert('Creator required', 'Become an ACTIVE creator before creating Collections.');
+      return;
+    }
     if (!canSubmit) return;
     setBusy(true);
     setPreview(null);
@@ -104,8 +172,23 @@ export default function ManualProductsScreen() {
           affiliateUrl: p.affiliateUrl,
         })),
       });
+      if (res.failedProductUrls && res.failedProductUrls.length > 0) {
+        Alert.alert(
+          'Some links could not be read',
+          `Saved ${res.draft.products.length} product(s). Could not extract: ${res.failedProductUrls.join(', ')}`,
+        );
+      }
     } catch (e) {
-      Alert.alert('Could not fetch products', (e as Error).message ?? 'Unknown error');
+      const msg = (e as Error).message ?? 'Unknown error';
+      if (/Creator status ACTIVE required/i.test(msg)) {
+        refreshMe();
+        Alert.alert(
+          'Creator required',
+          'Your account is not an ACTIVE creator yet. Finish creator setup, then try again.',
+        );
+        return;
+      }
+      Alert.alert('Could not fetch products', msg);
     } finally {
       setBusy(false);
     }
@@ -147,6 +230,32 @@ export default function ManualProductsScreen() {
     );
   }
 
+  if (!isActiveCreator) {
+    return (
+      <View style={styles.screen}>
+        <LinearGradient
+          colors={isLight ? ['#FDFDFD', '#E8E8E8', '#D1D1D1'] : ['#0D111F', '#020408']}
+          start={{ x: 0.2, y: 0 }}
+          end={{ x: 0.8, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.inner}>
+          <CreatorOnboardingPanel
+            isLight={isLight}
+            creatorStatus={me?.creatorStatus ?? null}
+            username={me?.username ?? null}
+            displayName={me?.displayName ?? null}
+            loading={meLoading}
+            activating={activating}
+            error={meError}
+            onActivate={(displayName) => void onActivateCreator(displayName)}
+            onRetry={refreshMe}
+          />
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.screen}>
       <LinearGradient
@@ -158,8 +267,8 @@ export default function ManualProductsScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <Text style={[styles.title, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Add products manually</Text>
         <Text style={[styles.sub, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>
-          Paste your reel or Short first, then up to five unique shop links (affiliate or plain). We pull name,
-          price, image, and a shop link from each page.
+          Paste your reel or Short first, then up to five unique shop links. Product pages go through the same
+          Product Intelligence path (skipping video extraction). Profile URLs are not supported.
         </Text>
 
         <Text style={[styles.fieldLabel, { color: isLight ? '#64748B' : '#94A3B8' }]}>Reel / Short URL</Text>

@@ -12,8 +12,22 @@ import {
   normalizeIngestError,
   publishIngestSelection,
   rejectIngestRequest,
+  retryUnresolvedIngestDrafts,
+  submitIngestUrl,
 } from '@/src/services/curation';
 import { draftProductToViewModel } from '@/src/services/catalogProductMapper';
+import {
+  ingestDraftNeedsHydration,
+  ingestDraftNeedsProductRetry,
+  reviewVerificationStatus,
+  selectedProductsCanPublish,
+} from '@/src/services/reviewResolution';
+import {
+  abandonCreateFlow,
+  completeCreateFlow,
+  exitCreateFlowAfterAbandon,
+  exitCreateFlowAfterSuccess,
+} from '@/src/state/createFlowSession';
 import { requestFeedReload } from '@/src/services/feedRefresh';
 import { useProductBuyHandler } from '@/src/services/productActionOrchestration';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
@@ -92,26 +106,30 @@ export default function CreateReviewScreen() {
     const mem = getCurationDraft(ingestIdParam);
     if (mem) {
       setDraft(mem);
-      setHydrating(false);
       setHydrateError(null);
-      return;
+      if (!ingestDraftNeedsHydration(mem)) {
+        setHydrating(false);
+        return;
+      }
     }
 
     let cancelled = false;
     (async () => {
-      setHydrating(true);
+      if (!mem) setHydrating(true);
       setHydrateError(null);
       try {
         const d = await loadOrResumeIngestDraft(ingestIdParam);
         if (cancelled) return;
         if (!d) {
-          setHydrateError('This draft was not found. It may have been published or removed.');
-          setDraft(undefined);
+          if (!mem) {
+            setHydrateError('This draft was not found. It may have been published or removed.');
+            setDraft(undefined);
+          }
         } else {
           setDraft(d);
         }
       } catch (e) {
-        if (!cancelled) {
+        if (!cancelled && !mem) {
           setHydrateError(normalizeIngestError(e));
           setDraft(undefined);
         }
@@ -269,6 +287,67 @@ export default function CreateReviewScreen() {
     );
   }
 
+  if (draft.status === 'failed') {
+    const sourceBlocked = ['SOURCE_RESTRICTED', 'SOURCE_UNAVAILABLE', 'UNSUPPORTED_SOURCE'].includes(
+      draft.extractionError?.code ?? '',
+    );
+    return (
+      <View style={styles.screen}>
+        <LinearGradient
+          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={[styles.center, { paddingHorizontal: 24 }]}>
+          <Text style={{ color: isLight ? '#1A1A1B' : '#F8FAFC', fontWeight: '800', fontSize: 18, textAlign: 'center' }}>
+            Ingestion failed
+          </Text>
+          <Text style={{ color: isLight ? '#475569' : '#94A3B8', textAlign: 'center', marginTop: 8, lineHeight: 20 }}>
+            {draft.extractionError?.message ??
+              'This source could not be processed. No Collection was published.'}
+          </Text>
+          <TouchableOpacity
+            style={[styles.secondaryBtn, { marginTop: 20, opacity: busy ? 0.6 : 1 }]}
+            disabled={busy}
+            onPress={() => {
+              setBusy(true);
+              void submitIngestUrl(draft.sourceUrl, { videoTitle: draft.videoTitle })
+                .then(async (res) => {
+                  if (!res.ingestId) {
+                    Alert.alert('Retry failed', 'Could not restart ingestion.');
+                    return;
+                  }
+                  const next = await loadOrResumeIngestDraft(res.ingestId);
+                  if (next) setDraft(next);
+                })
+                .catch((e) => Alert.alert('Retry failed', normalizeIngestError(e)))
+                .finally(() => setBusy(false));
+            }}
+          >
+            {busy ? (
+              <ActivityIndicator color={isLight ? '#1A1A1B' : '#F8FAFC'} />
+            ) : (
+              <Text style={styles.secondaryBtnText}>Retry extraction</Text>
+            )}
+          </TouchableOpacity>
+          {!sourceBlocked ? (
+            <TouchableOpacity
+              style={[styles.secondaryBtn, { marginTop: 10 }]}
+              onPress={() => router.push('/(tabs)/create/manual')}
+            >
+              <Text style={styles.secondaryBtnText}>Add products manually</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.secondaryBtn, { marginTop: 10 }]}
+            onPress={() => router.replace('/(tabs)/create')}
+          >
+            <Text style={styles.secondaryBtnText}>Back to Create</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   if (draft.status === 'processing' && draft.products.length === 0) {
     return (
       <View style={[styles.screen, styles.center]}>
@@ -316,8 +395,17 @@ export default function CreateReviewScreen() {
   const refreshDraftFromCatalog = async () => {
     if (!ingestIdParam) return;
     try {
-      const d = await loadOrResumeIngestDraft(ingestIdParam);
-      if (d) setDraft(d);
+      let d = await loadOrResumeIngestDraft(ingestIdParam);
+      if (!d) {
+        Alert.alert('Refresh failed', 'This draft was not found.');
+        return;
+      }
+      setDraft(d);
+      if (ingestDraftNeedsProductRetry(d)) {
+        await retryUnresolvedIngestDrafts(ingestIdParam);
+        d = await loadOrResumeIngestDraft(ingestIdParam);
+        if (d) setDraft(d);
+      }
       Alert.alert('Refreshed', 'Product metadata reloaded from the catalog.');
     } catch (e) {
       Alert.alert('Refresh failed', normalizeIngestError(e));
@@ -345,10 +433,18 @@ export default function CreateReviewScreen() {
   };
 
   const selectedIds = draft.products.filter((p) => p.id && selected[p.id]).map((p) => p.id);
+  const canPublish = selectedProductsCanPublish(draft.products, selected);
 
   const onPublish = async () => {
     if (selectedIds.length < 1) {
       Alert.alert('Select products', 'Keep at least one product selected to publish.');
+      return;
+    }
+    if (!canPublish) {
+      Alert.alert(
+        'Still resolving',
+        'Wait until every selected product has catalog metadata before publishing.',
+      );
       return;
     }
     setBusy(true);
@@ -359,10 +455,10 @@ export default function CreateReviewScreen() {
         return;
       }
       removeCurationDraft(draft.ingestId);
+      completeCreateFlow();
       requestFeedReload();
-      Alert.alert('Published', 'Your reel is live in the feed.', [
-        { text: 'OK', onPress: () => router.replace('/') },
-      ]);
+      exitCreateFlowAfterSuccess(router);
+      Alert.alert('Published', 'Your reel is live in the feed.');
     } finally {
       setBusy(false);
     }
@@ -379,7 +475,8 @@ export default function CreateReviewScreen() {
           try {
             await rejectIngestRequest(draft.ingestId, draft);
             removeCurationDraft(draft.ingestId);
-            router.back();
+            abandonCreateFlow();
+            exitCreateFlowAfterAbandon(router);
           } finally {
             setBusy(false);
           }
@@ -390,6 +487,7 @@ export default function CreateReviewScreen() {
 
   const renderItem = ({ item }: { item: DraftProduct }) => {
     const vm = draftProductToViewModel(item);
+    const displayStatus = reviewVerificationStatus(item);
     return (
       <ReviewProductCard
         product={vm}
@@ -398,14 +496,14 @@ export default function CreateReviewScreen() {
         onToggleInclude={(v) => setSelected((s) => ({ ...s, [item.id]: v }))}
         onOpenDetails={openDetails}
         confidence={item.confidence}
-        extractionHint={
-          item.resolutionStatus ? item.resolutionStatus.toLowerCase() : null
-        }
+        extractionHint={displayStatus === 'RESOLVING' ? 'Resolving metadata…' : null}
       />
     );
   };
 
-  const showExtractionError = draft.extractionStatus === 'degraded' && !!draft.extractionError;
+  const showExtractionError =
+    !!draft.extractionError &&
+    (draft.extractionStatus === 'degraded' || draft.status === 'review_required');
   const needsManualProducts =
     draft.status === 'review_required' ||
     (draft.products.length === 0 && draft.status !== 'processing');
@@ -533,9 +631,9 @@ export default function CreateReviewScreen() {
           <Text style={styles.rejectBtnText}>Reject all</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.publishBtn, { opacity: selectedIds.length > 0 && !busy ? 1 : 0.45 }]}
+          style={[styles.publishBtn, { opacity: canPublish && !busy ? 1 : 0.45 }]}
           onPress={onPublish}
-          disabled={selectedIds.length < 1 || busy}
+          disabled={!canPublish || busy}
         >
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.publishBtnText}>Publish</Text>}
         </TouchableOpacity>

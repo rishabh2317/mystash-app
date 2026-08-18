@@ -2,6 +2,8 @@ import '@/src/polyfills/installCryptoForAuth';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Product, Video } from '@/src/mocks/videos';
+import { mapVideoRow } from '@/src/mappers/videoRowMapper';
+import type { CatalogProductRow } from '@/src/types/catalogProduct';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -32,6 +34,7 @@ export interface DatabaseVideo {
   embed_url?: string;
   video_title?: string;
   curator_id?: string;
+  collection_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -93,21 +96,6 @@ function mapRowToProduct(row: VideoProductRow): Product {
     image: row.image || 'https://picsum.photos/seed/product/200/200',
     provider: row.provider ?? undefined,
     catalog_product_id: row.catalog_product_id ?? undefined,
-  };
-}
-
-function mapVideoRow(video: DatabaseVideo, products: Product[]): Video {
-  return {
-    id: video.id,
-    url: video.url,
-    thumbnail: video.thumbnail,
-    creator_name: video.creator_name,
-    stash_score: video.stash_score,
-    product_name: products[0]?.name || video.product_name,
-    embed_url: video.embed_url,
-    video_title: video.video_title,
-    curator_id: video.curator_id,
-    products: products.length > 0 ? products : undefined,
   };
 }
 
@@ -210,4 +198,31 @@ export async function deleteVideo(id: string): Promise<boolean> {
     console.error('Error deleting video:', error);
     return false;
   }
+}
+
+/** Batch catalog read for Collection product hydration (Catalog SoT). */
+export async function fetchCatalogProductsByIds(
+  ids: string[],
+): Promise<Map<string, CatalogProductRow>> {
+  const map = new Map<string, CatalogProductRow>();
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from('catalog_products')
+    .select(
+      'id, name, brand, price, image_url, merchant, verification_status, description, availability, last_verified_at, currency, metadata',
+    )
+    .in('id', unique);
+
+  if (error || !data) {
+    if (error) console.error('catalog_products batch error:', error.code, error.message);
+    return map;
+  }
+
+  for (const row of data) {
+    const id = String((row as CatalogProductRow).id);
+    map.set(id, row as CatalogProductRow);
+  }
+  return map;
 }

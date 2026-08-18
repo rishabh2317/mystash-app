@@ -1,7 +1,15 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { CreatorOnboardingPanel } from '@/components/creator/CreatorOnboardingPanel';
 import { listUserDraftIngests, type UserDraftIngestSummary, submitIngestUrl } from '@/src/services/curation';
+import {
+  activateCreatorAccount,
+  ensureMe,
+  type UserSettingsViewModel,
+  UserApiError,
+} from '@/src/services/userApi';
 import { isSupportedVideoUrl } from '@/src/utils/videoUtils';
+import { useCreateFlowReset } from '@/src/state/createFlowSession';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -31,7 +39,28 @@ export default function CreateSubmitScreen() {
   const [resumeDrafts, setResumeDrafts] = useState<UserDraftIngestSummary[]>([]);
   const [draftsLoading, setDraftsLoading] = useState(false);
 
+  const [me, setMe] = useState<UserSettingsViewModel | null>(null);
+  const [meLoading, setMeLoading] = useState(false);
+  const [meError, setMeError] = useState<string | null>(null);
+  const [activating, setActivating] = useState(false);
+
   const valid = isSupportedVideoUrl(url.trim());
+  const isActiveCreator = me?.creatorStatus === 'ACTIVE';
+
+  const refreshMe = useCallback(() => {
+    if (!user) {
+      setMe(null);
+      return;
+    }
+    setMeLoading(true);
+    setMeError(null);
+    ensureMe()
+      .then(setMe)
+      .catch((e) => {
+        setMeError(e instanceof Error ? e.message : 'Could not load account');
+      })
+      .finally(() => setMeLoading(false));
+  }, [user]);
 
   const refreshResumeList = useCallback(() => {
     if (!user) return;
@@ -41,16 +70,54 @@ export default function CreateSubmitScreen() {
       .finally(() => setDraftsLoading(false));
   }, [user]);
 
-  useFocusEffect(
+  useCreateFlowReset(
     useCallback(() => {
-      refreshResumeList();
-    }, [refreshResumeList]),
+      setUrl('');
+      setVideoTitle('');
+      setBusy(false);
+      setProgressHint(null);
+      setProcessingExtraction(false);
+    }, []),
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      refreshMe();
+      refreshResumeList();
+    }, [refreshMe, refreshResumeList]),
+  );
+
+  const onActivateCreator = async (displayName: string | null) => {
+    setActivating(true);
+    setMeError(null);
+    try {
+      const next = await activateCreatorAccount({ displayName });
+      setMe(next);
+      Alert.alert('You are a creator', 'You can now ingest and publish Collections.');
+    } catch (e) {
+      const msg =
+        e instanceof UserApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Could not activate creator';
+      setMeError(msg);
+    } finally {
+      setActivating(false);
+    }
+  };
+
   const onSubmit = async () => {
+    if (!isActiveCreator) {
+      Alert.alert('Creator required', 'Become an ACTIVE creator before ingesting Collections.');
+      return;
+    }
     const trimmed = url.trim();
     if (!isSupportedVideoUrl(trimmed)) {
-      Alert.alert('Invalid URL', 'Paste a YouTube Shorts or Instagram Reel / post URL.');
+      Alert.alert(
+        'Unsupported URL',
+        'Paste a YouTube Shorts or Instagram Reel / post URL. Profile pages and other sites are not supported.',
+      );
       return;
     }
 
@@ -77,8 +144,17 @@ export default function CreateSubmitScreen() {
           router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(res.ingestId)}`);
           return;
         } catch (e) {
+          const msg = (e as Error).message ?? 'Unknown error';
+          if (/Creator status ACTIVE required/i.test(msg)) {
+            refreshMe();
+            Alert.alert(
+              'Creator required',
+              'Your account is not an ACTIVE creator yet. Finish creator setup, then try again.',
+            );
+            return;
+          }
           if (attempt === 1) {
-            Alert.alert('Ingest failed', (e as Error).message ?? 'Unknown error');
+            Alert.alert('Ingest failed', msg);
           }
         }
       }
@@ -119,6 +195,32 @@ export default function CreateSubmitScreen() {
             <Text style={styles.primaryText}>Go to Profile</Text>
           </TouchableOpacity>
         </View>
+      </View>
+    );
+  }
+
+  if (!isActiveCreator) {
+    return (
+      <View style={styles.screen}>
+        <LinearGradient
+          colors={isLight ? ['#FDFDFD', '#E8E8E8', '#D1D1D1'] : ['#0D111F', '#020408']}
+          start={{ x: 0.2, y: 0 }}
+          end={{ x: 0.8, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.inner}>
+          <CreatorOnboardingPanel
+            isLight={isLight}
+            creatorStatus={me?.creatorStatus ?? null}
+            username={me?.username ?? null}
+            displayName={me?.displayName ?? null}
+            loading={meLoading}
+            activating={activating}
+            error={meError}
+            onActivate={(displayName) => void onActivateCreator(displayName)}
+            onRetry={refreshMe}
+          />
+        </ScrollView>
       </View>
     );
   }
@@ -245,16 +347,38 @@ export default function CreateSubmitScreen() {
                   styles.badge,
                   {
                     backgroundColor:
-                      row.status === 'draft' || row.status === 'ready_for_review'
-                        ? isLight
-                          ? 'rgba(16,185,129,0.2)'
-                          : 'rgba(16,185,129,0.25)'
-                        : 'rgba(251,191,36,0.25)',
+                      row.status === 'failed'
+                        ? 'rgba(239,68,68,0.22)'
+                        : row.status === 'draft' ||
+                            row.status === 'ready_for_review' ||
+                            row.status === 'review_required'
+                          ? isLight
+                            ? 'rgba(16,185,129,0.2)'
+                            : 'rgba(16,185,129,0.25)'
+                          : 'rgba(251,191,36,0.25)',
                   },
                 ]}
               >
-                <Text style={[styles.badgeText, { color: isLight ? '#047857' : '#34D399' }]}>
-                  {row.status === 'draft' || row.status === 'ready_for_review' ? 'Ready' : 'Processing'}
+                <Text
+                  style={[
+                    styles.badgeText,
+                    {
+                      color:
+                        row.status === 'failed'
+                          ? '#F87171'
+                          : isLight
+                            ? '#047857'
+                            : '#34D399',
+                    },
+                  ]}
+                >
+                  {row.status === 'failed'
+                    ? 'Failed'
+                    : row.status === 'review_required'
+                      ? 'Needs review'
+                      : row.status === 'draft' || row.status === 'ready_for_review'
+                        ? 'Ready'
+                        : 'Processing'}
                 </Text>
               </View>
             </TouchableOpacity>
