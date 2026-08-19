@@ -1,8 +1,12 @@
 import React, { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { AddToCartOutcome } from '@/src/services/productActionOrchestration';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { displayHeroUri } from '@/src/services/catalogProductMapper';
 import { trackProductEvent } from '@/src/logging/productAnalytics';
+import { useThemeMode } from '@/contexts/ThemeContext';
+import { BAG_COPY, controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { AddToCartButton } from './AddToCartButton';
 import { ProductHeroImage } from './ProductHeroImage';
 import { VerificationBadge } from './VerificationBadge';
 
@@ -10,15 +14,16 @@ export type ProductCardVariant = 'compact' | 'standard';
 
 type Props = {
   product: CatalogProductViewModel;
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. */
+  isLight?: boolean;
   onPress: (product: CatalogProductViewModel) => void;
   /** Defaults to `standard` for backward compatibility. */
   variant?: ProductCardVariant;
   /**
-   * Optional. When provided, Add to Cart action UI is rendered.
+   * Optional. When provided, Add to Bag action UI is rendered.
    * Parent owns auth / Cart orchestration — ProductCard never calls auth or Cart APIs.
    */
-  onAddToCart?: (product: CatalogProductViewModel) => void;
+  onAddToCart?: (product: CatalogProductViewModel) => AddToCartOutcome | Promise<AddToCartOutcome>;
   /**
    * Optional. When provided, Buy action UI is rendered.
    * Parent owns shopping redirect — ProductCard never calls openProductShopping.
@@ -28,12 +33,13 @@ type Props = {
 
 export function ProductCard({
   product,
-  isLight,
   onPress,
   variant = 'standard',
   onAddToCart,
   onBuy,
 }: Props) {
+  const { tokens, isLight } = useThemeMode();
+  const [buyPressed, setBuyPressed] = React.useState(false);
   useEffect(() => {
     trackProductEvent('product.card.viewed', {
       catalogProductId: product.catalogProductId ?? product.id,
@@ -55,8 +61,9 @@ export function ProductCard({
         styles.card,
         isCompact && styles.cardCompact,
         {
-          borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)',
-          backgroundColor: isLight ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.06)',
+          borderColor: tokens.color.border,
+          backgroundColor: tokens.color.surface,
+          borderRadius: tokens.radius.lg,
         },
       ]}
     >
@@ -79,14 +86,14 @@ export function ProductCard({
         />
         <View style={styles.body}>
           {!isCompact && product.brand ? (
-            <Text style={[styles.brand, { color: isLight ? '#64748B' : '#94A3B8' }]} numberOfLines={1}>
+            <Text style={[styles.brand, { color: tokens.color.textMuted }]} numberOfLines={1}>
               {product.brand}
             </Text>
           ) : null}
           <Text
             style={[
               isCompact ? styles.titleCompact : styles.title,
-              { color: isLight ? '#0F172A' : '#F8FAFC' },
+              { color: tokens.color.text },
             ]}
             numberOfLines={isCompact ? 1 : 2}
           >
@@ -98,7 +105,7 @@ export function ProductCard({
             </View>
           ) : null}
           <Text
-            style={[styles.merchant, { color: isLight ? '#475569' : '#CBD5E1' }]}
+            style={[styles.merchant, { color: tokens.color.textMuted }]}
             numberOfLines={1}
           >
             {isCompact
@@ -118,37 +125,25 @@ export function ProductCard({
             <Pressable
               onPress={() => onBuy?.(product)}
               accessibilityRole="button"
-              accessibilityLabel={`Buy ${product.title}`}
-              style={({ pressed }) => [
+              accessibilityLabel={`${BAG_COPY.buy} ${product.title}`}
+              onPressIn={() => setBuyPressed(true)}
+              onPressOut={() => setBuyPressed(false)}
+              style={[
                 styles.actionBtn,
-                styles.buyBtn,
                 {
-                  backgroundColor: isLight ? '#0EA5E9' : '#A855F7',
-                  opacity: pressed ? 0.88 : 1,
+                  backgroundColor: tokens.color.cta,
+                  opacity: controlOpacity(
+                    resolveControlPhase({ pressed: buyPressed }),
+                    tokens.motion.pressOpacity,
+                  ),
                 },
               ]}
             >
-              <Text style={styles.actionBtnText}>Buy</Text>
+              <Text style={[styles.actionBtnText, { color: tokens.color.successOn }]}>{BAG_COPY.buy}</Text>
             </Pressable>
           ) : null}
-          {showAddToCart ? (
-            <Pressable
-              onPress={() => onAddToCart?.(product)}
-              accessibilityRole="button"
-              accessibilityLabel={`Add ${product.title} to cart`}
-              style={({ pressed }) => [
-                styles.actionBtn,
-                styles.addBtn,
-                {
-                  borderColor: isLight ? '#0F172A' : '#F8FAFC',
-                  opacity: pressed ? 0.88 : 1,
-                },
-              ]}
-            >
-              <Text style={[styles.addBtnText, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
-                Add to Cart
-              </Text>
-            </Pressable>
+          {showAddToCart && onAddToCart ? (
+            <AddToCartButton product={product} onAddToCart={onAddToCart} />
           ) : null}
         </View>
       ) : null}
@@ -198,11 +193,5 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
   },
-  buyBtn: {},
-  addBtn: {
-    borderWidth: 1,
-    backgroundColor: 'transparent',
-  },
-  actionBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
-  addBtnText: { fontWeight: '800', fontSize: 13 },
+  actionBtnText: { fontWeight: '800', fontSize: 13 },
 });

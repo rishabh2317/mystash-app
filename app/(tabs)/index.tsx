@@ -1,3 +1,5 @@
+import { useThemeMode } from '@/contexts/ThemeContext';
+import { TopBar } from '@/components/chrome/TopBar';
 import ReelItem from '@/components/ReelItem';
 import { ThemedText } from '@/components/themed-text';
 import type { Video } from '@/src/mocks/videos';
@@ -22,6 +24,7 @@ import {
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function HomeScreen() {
+  const { tokens } = useThemeMode();
   const [activeIndex, setActiveIndex] = useState(0);
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,17 +160,23 @@ export default function HomeScreen() {
 
   const keyExtractor = useCallback((item: Video) => item.id, []);
 
+  const chrome = <TopBar mode="immersive" showBack={false} />;
+
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" />
-        <ThemedText style={{ marginTop: 16 }}>Loading amazing products...</ThemedText>
+      <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={tokens.color.accent} />
+          <ThemedText style={{ marginTop: 16, color: tokens.color.text }}>Loading amazing products...</ThemedText>
+        </View>
+        {chrome}
       </View>
     );
   }
 
   if (videos.length === 0) {
     return (
+      <View style={{ flex: 1 }}>
       <ScrollView
         contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}
         refreshControl={
@@ -198,10 +207,13 @@ export default function HomeScreen() {
           <Text style={{ color: '#0EA5E9', fontWeight: '700', fontSize: 16 }}>Retry</Text>
         </TouchableOpacity>
       </ScrollView>
+      {chrome}
+      </View>
     );
   }
 
   return (
+    <View style={{ flex: 1 }}>
     <FlatList
       ref={listRef}
       data={videos}
@@ -232,5 +244,7 @@ export default function HomeScreen() {
         index,
       })}
     />
+    {chrome}
+    </View>
   );
 }

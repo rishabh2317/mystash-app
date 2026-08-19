@@ -2,36 +2,47 @@ import React from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { useThemeMode } from '@/contexts/ThemeContext';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+
 type Props = {
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. */
+  isLight?: boolean;
   disabled?: boolean;
+  pending?: boolean;
   accessibilityLabel?: string;
   onPress: () => void;
 };
 
 /** Emit-only Share control — parents own native Share.share orchestration. */
 export function ShareControl({
-  isLight,
   disabled = false,
+  pending = false,
   accessibilityLabel = 'Share',
   onPress,
 }: Props) {
-  const color = isLight ? '#1A1A1B' : '#F8FAFC';
+  const { tokens } = useThemeMode();
+  const [pressed, setPressed] = React.useState(false);
+  const phase = resolveControlPhase({ disabled, pending, pressed });
+
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled}
+      disabled={disabled || pending}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => [
+      accessibilityState={{ disabled: disabled || pending, busy: pending }}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={[
         styles.btn,
         {
-          backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
-          opacity: pressed || disabled ? 0.7 : 1,
+          backgroundColor: tokens.color.overlay,
+          opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },
       ]}
     >
-      <Ionicons name="share-outline" size={20} color={color} />
+      <Ionicons name="share-outline" size={20} color={tokens.color.icon} />
     </Pressable>
   );
 }

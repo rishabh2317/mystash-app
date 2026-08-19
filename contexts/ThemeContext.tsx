@@ -1,14 +1,18 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Extrapolate, interpolate, useSharedValue, withTiming, useDerivedValue } from 'react-native-reanimated';
 
-export type ThemeMode = 'titanium' | 'nebula';
+import { getThemeTokens, type ThemeModeName, type ThemeTokens } from '@/src/theme/tokens';
+
+export type ThemeMode = ThemeModeName;
 
 type ThemeContextValue = {
   mode: ThemeMode;
+  isLight: boolean;
+  tokens: ThemeTokens;
   toggleTheme: () => void;
   /**
    * 0 -> titanium, 1 -> nebula during a transition. Note: we also expose lightOpacity/darkOpacity
-   * so components can crossfade gradients, LEDs, and card frames.
+   * so Home Header / BottomDock can crossfade without a composition redesign.
    */
   transitionProgress: any;
   lightOpacity: any;
@@ -36,20 +40,25 @@ export function ThemeModeProvider({ children }: { children: React.ReactNode }) {
     fromLight.value = mode === 'titanium' ? 1 : 0;
     toLight.value = next === 'titanium' ? 1 : 0;
     transitionProgress.value = 0;
-    transitionProgress.value = withTiming(1, { duration: 500 });
+    transitionProgress.value = withTiming(1, { duration: getThemeTokens(mode).motion.themeMs });
 
     setMode(next);
   }, [mode, fromLight, toLight, transitionProgress]);
 
+  const tokens = useMemo(() => getThemeTokens(mode), [mode]);
+  const isLight = mode === 'titanium';
+
   const value = useMemo<ThemeContextValue>(
     () => ({
       mode,
+      isLight,
+      tokens,
       toggleTheme,
       transitionProgress,
       lightOpacity,
       darkOpacity,
     }),
-    [mode, toggleTheme, transitionProgress, lightOpacity, darkOpacity],
+    [mode, isLight, tokens, toggleTheme, transitionProgress, lightOpacity, darkOpacity],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

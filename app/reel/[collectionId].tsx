@@ -1,6 +1,6 @@
 import ReelItem from '@/components/ReelItem';
-import { SaveControl } from '@/components/engagement/SaveControl';
-import { ShareControl } from '@/components/engagement/ShareControl';
+import { ContextActions } from '@/components/chrome/ContextActions';
+import { TopBar } from '@/components/chrome/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import {
@@ -25,7 +25,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
  * Focused Reel host — loads Collection on demand, maps to ReelViewModel,
@@ -34,7 +33,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  */
 export default function FocusedReelHost() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { mode } = useThemeMode();
   const isLight = mode === 'titanium';
@@ -147,6 +145,12 @@ export default function FocusedReelHost() {
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#F8FAFC" />
         </View>
+        <TopBar
+          mode="immersive"
+          showBack
+          backAccessibilityLabel="Close reel"
+          onBack={() => router.back()}
+        />
       </View>
     );
   }
@@ -161,6 +165,12 @@ export default function FocusedReelHost() {
             <Text style={{ color: muted, fontWeight: '700' }}>Go back</Text>
           </Pressable>
         </View>
+        <TopBar
+          mode="immersive"
+          showBack
+          backAccessibilityLabel="Close reel"
+          onBack={() => router.back()}
+        />
       </View>
     );
   }
@@ -175,6 +185,12 @@ export default function FocusedReelHost() {
             <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
           </Pressable>
         </View>
+        <TopBar
+          mode="immersive"
+          showBack
+          backAccessibilityLabel="Close reel"
+          onBack={() => router.back()}
+        />
       </View>
     );
   }
@@ -182,29 +198,18 @@ export default function FocusedReelHost() {
   return (
     <View style={styles.root}>
       <ReelItem video={reelVideo} isActive onBuyPress={() => {}} />
-      <View style={[styles.topActions, { paddingTop: insets.top + 8 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          style={styles.backFab}
-          accessibilityRole="button"
-          accessibilityLabel="Close reel"
-        >
-          <Text style={styles.backFabText}>←</Text>
-        </Pressable>
-        <View style={styles.engagementRow}>
-          <SaveControl
-            isSaved={isSaved}
-            pending={savePending}
-            isLight={false}
-            onPress={() => void onSavePress()}
+      <TopBar
+        mode="immersive"
+        showBack
+        backAccessibilityLabel="Close reel"
+        onBack={() => router.back()}
+        trailing={
+          <ContextActions
+            save={{ isSaved, pending: savePending, onPress: () => void onSavePress() }}
+            share={{ onPress: () => void onSharePress(), accessibilityLabel: 'Share collection' }}
           />
-          <ShareControl
-            isLight={false}
-            onPress={() => void onSharePress()}
-            accessibilityLabel="Share collection"
-          />
-        </View>
-      </View>
+        }
+      />
     </View>
   );
 }
@@ -227,34 +232,5 @@ const styles = StyleSheet.create({
   },
   action: {
     padding: 12,
-  },
-  topActions: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 20,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  backFab: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  backFabText: {
-    color: '#F8FAFC',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  engagementRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
   },
 });

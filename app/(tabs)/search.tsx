@@ -12,13 +12,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TopBar } from '@/components/chrome/TopBar';
 import { CollectionTile } from '@/components/collection/CollectionTile';
 import { ProductCard } from '@/components/commerce/ProductCard';
 import { ProductDetailsSheet } from '@/components/commerce/ProductDetailsSheet';
 import { CreatorCard } from '@/components/creator/CreatorCard';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { pageCanvasGradient } from '@/src/theme/tokens';
 import {
   dedupeById,
   mapSearchCollectionCard,
@@ -112,9 +113,7 @@ type ListRow =
 export default function SearchScreen() {
   const router = useRouter();
   const pathname = usePathname();
-  const insets = useSafeAreaInsets();
-  const { mode } = useThemeMode();
-  const isLight = mode === 'titanium';
+  const { tokens, isLight } = useThemeMode();
   const onBuy = useProductBuyHandler();
   const onAddToCart = useProductAddToCartHandler();
 
@@ -139,10 +138,10 @@ export default function SearchScreen() {
   const activeQueryRef = useRef('');
   const prevPathRef = useRef<string | null>(null);
 
-  const text = isLight ? '#1A1A1B' : '#F8FAFC';
-  const muted = isLight ? '#4E5257' : '#AEB8C5';
-  const fieldBg = isLight ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.08)';
-  const fieldBorder = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.14)';
+  const text = tokens.color.text;
+  const muted = tokens.color.textMuted;
+  const fieldBg = tokens.color.surface;
+  const fieldBorder = tokens.color.border;
 
   const resetTypedSearch = useCallback(() => {
     loadGen.current += 1;
@@ -431,16 +430,14 @@ export default function SearchScreen() {
     }
   }
 
-  const bg = isLight
-    ? (['#F3F4F6', '#E5E7EB'] as const)
-    : (['#020617', '#0F172A'] as const);
+  const bg = pageCanvasGradient(tokens);
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
+    <View style={styles.root}>
       <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
+      <TopBar mode="page" title="Search" />
 
       <View style={styles.header}>
-        <Text style={[styles.title, { color: text }]}>Search</Text>
         <TextInput
           value={input}
           onChangeText={(v) => {
@@ -622,11 +619,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     gap: 10,
     zIndex: 2,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.4,
   },
   input: {
     height: 48,

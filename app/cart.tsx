@@ -11,13 +11,16 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TopBar } from '@/components/chrome/TopBar';
 import { ProductCard, ProductDetailsSheet } from '@/components/commerce';
 import { CartPurchaseConfirmModal } from '@/components/commerce/CartPurchaseConfirmModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { softCanvasGradient } from '@/src/theme/tokens';
+import { BAG_COPY, displayBagError } from '@/src/ui/contracts';
+import { bagScreenTitle } from '@/src/ui/chrome';
 import type { CartLine } from '@/src/services/cartApi';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
@@ -47,9 +50,7 @@ function placeholderProduct(line: CartLine): CatalogProductViewModel {
 
 export default function CartScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { mode } = useThemeMode();
-  const isLight = mode === 'titanium';
+  const { tokens, isLight } = useThemeMode();
   const { user, loading: authLoading } = useAuth();
   const {
     items,
@@ -66,6 +67,7 @@ export default function CartScreen() {
 
   const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
   const [detailsVisible, setDetailsVisible] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const confirmTitle = useMemo(() => {
     if (!awaitingConfirmationProductId) return null;
@@ -85,14 +87,15 @@ export default function CartScreen() {
 
   const onRemove = (line: CartLine) => {
     const title = line.product?.title ?? 'this product';
-    Alert.alert('Remove item', `Remove ${title} from your bag?`, [
+    Alert.alert(BAG_COPY.removeFromBag, `Remove ${title} from your Bag?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
         style: 'destructive',
         onPress: () => {
+          setActionError(null);
           void removeItem(line.catalogProductId, 'user_remove').catch(() => {
-            Alert.alert('Error', 'Could not remove this item. Please try again.');
+            setActionError(BAG_COPY.removeError);
           });
         },
       },
@@ -125,7 +128,7 @@ export default function CartScreen() {
           onPress={() => onRemove(item)}
           style={styles.removeBtn}
           accessibilityRole="button"
-          accessibilityLabel={`Remove ${product.title} from cart`}
+          accessibilityLabel={`Remove ${product.title} from Bag`}
         >
           <Text style={{ color: isLight ? '#B91C1C' : '#FCA5A5', fontWeight: '700' }}>Remove</Text>
         </Pressable>
@@ -137,7 +140,7 @@ export default function CartScreen() {
     if (authLoading) {
       return (
         <View style={styles.center}>
-          <ActivityIndicator color={isLight ? '#00AFC0' : '#A855F7'} />
+          <ActivityIndicator color={tokens.color.accent} />
         </View>
       );
     }
@@ -145,14 +148,14 @@ export default function CartScreen() {
     if (!user) {
       return (
         <View style={styles.center}>
-          <Text style={[styles.emptyTitle, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
-            Sign in to view your bag
+          <Text style={[styles.emptyTitle, { color: tokens.color.text }]}>
+            {BAG_COPY.signInTitle}
           </Text>
-          <Text style={[styles.emptySub, { color: isLight ? '#64748B' : '#94A3B8' }]}>
-            Cart is available only for authenticated users.
+          <Text style={[styles.emptySub, { color: tokens.color.textMuted }]}>
+            {BAG_COPY.signInBody}
           </Text>
           <Pressable
-            style={[styles.cta, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
+            style={[styles.cta, { backgroundColor: tokens.color.cta }]}
             onPress={() => router.push('/(tabs)/profile')}
           >
             <Text style={styles.ctaText}>Sign in</Text>
@@ -164,7 +167,7 @@ export default function CartScreen() {
     if (status === 'loading' && items.length === 0) {
       return (
         <View style={styles.center}>
-          <ActivityIndicator color={isLight ? '#00AFC0' : '#A855F7'} />
+          <ActivityIndicator color={tokens.color.accent} />
         </View>
       );
     }
@@ -172,14 +175,14 @@ export default function CartScreen() {
     if (status === 'error' && items.length === 0) {
       return (
         <View style={styles.center}>
-          <Text style={[styles.emptyTitle, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
-            Couldn’t load your bag
+          <Text style={[styles.emptyTitle, { color: tokens.color.text }]}>
+            {BAG_COPY.loadError}
           </Text>
-          <Text style={[styles.emptySub, { color: isLight ? '#64748B' : '#94A3B8' }]}>
-            {errorMessage ?? 'Please try again.'}
+          <Text style={[styles.emptySub, { color: tokens.color.textMuted }]}>
+            {displayBagError(errorMessage, 'Please try again.')}
           </Text>
           <Pressable
-            style={[styles.cta, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
+            style={[styles.cta, { backgroundColor: tokens.color.cta }]}
             onPress={() => void refresh()}
           >
             <Text style={styles.ctaText}>Retry</Text>
@@ -192,17 +195,17 @@ export default function CartScreen() {
       return (
         <View style={styles.center}>
           <Ionicons name="cart-outline" size={48} color={isLight ? '#94A3B8' : '#64748B'} />
-          <Text style={[styles.emptyTitle, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
-            Your bag is empty
+          <Text style={[styles.emptyTitle, { color: tokens.color.text }]}>
+            {BAG_COPY.empty}
           </Text>
-          <Text style={[styles.emptySub, { color: isLight ? '#64748B' : '#94A3B8' }]}>
+          <Text style={[styles.emptySub, { color: tokens.color.textMuted }]}>
             Products you add will show up here.
           </Text>
           <Pressable
-            style={[styles.cta, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
+            style={[styles.cta, { backgroundColor: tokens.color.cta }]}
             onPress={() => router.replace('/(tabs)')}
           >
-            <Text style={styles.ctaText}>Browse</Text>
+            <Text style={styles.ctaText}>{BAG_COPY.continueDiscovering}</Text>
           </Pressable>
         </View>
       );
@@ -219,20 +222,15 @@ export default function CartScreen() {
   })();
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <View style={styles.screen}>
       <LinearGradient
-        colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
+        colors={[...softCanvasGradient(tokens)]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="chevron-back" size={24} color={isLight ? '#0F172A' : '#F8FAFC'} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
-          Bag{itemCount > 0 ? ` · ${itemCount}` : ''}
-        </Text>
-        <View style={{ width: 24 }} />
-      </View>
+      <TopBar mode="page" title={bagScreenTitle(itemCount)} showBack showBag={false} />
+      {actionError ? (
+        <Text style={[styles.actionError, { color: tokens.color.danger }]}>{actionError}</Text>
+      ) : null}
       {body}
       <ProductDetailsSheet
         visible={detailsVisible}
@@ -256,7 +254,7 @@ export default function CartScreen() {
         productTitle={confirmTitle}
         onYes={() => {
           void resolvePurchaseConfirmation(true).catch(() => {
-            Alert.alert('Error', 'Could not update your bag.');
+            setActionError(BAG_COPY.updateError);
           });
         }}
         onNo={() => {
@@ -269,14 +267,6 @@ export default function CartScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  headerTitle: { fontSize: 18, fontWeight: '800' },
   list: { padding: 16, paddingBottom: 40, gap: 16 },
   row: { gap: 8 },
   badge: { fontSize: 12, fontWeight: '700', paddingHorizontal: 4 },
@@ -290,6 +280,13 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
   emptySub: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  actionError: {
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   cta: {
     marginTop: 8,
     paddingHorizontal: 20,

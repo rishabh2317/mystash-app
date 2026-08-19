@@ -23,6 +23,7 @@ import {
 import { registerCartRefreshHandler } from '@/src/services/cartBoundary';
 import { openProductShopping } from '@/src/services/shoppingClick';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
+import { BAG_COPY } from '@/src/ui/contracts';
 
 export type CartStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -79,7 +80,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       setItemCount(snapshot.itemCount);
       setStatus('ready');
     } catch (e) {
-      const message = e instanceof CartApiError ? e.message : 'Could not load cart.';
+      const message = e instanceof CartApiError ? e.message : BAG_COPY.loadError;
       setErrorMessage(message);
       setStatus('error');
     }
@@ -139,7 +140,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         setItems(previous);
         setItemCount(previousCount);
-        setErrorMessage(e instanceof CartApiError ? e.message : 'Could not remove item.');
+        setErrorMessage(e instanceof CartApiError ? e.message : BAG_COPY.removeError);
         await refresh();
         throw e;
       }

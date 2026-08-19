@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { StyleSheet, Text, View } from 'react-native';
 import type { CreatorViewModel } from '@/src/types/creator';
 import { FollowControl } from '@/components/engagement/FollowControl';
+import { useThemeMode } from '@/contexts/ThemeContext';
 
 type Props = {
   creator: CreatorViewModel;
@@ -19,9 +20,10 @@ export function CreatorProfileHeader({
   followPending,
   onFollowPress,
 }: Props) {
+  const { tokens } = useThemeMode();
   const name = creator.displayName?.trim() || `@${creator.username}`;
-  const text = isLight ? '#1A1A1B' : '#F8FAFC';
-  const muted = isLight ? '#4E5257' : '#AEB8C5';
+  const text = tokens.color.text;
+  const muted = tokens.color.textMuted;
 
   return (
     <View style={styles.wrap}>
@@ -33,7 +35,7 @@ export function CreatorProfileHeader({
             style={[
               styles.avatar,
               styles.avatarFallback,
-              { backgroundColor: isLight ? '#E5E7EB' : '#334155' },
+              { backgroundColor: tokens.color.canvasEnd },
             ]}
           >
             <Text style={{ color: text, fontSize: 28, fontWeight: '700' }}>

@@ -6,11 +6,15 @@ import {
   Text,
 } from 'react-native';
 
+import { useThemeMode } from '@/contexts/ThemeContext';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+
 type Props = {
   isFollowing: boolean;
   pending?: boolean;
   disabled?: boolean;
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. */
+  isLight?: boolean;
   labelOverride?: string;
   onPress: () => void;
 };
@@ -19,48 +23,46 @@ export function FollowControl({
   isFollowing,
   pending = false,
   disabled = false,
-  isLight,
   labelOverride,
   onPress,
 }: Props) {
+  const { tokens } = useThemeMode();
+  const [pressed, setPressed] = React.useState(false);
+  const phase = resolveControlPhase({
+    disabled,
+    pending,
+    success: isFollowing,
+    pressed,
+  });
   const label = labelOverride ?? (isFollowing ? 'Following' : 'Follow');
+  const onAccent = !isFollowing && !labelOverride;
+  const spinnerColor = onAccent ? tokens.color.textOnAccent : tokens.color.text;
+  const labelColor = onAccent ? tokens.color.textOnAccent : tokens.color.text;
+
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled || pending}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={({ pressed }) => [
+      accessibilityState={{ disabled: disabled || pending, busy: pending, selected: isFollowing }}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={[
         styles.btn,
-        isFollowing
-          ? {
-              backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
-              borderColor: isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.2)',
-            }
-          : {
-              backgroundColor: isLight ? '#1A1A1B' : '#F8FAFC',
-              borderColor: 'transparent',
-            },
-        { opacity: pressed || pending || disabled ? 0.7 : 1 },
+        {
+          borderRadius: tokens.radius.md,
+          borderWidth: tokens.stroke.hairline,
+          backgroundColor: onAccent ? tokens.color.text : tokens.color.overlay,
+          borderColor: onAccent ? 'transparent' : tokens.color.border,
+          opacity: controlOpacity(phase, tokens.motion.pressOpacity),
+        },
       ]}
     >
       {pending ? (
-        <ActivityIndicator color={isFollowing ? (isLight ? '#1A1A1B' : '#F8FAFC') : isLight ? '#F8FAFC' : '#1A1A1B'} />
+        <ActivityIndicator color={spinnerColor} />
       ) : (
-        <Text
-          style={[
-            styles.label,
-            {
-              color: isFollowing
-                ? isLight
-                  ? '#1A1A1B'
-                  : '#F8FAFC'
-                : isLight
-                  ? '#F8FAFC'
-                  : '#1A1A1B',
-            },
-          ]}
-        >
+        <Text style={[styles.label, { color: labelColor, fontSize: tokens.fontSize.body }]}>
           {label}
         </Text>
       )}
@@ -72,14 +74,11 @@ const styles = StyleSheet.create({
   btn: {
     minWidth: 110,
     height: 40,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
   label: {
-    fontSize: 15,
     fontWeight: '700',
   },
 });

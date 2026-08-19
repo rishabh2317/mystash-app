@@ -1,54 +1,70 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useThemeMode } from '@/contexts/ThemeContext';
+import { BAG_COPY } from '@/src/ui/contracts';
+
 type Props = {
   visible: boolean;
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. */
+  isLight?: boolean;
   productTitle?: string | null;
   onYes: () => void;
   onNo: () => void;
 };
 
+/** Internal name stays Cart*; user-facing copy is Keep in Bag? */
 export function CartPurchaseConfirmModal({
   visible,
-  isLight,
   productTitle,
   onYes,
   onNo,
 }: Props) {
+  const { tokens } = useThemeMode();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onNo}>
-      <View style={styles.backdrop}>
+      <View style={[styles.backdrop, { backgroundColor: tokens.overlay.scrim }]}>
         <View
           style={[
             styles.card,
-            { backgroundColor: isLight ? '#FFFFFF' : '#0F172A' },
+            {
+              backgroundColor: tokens.color.canvasEnd,
+              borderRadius: tokens.radius.xl,
+            },
           ]}
         >
-          <Text style={[styles.title, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
-            Did you buy this product?
-          </Text>
+          <Text style={[styles.title, { color: tokens.color.text }]}>{BAG_COPY.keepInBag}</Text>
           {productTitle ? (
-            <Text style={[styles.subtitle, { color: isLight ? '#475569' : '#94A3B8' }]} numberOfLines={2}>
+            <Text style={[styles.subtitle, { color: tokens.color.textMuted }]} numberOfLines={2}>
               {productTitle}
             </Text>
-          ) : null}
+          ) : (
+            <Text style={[styles.subtitle, { color: tokens.color.textMuted }]}>
+              Did you buy this product?
+            </Text>
+          )}
           <View style={styles.row}>
             <Pressable
               onPress={onNo}
-              style={[styles.btn, { borderColor: isLight ? '#CBD5E1' : '#475569' }]}
+              style={[styles.btn, { borderColor: tokens.color.border, borderRadius: tokens.radius.md }]}
               accessibilityRole="button"
-              accessibilityLabel="No, keep in cart"
+              accessibilityLabel={BAG_COPY.keepInBagAction}
             >
-              <Text style={{ color: isLight ? '#0F172A' : '#F8FAFC', fontWeight: '700' }}>No</Text>
+              <Text style={{ color: tokens.color.text, fontWeight: '700' }}>
+                {BAG_COPY.keepInBagAction}
+              </Text>
             </Pressable>
             <Pressable
               onPress={onYes}
-              style={[styles.btn, styles.yesBtn, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
+              style={[
+                styles.btn,
+                styles.yesBtn,
+                { backgroundColor: tokens.color.cta, borderRadius: tokens.radius.md },
+              ]}
               accessibilityRole="button"
-              accessibilityLabel="Yes, remove from cart"
+              accessibilityLabel={BAG_COPY.removeFromBag}
             >
-              <Text style={{ color: '#fff', fontWeight: '800' }}>Yes</Text>
+              <Text style={{ color: tokens.color.successOn, fontWeight: '800' }}>Remove</Text>
             </Pressable>
           </View>
         </View>
@@ -60,12 +76,10 @@ export function CartPurchaseConfirmModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
     padding: 24,
   },
   card: {
-    borderRadius: 16,
     padding: 20,
     gap: 12,
   },
@@ -76,8 +90,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: 12,
-    borderRadius: 12,
     borderWidth: 1,
+    paddingHorizontal: 8,
   },
   yesBtn: { borderWidth: 0 },
 });

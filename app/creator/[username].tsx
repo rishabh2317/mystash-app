@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -10,12 +9,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ContextActions } from '@/components/chrome/ContextActions';
+import { TopBar } from '@/components/chrome/TopBar';
 import { CreatorProfile } from '@/components/creator/CreatorProfile';
-import { ShareControl } from '@/components/engagement/ShareControl';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { pageCanvasGradient } from '@/src/theme/tokens';
 import { listCreatorCollections } from '@/src/services/collectionApi';
 import { useCreatorFollowHandler } from '@/src/services/creatorFollowOrchestration';
 import { isFollowingCreator } from '@/src/services/engagementApi';
@@ -26,9 +26,7 @@ import type { CreatorViewModel } from '@/src/types/creator';
 
 export default function CreatorProfileScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { mode } = useThemeMode();
-  const isLight = mode === 'titanium';
+  const { tokens, isLight } = useThemeMode();
   const { user } = useAuth();
   const params = useLocalSearchParams<{ username?: string | string[] }>();
   const usernameParam = Array.isArray(params.username) ? params.username[0] : params.username;
@@ -183,37 +181,25 @@ export default function CreatorProfileScreen() {
     }
   }, [creator]);
 
-  const text = isLight ? '#1A1A1B' : '#F8FAFC';
-  const muted = isLight ? '#4E5257' : '#AEB8C5';
-  const bg = isLight
-    ? (['#F3F4F6', '#E5E7EB', '#F9FAFB'] as const)
-    : (['#020617', '#0F172A', '#020617'] as const);
+  const text = tokens.color.text;
+  const muted = tokens.color.textMuted;
+  const bg = [...pageCanvasGradient(tokens), tokens.color.canvas] as const;
 
   return (
     <View style={styles.root}>
       <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
-      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          style={styles.backBtn}
-        >
-          <Ionicons name="chevron-back" size={24} color={text} />
-        </Pressable>
-        <Text style={[styles.topTitle, { color: text }]} numberOfLines={1}>
-          {creator ? `@${creator.username}` : 'Creator'}
-        </Text>
-        {creator ? (
-          <ShareControl
-            isLight={isLight}
-            onPress={() => void onSharePress()}
-            accessibilityLabel="Share creator profile"
-          />
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
-      </View>
+      <TopBar
+        mode="page"
+        title={creator ? `@${creator.username}` : 'Creator'}
+        showBack
+        trailing={
+          creator ? (
+            <ContextActions
+              share={{ onPress: () => void onSharePress(), accessibilityLabel: 'Share creator profile' }}
+            />
+          ) : undefined
+        }
+      />
 
       {profileLoading ? (
         <View style={styles.centered}>
@@ -265,24 +251,6 @@ export default function CreatorProfileScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingBottom: 8,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  topTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '700',
-  },
   centered: {
     flex: 1,
     alignItems: 'center',

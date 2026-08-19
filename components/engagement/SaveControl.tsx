@@ -7,11 +7,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { useThemeMode } from '@/contexts/ThemeContext';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+
 type Props = {
   isSaved: boolean;
   pending?: boolean;
   disabled?: boolean;
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. Kept so call sites stay stable. */
+  isLight?: boolean;
   onPress: () => void;
 };
 
@@ -20,10 +24,17 @@ export function SaveControl({
   isSaved,
   pending = false,
   disabled = false,
-  isLight,
   onPress,
 }: Props) {
-  const color = isLight ? '#1A1A1B' : '#F8FAFC';
+  const { tokens } = useThemeMode();
+  const [pressed, setPressed] = React.useState(false);
+  const phase = resolveControlPhase({
+    disabled,
+    pending,
+    success: isSaved,
+    pressed,
+  });
+  const color = tokens.color.text;
   const label = isSaved ? 'Saved' : 'Save';
 
   return (
@@ -32,11 +43,15 @@ export function SaveControl({
       disabled={disabled || pending}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={({ pressed }) => [
+      accessibilityState={{ disabled: disabled || pending, busy: pending, selected: isSaved }}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={[
         styles.btn,
         {
-          backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
-          opacity: pressed || pending || disabled ? 0.7 : 1,
+          backgroundColor: tokens.color.overlay,
+          borderRadius: tokens.radius.md,
+          opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },
       ]}
     >
@@ -49,7 +64,7 @@ export function SaveControl({
             size={18}
             color={color}
           />
-          <Text style={[styles.label, { color }]}>{label}</Text>
+          <Text style={[styles.label, { color, fontSize: tokens.fontSize.bodyStrong }]}>{label}</Text>
         </>
       )}
     </Pressable>
@@ -59,7 +74,6 @@ export function SaveControl({
 const styles = StyleSheet.create({
   btn: {
     minHeight: 40,
-    borderRadius: 12,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -67,7 +81,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   label: {
-    fontSize: 14,
     fontWeight: '700',
   },
 });

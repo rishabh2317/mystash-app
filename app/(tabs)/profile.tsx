@@ -3,8 +3,10 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import Animated, { Extrapolate, interpolateColor, useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { interpolateColor, useAnimatedStyle } from 'react-native-reanimated';
 
+import { TopBar } from '@/components/chrome/TopBar';
+import { ProfileRow } from '@/components/profile/ProfileRow';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import {
@@ -14,43 +16,13 @@ import {
   parseSaveCollectionIntent,
 } from '@/src/navigation/authIntent';
 import { requestAddToCart } from '@/src/services/cartBoundary';
-import { followCreator, getMyCreatorAnalytics, saveCollection, type CreatorAnalyticsSummary } from '@/src/services/engagementApi';
+import { followCreator, saveCollection } from '@/src/services/engagementApi';
 import { ensureMe, type UserSettingsViewModel } from '@/src/services/userApi';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-
-function ProfileRow({
-  icon,
-  label,
-  value,
-  action,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: string;
-  action?: () => void;
-}) {
-  const { mode } = useThemeMode();
-  const isLight = mode === 'titanium';
-
-  return (
-    <TouchableOpacity activeOpacity={action ? 0.8 : 1} onPress={action} disabled={!action}>
-      <View style={[styles.rowCard, { backgroundColor: isLight ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.08)' }]}>
-        <Ionicons name={icon} size={18} color={isLight ? '#1A1A1B' : '#F8FAFC'} />
-        <View style={styles.rowTextWrap}>
-          <Text style={[styles.rowLabel, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>{label}</Text>
-          <Text style={[styles.rowValue, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>{value}</Text>
-        </View>
-        {action ? (
-          <Ionicons name="open-outline" size={16} color={isLight ? '#4E5257' : '#CBD5E1'} />
-        ) : null}
-      </View>
-    </TouchableOpacity>
-  );
-}
+import { BAG_COPY } from '@/src/ui/contracts';
 
 function ThemeToggleCard() {
-  const { mode, toggleTheme, lightOpacity } = useThemeMode();
-  const isLight = mode === 'titanium';
+  const { toggleTheme, lightOpacity, tokens, isLight } = useThemeMode();
 
   const trackStyle = useAnimatedStyle(() => ({
     backgroundColor: interpolateColor(lightOpacity.value, [0, 1], ['rgba(15,23,42,0.45)', 'rgba(209,213,219,0.9)']),
@@ -66,8 +38,8 @@ function ThemeToggleCard() {
   return (
     <View style={[styles.themeCard, { backgroundColor: isLight ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.08)' }]}>
       <View style={styles.themeTextWrap}>
-        <Text style={[styles.themeTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Appearance</Text>
-        <Text style={[styles.themeSubtitle, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>
+        <Text style={[styles.themeTitle, { color: tokens.color.text }]}>Appearance</Text>
+        <Text style={[styles.themeSubtitle, { color: tokens.color.textMuted }]}>
           {isLight ? 'Industrial Titanium' : 'Deep Space Nebula'}
         </Text>
       </View>
@@ -89,9 +61,8 @@ export default function ProfileScreen() {
     username?: string | string[];
     collectionId?: string | string[];
   }>();
-  const { mode } = useThemeMode();
+  const { tokens, isLight } = useThemeMode();
   const { user, loading, signInWithEmail, signUpWithEmail, signInWithGoogle, signOut } = useAuth();
-  const isLight = mode === 'titanium';
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
@@ -101,8 +72,6 @@ export default function ProfileScreen() {
   const [submitting, setSubmitting] = useState(false);
   const consumedAuthIntentRef = useRef<string | null>(null);
   const [me, setMe] = useState<UserSettingsViewModel | null>(null);
-  const [analytics, setAnalytics] = useState<CreatorAnalyticsSummary | null>(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   useEffect(() => {
     if (!user || loading) {
@@ -121,28 +90,6 @@ export default function ProfileScreen() {
       cancelled = true;
     };
   }, [user, loading]);
-
-  useEffect(() => {
-    if (!user || loading || !me || me.creatorStatus === 'NONE') {
-      setAnalytics(null);
-      return;
-    }
-    let cancelled = false;
-    setAnalyticsLoading(true);
-    getMyCreatorAnalytics()
-      .then((next) => {
-        if (!cancelled) setAnalytics(next);
-      })
-      .catch(() => {
-        if (!cancelled) setAnalytics(null);
-      })
-      .finally(() => {
-        if (!cancelled) setAnalyticsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user, loading, me]);
 
   // OD-12: resume ADD_TO_CART / FOLLOW_CREATOR / SAVE_COLLECTION after successful auth.
   useEffect(() => {
@@ -332,8 +279,11 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.screen, styles.centered]}>
-        <ActivityIndicator size="large" color={isLight ? '#00AFC0' : '#A855F7'} />
+      <View style={{ flex: 1 }}>
+        <TopBar mode="page" title="Profile" />
+        <View style={[styles.screen, styles.centered]}>
+          <ActivityIndicator size="large" color={isLight ? '#00AFC0' : '#A855F7'} />
+        </View>
       </View>
     );
   }
@@ -342,14 +292,19 @@ export default function ProfileScreen() {
     return (
       <View style={styles.screen}>
         <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8', '#D1D1D1'] : ['#0D111F', '#020408']}
+          colors={
+            isLight
+              ? [tokens.color.canvasSoft, tokens.color.canvasSoftEnd, tokens.color.canvasEnd]
+              : [tokens.color.canvasSoft, tokens.color.canvasSoftEnd, tokens.color.canvas]
+          }
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.8, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
+        <TopBar mode="page" title="Profile" />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.name, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Welcome to Mystash</Text>
-          <Text style={[styles.email, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>
+          <Text style={[styles.name, { color: tokens.color.text }]}>Welcome to Mystash</Text>
+          <Text style={[styles.email, { color: tokens.color.textMuted }]}>
             Sign in to manage profile, wishlist, and creator earnings.
           </Text>
 
@@ -430,11 +385,16 @@ export default function ProfileScreen() {
   return (
     <View style={styles.screen}>
       <LinearGradient
-        colors={isLight ? ['#FDFDFD', '#E8E8E8', '#D1D1D1'] : ['#0D111F', '#020408']}
+        colors={
+          isLight
+            ? [tokens.color.canvasSoft, tokens.color.canvasSoftEnd, tokens.color.canvasEnd]
+            : [tokens.color.canvasSoft, tokens.color.canvasSoftEnd, tokens.color.canvas]
+        }
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.8, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
+      <TopBar mode="page" title="Profile" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerBlock}>
@@ -447,8 +407,8 @@ export default function ProfileScreen() {
             style={styles.avatar}
             contentFit="cover"
           />
-          <Text style={[styles.name, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>{profileName}</Text>
-          <Text style={[styles.email, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>{user.email}</Text>
+          <Text style={[styles.name, { color: tokens.color.text }]}>{profileName}</Text>
+          <Text style={[styles.email, { color: tokens.color.textMuted }]}>{user.email}</Text>
           <Text style={[styles.handle, { color: isLight ? '#00AFC0' : '#A855F7' }]}>@{profileHandle}</Text>
         </View>
 
@@ -469,65 +429,29 @@ export default function ProfileScreen() {
         >
           <Ionicons name="sparkles-outline" size={22} color={isLight ? '#00AFC0' : '#C084FC'} />
           <View style={{ flex: 1, paddingLeft: 10 }}>
-            <Text style={[styles.curateTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>{curateCopy.title}</Text>
-            <Text style={[styles.curateSub, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>{curateCopy.sub}</Text>
+            <Text style={[styles.curateTitle, { color: tokens.color.text }]}>{curateCopy.title}</Text>
+            <Text style={[styles.curateSub, { color: tokens.color.textMuted }]}>{curateCopy.sub}</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={isLight ? '#64748B' : '#94A3B8'} />
         </TouchableOpacity>
 
         {me && me.creatorStatus !== 'NONE' ? (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>
-              Analytics
-            </Text>
-            {analyticsLoading && !analytics ? (
-              <ActivityIndicator color={isLight ? '#00AFC0' : '#A855F7'} />
-            ) : analytics ? (
-              <>
-                <ProfileRow
-                  icon="eye-outline"
-                  label="Collection views"
-                  value={String(analytics.totals.views)}
-                />
-                <ProfileRow
-                  icon="people-outline"
-                  label="Followers"
-                  value={String(analytics.totals.followers)}
-                />
-                <ProfileRow
-                  icon="bookmark-outline"
-                  label="Collection saves"
-                  value={String(analytics.totals.saves)}
-                />
-                <ProfileRow
-                  icon="share-outline"
-                  label="Collection shares"
-                  value={String(analytics.totals.shares)}
-                />
-                <ProfileRow
-                  icon="storefront-outline"
-                  label="Shopping redirects"
-                  value={String(analytics.totals.productRedirects)}
-                />
-                {analytics.collections.slice(0, 5).map((c) => (
-                  <ProfileRow
-                    key={c.collectionId}
-                    icon="albums-outline"
-                    label={c.title?.trim() || 'Collection'}
-                    value={`${c.views} views · ${c.saves} saves · ${c.shares} shares · ${c.productRedirects} redirects`}
-                  />
-                ))}
-              </>
-            ) : (
-              <Text style={[styles.curateSub, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>
-                Analytics unavailable right now.
-              </Text>
-            )}
-          </View>
+          <ProfileRow
+            icon="stats-chart-outline"
+            label="Analytics"
+            value="Views, followers, saves, and more"
+            action={() => router.push('/analytics')}
+          />
         ) : null}
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Account</Text>
+          <Text style={[styles.sectionTitle, { color: tokens.color.text }]}>Account</Text>
+          <ProfileRow
+            icon="cart-outline"
+            label="Bag"
+            value={BAG_COPY.view}
+            action={() => router.push('/cart')}
+          />
           <ProfileRow icon="person-outline" label="Username" value={`@${profileHandle}`} />
           <ProfileRow icon="create-outline" label="Creator status" value={creatorStatusLabel} />
           <ProfileRow
@@ -545,7 +469,7 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Social</Text>
+          <Text style={[styles.sectionTitle, { color: tokens.color.text }]}>Social</Text>
           <ProfileRow
             icon="logo-instagram"
             label="Instagram"
@@ -567,7 +491,7 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Session</Text>
+          <Text style={[styles.sectionTitle, { color: tokens.color.text }]}>Session</Text>
           <TouchableOpacity style={[styles.dangerBtn, { backgroundColor: isLight ? '#111827' : '#EF4444' }]} onPress={signOut}>
             <Text style={styles.dangerBtnText}>Sign out</Text>
           </TouchableOpacity>
@@ -658,28 +582,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 6,
     marginBottom: 2,
-  },
-  rowCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  rowTextWrap: {
-    flex: 1,
-  },
-  rowLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  rowValue: {
-    marginTop: 2,
-    fontSize: 14,
-    fontWeight: '700',
   },
   authCard: {
     borderRadius: 16,

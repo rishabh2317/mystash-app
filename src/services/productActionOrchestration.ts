@@ -28,10 +28,13 @@ export function useProductBuyHandler() {
   }, []);
 }
 
+export type AddToCartOutcome = 'added' | 'login' | 'unavailable';
+
 /**
- * Auth-gated Add to Cart boundary.
+ * Auth-gated Add to Bag boundary (Cart API internally).
  * Authenticated → Cart API via boundary / CartContext.
  * Unauthenticated → Login with route intent (OD-12).
+ * Does not Alert on success; callers own pending → success | error visuals.
  */
 export function useProductAddToCartHandler() {
   const { user } = useAuth();
@@ -39,24 +42,25 @@ export function useProductAddToCartHandler() {
   const router = useRouter();
 
   return useCallback(
-    (product: CatalogProductViewModel) => {
+    async (product: CatalogProductViewModel): Promise<AddToCartOutcome> => {
       if (!product.catalogProductId) {
-        Alert.alert('Unavailable', 'This product cannot be added to cart yet.');
-        return;
+        return 'unavailable';
       }
       if (user) {
         const id = product.catalogProductId;
-        void (cart ? cart.addItem(id) : requestAddToCart(id)).catch((e) => {
-          Alert.alert('Cart', e instanceof Error ? e.message : 'Could not add to cart.');
-        });
-        return;
+        try {
+          await (cart ? cart.addItem(id) : requestAddToCart(id));
+          return 'added';
+        } catch {
+          return 'unavailable';
+        }
       }
       const loginHref = buildAddToCartLoginHref(product.catalogProductId);
       if (!loginHref) {
-        Alert.alert('Unavailable', 'This product cannot be added to cart yet.');
-        return;
+        return 'unavailable';
       }
       router.push(loginHref);
+      return 'login';
     },
     [cart, router, user],
   );

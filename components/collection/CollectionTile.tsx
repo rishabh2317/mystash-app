@@ -2,14 +2,17 @@ import React from 'react';
 import { Image } from 'expo-image';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { CollectionViewModel } from '@/src/types/collection';
+import { useThemeMode } from '@/contexts/ThemeContext';
 
 type Props = {
   collection: CollectionViewModel;
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. */
+  isLight?: boolean;
   onPress: (collection: CollectionViewModel) => void;
 };
 
-export function CollectionTile({ collection, isLight, onPress }: Props) {
+export function CollectionTile({ collection, onPress }: Props) {
+  const { tokens } = useThemeMode();
   const title = collection.title?.trim() || 'Untitled collection';
   const creatorLabel =
     collection.creator.displayName?.trim() ||
@@ -23,8 +26,8 @@ export function CollectionTile({ collection, isLight, onPress }: Props) {
       style={({ pressed }) => [
         styles.tile,
         {
-          backgroundColor: isLight ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.06)',
-          borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)',
+          backgroundColor: tokens.color.surface,
+          borderColor: tokens.color.border,
           opacity: pressed ? 0.92 : 1,
         },
       ]}
@@ -40,18 +43,18 @@ export function CollectionTile({ collection, isLight, onPress }: Props) {
           style={[
             styles.thumb,
             styles.thumbFallback,
-            { backgroundColor: isLight ? '#E5E7EB' : '#1E293B' },
+            { backgroundColor: tokens.color.canvasEnd },
           ]}
         />
       )}
       <View style={styles.body}>
-        <Text style={[styles.title, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]} numberOfLines={2}>
+        <Text style={[styles.title, { color: tokens.color.text }]} numberOfLines={2}>
           {title}
         </Text>
-        <Text style={[styles.meta, { color: isLight ? '#6B7280' : '#94A3B8' }]} numberOfLines={1}>
+        <Text style={[styles.meta, { color: tokens.color.textMuted }]} numberOfLines={1}>
           {creatorLabel}
         </Text>
-        <Text style={[styles.meta, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>
+        <Text style={[styles.meta, { color: tokens.color.textMuted }]}>
           {collection.productCount} product{collection.productCount === 1 ? '' : 's'}
         </Text>
       </View>

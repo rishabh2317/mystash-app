@@ -16,7 +16,7 @@ type Props = {
 
 /**
  * Review-only wrapper: generic ProductCard + Include toggle / confidence.
- * Does not put View Product or Include inside ProductCard.
+ * Does not put Buy or Include inside ProductCard.
  */
 export function ReviewProductCard({
   product,

@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 
 import { CollectionPageHeader } from './CollectionPageHeader';
+import { useThemeMode } from '@/contexts/ThemeContext';
 
 type Props = {
   collection: CollectionDetailViewModel;
@@ -61,12 +62,13 @@ export function CollectionScreen({
   onSharePress,
 }: Props) {
   const router = useRouter();
+  const { tokens } = useThemeMode();
   const onAddToCart = useProductAddToCartHandler();
   const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
   const [detailsVisible, setDetailsVisible] = useState(false);
 
-  const text = isLight ? '#1A1A1B' : '#F8FAFC';
-  const muted = isLight ? '#4E5257' : '#AEB8C5';
+  const text = tokens.color.text;
+  const muted = tokens.color.textMuted;
 
   const headerTitle = collection.title?.trim() || 'Collection';
 
@@ -104,7 +106,7 @@ export function CollectionScreen({
   }, [collection.creator.username, router]);
 
   return (
-    <View style={[styles.root, { backgroundColor: isLight ? '#F3F4F6' : '#020617' }]}>
+    <View style={[styles.root, { backgroundColor: tokens.color.canvas }]}>
       <CollectionPageHeader
         title={headerTitle}
         isSaved={isSaved}
@@ -130,7 +132,7 @@ export function CollectionScreen({
               onPress={collection.creator.username ? openCreator : undefined}
               disabled={!collection.creator.username}
             >
-              <Text style={[styles.creator, { color: isLight ? '#0F766E' : '#C084FC' }]}>
+              <Text style={[styles.creator, { color: tokens.color.accent }]}>
                 {creatorLabel}
               </Text>
             </Pressable>
@@ -176,7 +178,7 @@ export function CollectionScreen({
                 accessibilityLabel="Open immersive reel"
                 style={styles.watchBtn}
               >
-                <Text style={[styles.watchBtnText, { color: isLight ? '#0F766E' : '#C084FC' }]}>
+                <Text style={[styles.watchBtnText, { color: tokens.color.accent }]}>
                   Watch reel
                 </Text>
               </Pressable>

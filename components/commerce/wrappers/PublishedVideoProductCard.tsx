@@ -1,4 +1,5 @@
 import React from 'react';
+import type { AddToCartOutcome } from '@/src/services/productActionOrchestration';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { ProductCard, type ProductCardVariant } from '../ProductCard';
 
@@ -8,7 +9,7 @@ export function PublishedVideoProductCard(props: {
   isLight: boolean;
   onPress: (product: CatalogProductViewModel) => void;
   variant?: ProductCardVariant;
-  onAddToCart?: (product: CatalogProductViewModel) => void;
+  onAddToCart?: (product: CatalogProductViewModel) => AddToCartOutcome | Promise<AddToCartOutcome>;
   onBuy?: (product: CatalogProductViewModel) => void;
 }) {
   return <ProductCard {...props} />;

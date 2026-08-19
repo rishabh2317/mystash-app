@@ -18,6 +18,10 @@ import { trackProductEvent } from '@/src/logging/productAnalytics';
 import { MerchantSection } from './MerchantSection';
 import { SpecificationGrid } from './SpecificationGrid';
 import { VerificationBadge } from './VerificationBadge';
+import { useThemeMode } from '@/contexts/ThemeContext';
+import type { AddToCartOutcome } from '@/src/services/productActionOrchestration';
+import { BAG_COPY } from '@/src/ui/contracts';
+import { AddToCartButton } from './AddToCartButton';
 import type { ProductDetailsActionConfig } from './productDetailsActions';
 import { NO_PRODUCT_DETAILS_ACTIONS } from './productDetailsActions';
 
@@ -26,7 +30,8 @@ const SHEET_HEIGHT = Math.round(Dimensions.get('window').height * 0.9);
 type Props = {
   visible: boolean;
   product: CatalogProductViewModel | null;
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. */
+  isLight?: boolean;
   onClose: () => void;
   actions?: ProductDetailsActionConfig;
   /**
@@ -38,19 +43,19 @@ type Props = {
    * Parent owns auth + Cart boundary.
    * Only rendered when provided and catalogProductId is present.
    */
-  onAddToCart?: (product: CatalogProductViewModel) => void;
+  onAddToCart?: (product: CatalogProductViewModel) => AddToCartOutcome | Promise<AddToCartOutcome>;
 };
 
 export function ProductDetailsSheet({
   visible,
   product,
-  isLight,
   onClose,
   actions = NO_PRODUCT_DETAILS_ACTIONS,
   onBuy,
   onAddToCart,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { tokens, isLight } = useThemeMode();
   const [descExpanded, setDescExpanded] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
@@ -97,7 +102,7 @@ export function ProductDetailsSheet({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      <View style={[styles.backdrop, { backgroundColor: tokens.overlay.scrim }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Dismiss" />
         <View
           style={[
@@ -105,11 +110,11 @@ export function ProductDetailsSheet({
             {
               height: SHEET_HEIGHT,
               paddingBottom: Math.max(insets.bottom, 12),
-              backgroundColor: isLight ? '#F8FAFC' : '#0B1220',
+              backgroundColor: tokens.color.canvasSoft,
             },
           ]}
         >
-          <View style={[styles.handle, { backgroundColor: isLight ? '#CBD5E1' : '#475569' }]} />
+          <View style={[styles.handle, { backgroundColor: tokens.color.textMuted }]} />
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scroll}
@@ -136,49 +141,49 @@ export function ProductDetailsSheet({
               ))}
             </ScrollView>
             {gallery.length > 1 ? (
-              <Text style={[styles.dots, { color: isLight ? '#64748B' : '#94A3B8' }]}>
+              <Text style={[styles.dots, { color: tokens.color.textMuted }]}>
                 {galleryIndex + 1} / {gallery.length}
               </Text>
             ) : null}
 
             <View style={styles.content}>
               {product.brand ? (
-                <Text style={[styles.brand, { color: isLight ? '#64748B' : '#94A3B8' }]}>
+                <Text style={[styles.brand, { color: tokens.color.textMuted }]}>
                   {product.brand}
                 </Text>
               ) : null}
-              <Text style={[styles.title, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+              <Text style={[styles.title, { color: tokens.color.text }]}>
                 {product.title}
               </Text>
               <View style={styles.badgeRow}>
                 <VerificationBadge status={product.verificationStatus} isLight={isLight} />
               </View>
-              <Text style={[styles.merchantLine, { color: isLight ? '#475569' : '#CBD5E1' }]}>
+              <Text style={[styles.merchantLine, { color: tokens.color.textMuted }]}>
                 {product.merchant || 'Merchant pending'}
               </Text>
               {showPrice ? (
-                <Text style={[styles.price, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+                <Text style={[styles.price, { color: tokens.color.text }]}>
                   {product.currency ? `${product.currency} ` : ''}
                   {product.price}
                 </Text>
               ) : null}
               {product.availability ? (
-                <Text style={[styles.availability, { color: isLight ? '#64748B' : '#94A3B8' }]}>
+                <Text style={[styles.availability, { color: tokens.color.textMuted }]}>
                   {product.availability}
                 </Text>
               ) : null}
 
               {desc ? (
                 <View style={styles.descBlock}>
-                  <Text style={[styles.sectionTitle, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+                  <Text style={[styles.sectionTitle, { color: tokens.color.text }]}>
                     Description
                   </Text>
-                  <Text style={[styles.desc, { color: isLight ? '#334155' : '#CBD5E1' }]}>
+                  <Text style={[styles.desc, { color: tokens.color.textMuted }]}>
                     {descShown}
                   </Text>
                   {needsReadMore ? (
                     <TouchableOpacity onPress={() => setDescExpanded((v) => !v)}>
-                      <Text style={{ color: isLight ? '#0284C7' : '#38BDF8', fontWeight: '700' }}>
+                      <Text style={{ color: tokens.color.accent, fontWeight: '700' }}>
                         {descExpanded ? 'Show less' : 'Read more'}
                       </Text>
                     </TouchableOpacity>
@@ -191,40 +196,29 @@ export function ProductDetailsSheet({
 
               {/* Future commerce extension points (additive): ratings, offers, coupons, similar products */}
 
-              {showBuy ? (
-                <TouchableOpacity
-                  style={[styles.primaryCta, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
-                  onPress={onViewProduct}
-                  accessibilityRole="button"
-                  accessibilityLabel={`View product ${product.title} in browser`}
-                >
-                  <Text style={styles.primaryCtaText}>View Product</Text>
-                </TouchableOpacity>
-              ) : !canShop && onBuy ? (
-                <TouchableOpacity
-                  style={[styles.primaryCta, { backgroundColor: isLight ? '#94A3B8' : '#475569' }]}
-                  onPress={onViewProduct}
-                  accessibilityRole="button"
-                  accessibilityLabel="Shopping link unavailable"
-                >
-                  <Text style={styles.primaryCtaText}>View Product</Text>
-                </TouchableOpacity>
+              {showAddToCart && onAddToCart ? (
+                <AddToCartButton
+                  product={product}
+                  variant="sheet"
+                  onAddToCart={onAddToCart}
+                />
               ) : null}
 
-              {showAddToCart ? (
+              {showBuy ? (
                 <TouchableOpacity
                   style={[
-                    styles.addToCartCta,
+                    styles.secondaryCta,
                     {
-                      borderColor: isLight ? '#0F172A' : '#F8FAFC',
+                      borderColor: tokens.color.borderStrong,
+                      borderRadius: tokens.radius.md,
                     },
                   ]}
-                  onPress={() => onAddToCart?.(product)}
+                  onPress={onViewProduct}
                   accessibilityRole="button"
-                  accessibilityLabel={`Add ${product.title} to cart`}
+                  accessibilityLabel={`${BAG_COPY.buy} ${product.title}`}
                 >
-                  <Text style={[styles.addToCartText, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
-                    Add to Cart
+                  <Text style={[styles.secondaryCtaText, { color: tokens.color.text }]}>
+                    {BAG_COPY.buy}
                   </Text>
                 </TouchableOpacity>
               ) : null}
@@ -239,7 +233,7 @@ export function ProductDetailsSheet({
                         actions.onReplace?.(product);
                       }}
                     >
-                      <Text style={[styles.secondaryText, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+                      <Text style={[styles.secondaryText, { color: tokens.color.text }]}>
                         Replace Product
                       </Text>
                     </TouchableOpacity>
@@ -254,7 +248,7 @@ export function ProductDetailsSheet({
                         actions.onRefresh?.(product);
                       }}
                     >
-                      <Text style={[styles.secondaryText, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+                      <Text style={[styles.secondaryText, { color: tokens.color.text }]}>
                         Refresh Metadata
                       </Text>
                     </TouchableOpacity>
@@ -267,7 +261,7 @@ export function ProductDetailsSheet({
                         actions.onRemove?.(product);
                       }}
                     >
-                      <Text style={[styles.secondaryText, { color: isLight ? '#B91C1C' : '#FCA5A5' }]}>
+                      <Text style={[styles.secondaryText, { color: tokens.color.danger }]}>
                         Remove Product
                       </Text>
                     </TouchableOpacity>
@@ -319,21 +313,13 @@ const styles = StyleSheet.create({
   descBlock: { marginTop: 18, gap: 6 },
   sectionTitle: { fontSize: 16, fontWeight: '800' },
   desc: { fontSize: 14, lineHeight: 21 },
-  primaryCta: {
-    marginTop: 24,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  primaryCtaText: { color: '#fff', fontWeight: '800', fontSize: 16 },
-  addToCartCta: {
+  secondaryCta: {
     marginTop: 10,
-    borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
   },
-  addToCartText: { fontWeight: '800', fontSize: 16 },
+  secondaryCtaText: { fontWeight: '800', fontSize: 16 },
   secondaryRow: { marginTop: 14, gap: 8 },
   secondaryBtn: {
     paddingVertical: 10,

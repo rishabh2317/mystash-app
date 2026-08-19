@@ -14,6 +14,7 @@ import { CollectionPageHeader } from '@/components/collection/CollectionPageHead
 import { CollectionScreen } from '@/components/collection/CollectionScreen';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { pageCanvasGradient } from '@/src/theme/tokens';
 import { CollectionApiError } from '@/src/services/collectionApi';
 import { useCollectionSaveHandler } from '@/src/services/collectionSaveOrchestration';
 import { loadCollectionDetail } from '@/src/services/collectionHydration';
@@ -25,8 +26,7 @@ import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
 export default function CollectionPageRoute() {
   const router = useRouter();
   const { user } = useAuth();
-  const { mode } = useThemeMode();
-  const isLight = mode === 'titanium';
+  const { tokens, isLight } = useThemeMode();
   const params = useLocalSearchParams<{ collectionId?: string | string[] }>();
   const collectionId = Array.isArray(params.collectionId)
     ? params.collectionId[0]
@@ -121,11 +121,9 @@ export default function CollectionPageRoute() {
     }
   }, [detail]);
 
-  const text = isLight ? '#1A1A1B' : '#F8FAFC';
-  const muted = isLight ? '#4E5257' : '#AEB8C5';
-  const bg = isLight
-    ? (['#F3F4F6', '#E5E7EB'] as const)
-    : (['#020617', '#0F172A'] as const);
+  const text = tokens.color.text;
+  const muted = tokens.color.textMuted;
+  const bg = pageCanvasGradient(tokens);
 
   if (loading) {
     return (
