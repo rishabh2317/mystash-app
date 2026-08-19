@@ -17,6 +17,7 @@ export interface Video {
   embed_url?: string;
   video_title?: string;
   curator_id?: string;
+  collection_id?: string | null;
   products?: Product[];
 }
 

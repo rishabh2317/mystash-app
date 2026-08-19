@@ -1,387 +1,300 @@
-import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { Alert, Dimensions, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React, { useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { ProductCard, ProductDetailsSheet } from '@/components/commerce';
+import { CartPurchaseConfirmModal } from '@/components/commerce/CartPurchaseConfirmModal';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCart } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import type { CartLine } from '@/src/services/cartApi';
+import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
+import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-function CartItem({ item, onRemove, onUpdateQuantity }: { 
-  item: any; 
-  onRemove: (id: string) => void; 
-  onUpdateQuantity: (id: string, quantity: number) => void;
-}) {
-  const handleBuyNow = async () => {
-    try {
-      await Linking.openURL('https://example.com/buy');
-    } catch (error) {
-      Alert.alert('Error', 'Could not open the product link');
-    }
-  };
-
-  const handleRemove = () => {
-    Alert.alert(
-      'Remove Item',
-      `Are you sure you want to remove ${item.name} from your bag?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => onRemove(item.id) }
-      ]
-    );
-  };
-
-  const increaseQuantity = () => {
-    onUpdateQuantity(item.id, item.quantity + 1);
-  };
-
-  const decreaseQuantity = () => {
-    if (item.quantity > 1) {
-      onUpdateQuantity(item.id, item.quantity - 1);
-    }
-  };
-
+function placeholderProduct(line: CartLine): CatalogProductViewModel {
   return (
-    <View style={styles.cartItem}>
-      <Image
-        source={{ uri: item.image }}
-        style={styles.itemImage}
-        contentFit="cover"
-      />
-      
-      <View style={styles.itemInfo}>
-        <Text style={styles.itemName}>{item.name}</Text>
-        <Text style={styles.itemPrice}>{item.price}</Text>
-        
-        <View style={styles.quantityControls}>
-          <TouchableOpacity
-            style={styles.quantityButton}
-            onPress={decreaseQuantity}
-            disabled={item.quantity <= 1}
-          >
-            <Text style={[styles.quantityButtonText, item.quantity <= 1 && styles.disabledText]}>
-              -
-            </Text>
-          </TouchableOpacity>
-          
-          <Text style={styles.quantityText}>{item.quantity}</Text>
-          
-          <TouchableOpacity
-            style={styles.quantityButton}
-            onPress={increaseQuantity}
-          >
-            <Text style={styles.quantityButtonText}>+</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <View style={styles.itemActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.buyButton]}
-            onPress={handleBuyNow}
-          >
-            <Text style={styles.buyButtonText}>Buy</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.actionButton, styles.removeButton]}
-            onPress={handleRemove}
-          >
-            <Text style={styles.removeButtonText}>Remove</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function HeaderWithBag({ title }: { title: string }) {
-  const router = useRouter();
-  const { mode } = useThemeMode();
-  const iconColor = mode === 'titanium' ? '#1A1A1B' : '#F8FAFC';
-  
-  const handleBackPress = () => {
-    router.back();
-  };
-
-  const handleBagPress = () => {
-    router.push('/cart');
-  };
-
-  return (
-    <LinearGradient
-      colors={['rgba(0,0,0,1)', 'rgba(0,0,0,1)', 'rgba(0,0,0,0.5)']}
-      locations={[0, 0.8, 1]}
-      style={styles.header}
-    >
-      <View style={styles.headerContent}>
-        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
-          <Text style={styles.backText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{title}</Text>
-        <TouchableOpacity onPress={handleBagPress} style={styles.bagButton}>
-          <Ionicons name="cart-outline" size={18} color={iconColor} />
-        </TouchableOpacity>
-      </View>
-    </LinearGradient>
+    line.product ?? {
+      id: line.catalogProductId,
+      catalogProductId: line.catalogProductId,
+      title: 'Product unavailable',
+      brand: null,
+      merchant: null,
+      heroImage: CATALOG_IMAGE_PLACEHOLDER,
+      galleryImages: [],
+      description: null,
+      shortDescription: null,
+      specifications: {},
+      verificationStatus: 'UNRESOLVED',
+      availability: line.availability,
+      price: null,
+      currency: null,
+      lastVerifiedAt: null,
+      metadataCompleteness: null,
+    }
   );
 }
 
 export default function CartScreen() {
-  // Temporary mock implementation since CartProvider is removed
-  const items: any[] = [];
-  const removeFromCart = (id: string) => console.log('Remove item:', id);
-  const updateQuantity = (id: string, quantity: number) => console.log('Update quantity:', id, quantity);
-  const getTotalItems = () => 0;
-  const getTotalPrice = () => '$0.00';
-  
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { mode } = useThemeMode();
+  const isLight = mode === 'titanium';
+  const { user, loading: authLoading } = useAuth();
+  const {
+    items,
+    itemCount,
+    status,
+    errorMessage,
+    refresh,
+    removeItem,
+    beginBuy,
+    purchaseConfirmVisible,
+    awaitingConfirmationProductId,
+    resolvePurchaseConfirmation,
+  } = useCart();
 
-  if (items.length === 0) {
+  const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
+  const [detailsVisible, setDetailsVisible] = useState(false);
+
+  const confirmTitle = useMemo(() => {
+    if (!awaitingConfirmationProductId) return null;
     return (
-      <View style={styles.container}>
-        <HeaderWithBag title="My Bag" />
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>Your bag is empty</Text>
-          <TouchableOpacity
-            style={styles.continueShoppingButton}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.continueShoppingText}>Continue Shopping</Text>
-          </TouchableOpacity>
-        </View>
+      items.find((i) => i.catalogProductId === awaitingConfirmationProductId)?.product?.title ??
+      null
+    );
+  }, [awaitingConfirmationProductId, items]);
+
+  const onBuy = async (product: CatalogProductViewModel) => {
+    try {
+      await beginBuy(product);
+    } catch {
+      Alert.alert('Error', 'Could not open the product link.');
+    }
+  };
+
+  const onRemove = (line: CartLine) => {
+    const title = line.product?.title ?? 'this product';
+    Alert.alert('Remove item', `Remove ${title} from your bag?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          void removeItem(line.catalogProductId, 'user_remove').catch(() => {
+            Alert.alert('Error', 'Could not remove this item. Please try again.');
+          });
+        },
+      },
+    ]);
+  };
+
+  const renderItem = ({ item }: { item: CartLine }) => {
+    const product = placeholderProduct(item);
+    const canBuy = item.availability === 'AVAILABLE' && !!product.catalogProductId;
+    return (
+      <View style={styles.row}>
+        <ProductCard
+          product={product}
+          isLight={isLight}
+          variant="standard"
+          onPress={(p) => {
+            setDetailsProduct(p);
+            setDetailsVisible(true);
+          }}
+          onBuy={canBuy ? onBuy : undefined}
+        />
+        {item.availability !== 'AVAILABLE' ? (
+          <Text style={[styles.badge, { color: isLight ? '#B45309' : '#FBBF24' }]}>
+            {item.availability === 'NO_DESTINATION'
+              ? 'Shopping link unavailable'
+              : 'Product unavailable'}
+          </Text>
+        ) : null}
+        <Pressable
+          onPress={() => onRemove(item)}
+          style={styles.removeBtn}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${product.title} from cart`}
+        >
+          <Text style={{ color: isLight ? '#B91C1C' : '#FCA5A5', fontWeight: '700' }}>Remove</Text>
+        </Pressable>
       </View>
     );
-  }
+  };
+
+  const body = (() => {
+    if (authLoading) {
+      return (
+        <View style={styles.center}>
+          <ActivityIndicator color={isLight ? '#00AFC0' : '#A855F7'} />
+        </View>
+      );
+    }
+
+    if (!user) {
+      return (
+        <View style={styles.center}>
+          <Text style={[styles.emptyTitle, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+            Sign in to view your bag
+          </Text>
+          <Text style={[styles.emptySub, { color: isLight ? '#64748B' : '#94A3B8' }]}>
+            Cart is available only for authenticated users.
+          </Text>
+          <Pressable
+            style={[styles.cta, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
+            onPress={() => router.push('/(tabs)/profile')}
+          >
+            <Text style={styles.ctaText}>Sign in</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    if (status === 'loading' && items.length === 0) {
+      return (
+        <View style={styles.center}>
+          <ActivityIndicator color={isLight ? '#00AFC0' : '#A855F7'} />
+        </View>
+      );
+    }
+
+    if (status === 'error' && items.length === 0) {
+      return (
+        <View style={styles.center}>
+          <Text style={[styles.emptyTitle, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+            Couldn’t load your bag
+          </Text>
+          <Text style={[styles.emptySub, { color: isLight ? '#64748B' : '#94A3B8' }]}>
+            {errorMessage ?? 'Please try again.'}
+          </Text>
+          <Pressable
+            style={[styles.cta, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
+            onPress={() => void refresh()}
+          >
+            <Text style={styles.ctaText}>Retry</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    if (itemCount === 0) {
+      return (
+        <View style={styles.center}>
+          <Ionicons name="cart-outline" size={48} color={isLight ? '#94A3B8' : '#64748B'} />
+          <Text style={[styles.emptyTitle, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+            Your bag is empty
+          </Text>
+          <Text style={[styles.emptySub, { color: isLight ? '#64748B' : '#94A3B8' }]}>
+            Products you add will show up here.
+          </Text>
+          <Pressable
+            style={[styles.cta, { backgroundColor: isLight ? '#0EA5E9' : '#A855F7' }]}
+            onPress={() => router.replace('/(tabs)')}
+          >
+            <Text style={styles.ctaText}>Browse</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={items}
+        keyExtractor={(line) => line.cartItemId}
+        contentContainerStyle={styles.list}
+        renderItem={renderItem}
+      />
+    );
+  })();
 
   return (
-    <View style={styles.container}>
-      <HeaderWithBag title="My Bag" />
-      
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.itemsContainer}>
-          {items.map((item) => (
-            <CartItem
-              key={item.id}
-              item={item}
-              onRemove={removeFromCart}
-              onUpdateQuantity={updateQuantity}
-            />
-          ))}
-        </View>
-      </ScrollView>
-      
-      <View style={styles.footer}>
-        <View style={styles.summary}>
-          <Text style={styles.summaryText}>
-            Total ({getTotalItems()} items): {getTotalPrice()}
-          </Text>
-        </View>
-        
-        <TouchableOpacity style={styles.checkoutButton}>
-          <Text style={styles.checkoutButtonText}>Proceed to Checkout</Text>
-        </TouchableOpacity>
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      <LinearGradient
+        colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="chevron-back" size={24} color={isLight ? '#0F172A' : '#F8FAFC'} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>
+          Bag{itemCount > 0 ? ` · ${itemCount}` : ''}
+        </Text>
+        <View style={{ width: 24 }} />
       </View>
+      {body}
+      <ProductDetailsSheet
+        visible={detailsVisible}
+        product={detailsProduct}
+        isLight={isLight}
+        onClose={() => setDetailsVisible(false)}
+        onBuy={
+          detailsProduct &&
+          items.find((i) => i.catalogProductId === detailsProduct.catalogProductId)
+            ?.availability === 'AVAILABLE'
+            ? async (p) => {
+                setDetailsVisible(false);
+                await onBuy(p);
+              }
+            : undefined
+        }
+      />
+      <CartPurchaseConfirmModal
+        visible={purchaseConfirmVisible}
+        isLight={isLight}
+        productTitle={confirmTitle}
+        onYes={() => {
+          void resolvePurchaseConfirmation(true).catch(() => {
+            Alert.alert('Error', 'Could not update your bag.');
+          });
+        }}
+        onNo={() => {
+          void resolvePurchaseConfirmation(false);
+        }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-  },
+  screen: { flex: 1 },
   header: {
-    paddingTop: 50,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-  },
-  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backText: {
-    fontSize: 20,
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  bagButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bagIcon: {
-    fontSize: 18,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  placeholder: {
-    width: 40,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  itemsContainer: {
-    padding: 20,
-  },
-  cartItem: {
-    flexDirection: 'row',
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    marginBottom: 16,
-    padding: 16,
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  itemImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    backgroundColor: '#f5f5f5',
-  },
-  itemInfo: {
-    flex: 1,
-    marginLeft: 16,
-    justifyContent: 'space-between',
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000000',
-    marginBottom: 4,
-  },
-  itemPrice: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000000',
-    marginBottom: 12,
-  },
-  quantityControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  quantityButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#f5f5f5',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quantityButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000000',
-  },
-  disabledText: {
-    color: '#cccccc',
-  },
-  quantityText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000000',
-    marginHorizontal: 16,
-  },
-  itemActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  buyButton: {
-    backgroundColor: '#000000',
-  },
-  removeButton: {
-    backgroundColor: '#f5f5f5',
-    borderWidth: 1,
-    borderColor: '#000000',
-  },
-  buyButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#ffffff',
-  },
-  removeButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000000',
-  },
-  footer: {
-    backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    padding: 20,
-    paddingBottom: 40,
-  },
-  summary: {
-    marginBottom: 16,
-  },
-  summaryText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000000',
-    textAlign: 'center',
-  },
-  checkoutButton: {
-    backgroundColor: '#000000',
-    paddingVertical: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  checkoutButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ffffff',
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 40,
-  },
-  emptyText: {
-    fontSize: 18,
-    color: '#666666',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  continueShoppingButton: {
-    backgroundColor: '#000000',
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 8,
   },
-  continueShoppingText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ffffff',
+  headerTitle: { fontSize: 18, fontWeight: '800' },
+  list: { padding: 16, paddingBottom: 40, gap: 16 },
+  row: { gap: 8 },
+  badge: { fontSize: 12, fontWeight: '700', paddingHorizontal: 4 },
+  removeBtn: { alignSelf: 'flex-start', paddingHorizontal: 4, paddingVertical: 4 },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    gap: 10,
   },
+  emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
+  emptySub: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  cta: {
+    marginTop: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  ctaText: { color: '#fff', fontWeight: '800' },
 });

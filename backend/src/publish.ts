@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import { createSupabaseAdmin, createSupabaseUserClient } from './supabase';
 import { detectPlatform, extractYouTubeVideoId } from './pipeline/detect';
@@ -7,6 +8,20 @@ import { enqueueProductResolve } from './product-intelligence/jobs/productResolv
 import { resolveSelectedDraftProducts } from './publishResolveDrafts';
 import { logger } from './logger';
 import { validHttpUrl } from './shopping/urlValidation';
+import { createCollectionService } from './collection/factory';
+import {
+  ensureCollectionLinkedToIngest,
+} from './collection/ingestBridge';
+import { createCatalogService } from './catalog/factory';
+import { composeCollectionTagRemaps } from './catalog/ports';
+import { createCollectionTagRemapPort } from './collection/catalogRemap';
+import { createCartItemRemapPort, createCartService } from './cart/factory';
+import {
+  assertIndependentVideoAndCollectionIds,
+  buildVideoProductInserts,
+  resolvePublishVideoId,
+  type VideoProductInsertDraft,
+} from './publishVideoProjection';
 
 export async function handlePublishIngest(req: Request, res: Response): Promise<void> {
   try {
@@ -27,6 +42,15 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
     }
 
     const admin = createSupabaseAdmin();
+    const collectionService = createCollectionService(admin);
+    const cartService = createCartService(admin);
+    const catalogService = createCatalogService(
+      admin,
+      composeCollectionTagRemaps(
+        createCollectionTagRemapPort(collectionService),
+        createCartItemRemapPort(cartService),
+      ),
+    );
 
     const body = req.body as {
       ingest_id?: string;
@@ -44,7 +68,9 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
 
     const { data: ingest, error: ingErr } = await admin
       .from('ingest_requests')
-      .select('id, user_id, source_url, platform, status, video_title, thumbnail, stash_score')
+      .select(
+        'id, user_id, source_url, platform, status, video_title, thumbnail, stash_score, collection_id',
+      )
       .eq('id', ingestId)
       .maybeSingle();
 
@@ -58,11 +84,29 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       return;
     }
 
+    const authUser = {
+      id: user.id,
+      email: user.email,
+      user_metadata: user.user_metadata as Record<string, unknown>,
+    };
+
     if (body.reject_all) {
       await admin
         .from('ingest_requests')
         .update({ status: 'rejected', updated_at: new Date().toISOString() })
         .eq('id', ingestId);
+
+      if (ingest.collection_id) {
+        try {
+          await collectionService.reject({
+            collectionId: String(ingest.collection_id),
+            userId: user.id,
+          });
+        } catch (e) {
+          logger.warn({ err: e, ingestId }, 'publish.collection_reject_failed');
+        }
+      }
+
       await admin.from('moderation_actions').insert({
         ingest_request_id: ingestId,
         user_id: user.id,
@@ -70,6 +114,16 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
         meta: {},
       });
       res.json({ ok: true });
+      return;
+    }
+
+    if (ingest.status === 'failed' || ingest.status === 'processing') {
+      res.status(409).json({
+        error:
+          ingest.status === 'failed'
+            ? 'This ingest failed. Retry the source URL from Create — do not publish a failed Collection.'
+            : 'Extraction is still running. Wait until review is ready before publishing.',
+      });
       return;
     }
 
@@ -123,36 +177,63 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       user.email?.split('@')[0] ||
       'curator';
 
-    const { data: videoRow, error: vErr } = await admin
-      .from('videos')
-      .insert({
-        url: sourceUrl,
-        thumbnail: thumb,
-        creator_name: handle,
-        stash_score: Number(ingest.stash_score) || 4.5,
-        product_name: first.name,
-        embed_url: embedUrl,
-        video_title: (ingest.video_title as string) || first.name,
-        curator_id: `@${handle}`,
-      })
-      .select('id')
-      .single();
-
-    if (vErr || !videoRow) {
-      res.status(500).json({ error: 'Failed to create video', detail: vErr?.message });
-      return;
-    }
-
-    const videoId = videoRow.id as string;
-    const backgroundResolve = getProductIntelligenceConfig().backgroundResolve;
-
-    // Validation only: name required. External/catalog failures must not block publish.
     for (const d of drafts) {
       if (!String(d.name ?? '').trim()) {
         res.status(400).json({ error: 'Invalid draft product: missing name' });
         return;
       }
     }
+
+    let collectionId: string;
+    try {
+      collectionId = await ensureCollectionLinkedToIngest(admin, {
+        user: authUser,
+        ingestId,
+        sourceUrl,
+        platform,
+        title: (ingest.video_title as string) || first.name,
+        thumbnailUrl: thumb,
+        existingCollectionId: (ingest.collection_id as string) ?? null,
+        statusHint: 'ready_for_review',
+      });
+    } catch (e) {
+      logger.error({ err: e, ingestId }, 'publish.collection_ensure_failed');
+      res.status(500).json({ error: 'Could not prepare collection', detail: (e as Error).message });
+      return;
+    }
+
+    // Sync selected drafts into collection tags before publish.
+    try {
+      const { syncCollectionFromIngestDrafts } = await import('./collection/ingestBridge');
+      await syncCollectionFromIngestDrafts(admin, {
+        ingestId,
+        collectionId,
+        status: 'ready_for_review',
+        title: (ingest.video_title as string) || first.name,
+        thumbnailUrl: thumb,
+      });
+    } catch (e) {
+      logger.warn({ err: e, ingestId, collectionId }, 'publish.collection_tag_sync_failed');
+    }
+
+    let publishedCollection;
+    try {
+      publishedCollection = await collectionService.publish({
+        collectionId,
+        userId: user.id,
+        user: authUser,
+        visibility: 'public',
+        includeExternalIds: selected,
+      });
+    } catch (e) {
+      const msg = (e as Error).message ?? 'Publish failed';
+      const code = (e as { statusCode?: number }).statusCode ?? 400;
+      res.status(code).json({ error: msg });
+      return;
+    }
+
+    const newVideoId = crypto.randomUUID();
+    const backgroundResolve = getProductIntelligenceConfig().backgroundResolve;
 
     const catalogIds = [
       ...new Set(
@@ -183,41 +264,40 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       }
     }
 
-    const productInserts = [];
+    const productDrafts: VideoProductInsertDraft[] = [];
     for (let i = 0; i < drafts.length; i++) {
       const d = drafts[i]!;
       let cat: CatalogRow | undefined = d.catalog_product_id
         ? catalogById.get(d.catalog_product_id)
         : undefined;
 
-      // Guarantee catalog SoT before publish — create UNRESOLVED placeholder if missing.
       if (!cat) {
-        const { data: created, error: cErr } = await admin
-          .from('catalog_products')
-          .insert({
-            canonical_slug: `publish-${d.id}`.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        try {
+          const created = await catalogService.ensureUnresolvedPlaceholder({
+            draftId: d.id,
             name: d.name,
-            normalized_name: d.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(),
-            image_url: d.image,
-            merchant_url: d.merchant_url,
-            preferred_shopping_url: d.merchant_url,
-            shopping_provider: d.merchant_url ? 'merchant' : null,
+            imageUrl: d.image,
+            merchantUrl: d.merchant_url,
             price: d.price,
-            status: 'ACTIVE',
-            verification_status: 'UNRESOLVED',
-            verification_source: 'publish_placeholder',
-            metadata: { source: 'publish_ensure_catalog' },
-            updated_at: new Date().toISOString(),
-          })
-          .select(
-            'id, name, price, image_url, merchant, merchant_url, preferred_shopping_url, shopping_provider, verification_status',
-          )
-          .single();
-        if (cErr || !created) {
-          res.status(500).json({ error: 'Could not persist catalog product', detail: cErr?.message });
+          });
+          cat = {
+            id: created.id,
+            name: created.name,
+            price: created.price,
+            image_url: created.imageUrl,
+            merchant: created.merchant,
+            merchant_url: created.merchantUrl,
+            preferred_shopping_url: created.preferredShoppingUrl,
+            shopping_provider: created.shoppingProvider,
+            verification_status: created.verificationStatus,
+          };
+        } catch (e) {
+          res.status(500).json({
+            error: 'Could not persist catalog product',
+            detail: e instanceof Error ? e.message : String(e),
+          });
           return;
         }
-        cat = created as CatalogRow;
         catalogById.set(cat.id, cat);
         await admin
           .from('ingest_draft_products')
@@ -231,18 +311,15 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       }
 
       const merchantUrl = validHttpUrl(cat.merchant_url) ?? validHttpUrl(d.merchant_url);
-      // Prefer catalog commerce destination when present; never overwrite with merchantUrl.
       const preferredShoppingUrl =
         validHttpUrl(cat.preferred_shopping_url) ?? merchantUrl;
       if (merchantUrl && !validHttpUrl(cat.preferred_shopping_url)) {
-        await admin
-          .from('catalog_products')
-          .update({
-            preferred_shopping_url: preferredShoppingUrl,
-            shopping_provider: cat.shopping_provider ?? 'merchant',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', cat.id);
+        await catalogService.applyShoppingProjection(cat.id, {
+          preferredShoppingUrl,
+          shoppingProvider: cat.shopping_provider ?? 'merchant',
+        });
+        cat.preferred_shopping_url = preferredShoppingUrl;
+        cat.shopping_provider = cat.shopping_provider ?? 'merchant';
       }
 
       const resolutionStatus =
@@ -252,14 +329,11 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
           ? cat.verification_status
           : 'UNRESOLVED';
 
-      // Denormalized cache on video_products mirrors catalog for offline; UI reads catalog join.
-      productInserts.push({
-        video_id: videoId,
+      productDrafts.push({
         name: cat.name,
         price: cat.price || d.price || '—',
         image: cat.image_url || d.image || 'https://picsum.photos/seed/vp/400/400',
         merchant_url: merchantUrl,
-        // This column is affiliate-only. ShoppingResolver handles merchant fallback.
         affiliate_url: null,
         provider: cat.merchant || d.provider || 'catalog',
         sort_order: i,
@@ -267,6 +341,70 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
         resolution_status: resolutionStatus,
       });
     }
+
+    // Dual-write Home Feed video with independent ID + collection_id FK.
+    const { data: existingVideo } = await admin
+      .from('videos')
+      .select('id')
+      .eq('collection_id', collectionId)
+      .maybeSingle();
+
+    const { videoId, shouldInsertVideo } = resolvePublishVideoId({
+      existingVideoId: existingVideo?.id ?? null,
+      newVideoId,
+    });
+    assertIndependentVideoAndCollectionIds(videoId, collectionId);
+
+    const videoRow = {
+      url: sourceUrl,
+      thumbnail: thumb,
+      creator_name: handle,
+      stash_score: Number(publishedCollection.qualityScore ?? ingest.stash_score) || 4.5,
+      product_name: first.name,
+      embed_url: embedUrl,
+      video_title: (ingest.video_title as string) || first.name,
+      curator_id: `@${handle}`,
+      collection_id: collectionId,
+    };
+
+    if (shouldInsertVideo) {
+      const { error: vErr } = await admin.from('videos').insert({
+        id: videoId,
+        ...videoRow,
+      });
+
+      if (vErr) {
+        logger.error({ err: vErr, videoId, collectionId }, 'publish.video_dual_write_failed');
+        res.status(500).json({
+          error: 'Failed to create video',
+          detail: vErr.message,
+          collectionId,
+        });
+        return;
+      }
+    } else {
+      const { error: vErr } = await admin.from('videos').update(videoRow).eq('id', videoId);
+      if (vErr) {
+        logger.error({ err: vErr, videoId, collectionId }, 'publish.video_dual_write_update_failed');
+        res.status(500).json({
+          error: 'Failed to update video',
+          detail: vErr.message,
+          collectionId,
+        });
+        return;
+      }
+
+      const { error: clearErr } = await admin.from('video_products').delete().eq('video_id', videoId);
+      if (clearErr) {
+        res.status(500).json({
+          error: 'Failed to reset video products',
+          detail: clearErr.message,
+        });
+        return;
+      }
+    }
+
+    const productInserts = buildVideoProductInserts(videoId, productDrafts);
 
     const { data: inserted, error: vpErr } = await admin
       .from('video_products')
@@ -278,7 +416,6 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       return;
     }
 
-    // Background resolve for UNRESOLVED published products (never blocks publish).
     for (let i = 0; i < drafts.length; i++) {
       const d = drafts[i]!;
       const row = inserted?.[i];
@@ -304,6 +441,7 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       .update({
         status: 'published',
         video_id: videoId,
+        collection_id: collectionId,
         updated_at: new Date().toISOString(),
       })
       .eq('id', ingestId);
@@ -312,10 +450,10 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       ingest_request_id: ingestId,
       user_id: user.id,
       action: 'publish',
-      meta: { video_id: videoId, product_count: drafts.length },
+      meta: { video_id: videoId, collection_id: collectionId, product_count: drafts.length },
     });
 
-    res.json({ ok: true, videoId });
+    res.json({ ok: true, videoId, collectionId });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message ?? 'Server error' });
   }

@@ -1,6 +1,7 @@
 import ReelItem from '@/components/ReelItem';
 import { ThemedText } from '@/components/themed-text';
 import type { Video } from '@/src/mocks/videos';
+import { recordCollectionViewOnce } from '@/src/services/collectionViewTracking';
 import { subscribeFeedReload } from '@/src/services/feedRefresh';
 import { openProductShopping } from '@/src/services/shoppingClick';
 import { fetchVideos } from '@/src/services/supabase';
@@ -96,6 +97,19 @@ export default function HomeScreen() {
       void loadFromSupabase({ showFullScreenSpinner: false });
     });
   }, [loadFromSupabase]);
+
+  /** Same Collection view path as /collection and /reel — identity is video.collection_id only. */
+  useEffect(() => {
+    const video = videos[activeIndex];
+    if (!video) return;
+    const collectionId = video.collection_id?.trim();
+    if (!collectionId) return;
+    recordCollectionViewOnce({
+      collectionId,
+      creatorId: video.curator_id ?? null,
+      surface: 'home_reel',
+    });
+  }, [activeIndex, videos]);
 
   const onViewableItemsChanged = useRef(({ changed, viewableItems }: any) => {
     if (changed.length > 0) {

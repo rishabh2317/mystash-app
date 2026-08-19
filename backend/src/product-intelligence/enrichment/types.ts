@@ -32,6 +32,8 @@ export type MerchantEnrichmentInput = {
   categoryHint?: string | null;
   ingestId: string;
   traceId: string;
+  /** When false, a name/price/image-only canonical cache row is not treated as complete. */
+  acceptPartialCache?: boolean;
 };
 
 export type MerchantEnrichmentResult =

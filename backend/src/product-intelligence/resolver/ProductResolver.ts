@@ -8,18 +8,13 @@ import type {
   VerificationStatus,
 } from '../domain/types';
 import type {
-  CatalogRepository,
   DraftUpdater,
   MatchHistoryWriter,
 } from '../interfaces/CatalogRepository';
 import type { SearchStrategy } from '../interfaces/ProductSearchProvider';
-import { LocalCatalogSearch } from '../catalog/LocalCatalogSearch';
 import { MatchScorer } from '../matcher/MatchScorer';
 import { ProductNormalizer } from '../normalizer/ProductNormalizer';
-import {
-  mergeEnrichedCandidates,
-  validPriceValue,
-} from '../enrichment/MetadataMergeService';
+import { mergeEnrichedCandidates } from '../enrichment/MetadataMergeService';
 import { emitPiEvent } from '../observability';
 import { scoreProductSpecificity } from '../specificity/ProductSpecificityScorer';
 import { buildProductSearchQuery } from '../search/ProductSearchQueryBuilder';
@@ -29,7 +24,14 @@ import {
   pickVerificationMerchantUrl,
   resolveShoppingDestination,
 } from '../../shopping/ShoppingDestinationResolver';
+import {
+  applyShoppingSelectionPrecedence,
+} from '../../shopping/shoppingConfig';
+import { resolveShoppingSelectionForProduct } from '../../shopping/ShoppingConfiguration';
+import { decideProductVerification } from '../verification/verificationPolicy';
 import { ingestLog } from '../../pipeline/ingestLog';
+import type { CatalogService } from '../../catalog/CatalogService';
+import { merchantUrlsMatch } from '../search/directUrlIdentity';
 
 function aiFieldProvenance(provider = 'ai'): Record<string, { source: string; provider?: string }> {
   return {
@@ -58,16 +60,25 @@ function logCandidateDecision(
   },
 ): void {
   const scores = scoreCandidateDecisions(candidate);
+  const classification = classifyCandidatePage({
+    url: candidate.merchantUrl,
+    sourceTier: candidate.sourceTier,
+    title: candidate.title,
+  });
   ingestLog('info', 'candidate.decision', {
     svc: 'product-intelligence',
     merchant: candidate.merchant ?? sourceHost(candidate.merchantUrl),
-    candidateType: candidate.candidatePageType ?? 'retailer_pdp',
+    sourceType: candidate.sourceType ?? classification.sourceType,
+    pageType: candidate.pageType ?? classification.pageType,
     metadataScore: candidate.metadataScore ?? scores.metadataScore,
     shoppingScore: decision.shoppingScore ?? candidate.shoppingScore ?? scores.shoppingScore,
     sourceAuthority: candidate.sourceAuthority ?? scores.sourceAuthority,
     pdpScore: candidate.pdpScore ?? 0,
     metadataCompleteness: scores.metadataCompleteness,
-    shoppingEligible: candidate.shoppingEligible ?? false,
+    metadataCapable:
+      candidate.capabilities?.metadata ?? classification.capabilities.metadata,
+    commerceCapable:
+      candidate.capabilities?.commerce ?? classification.capabilities.commerce,
     selectedForMetadata: decision.selectedForMetadata,
     selectedForShopping: decision.selectedForShopping,
     rejectionReason: decision.rejectionReason,
@@ -84,20 +95,17 @@ export type BackgroundResolveEnqueuer = {
 
 export class ProductResolver {
   private readonly normalizer = new ProductNormalizer();
-  private readonly local: LocalCatalogSearch;
   private readonly scorer = new MatchScorer();
 
   constructor(
-    private readonly catalog: CatalogRepository,
+    private readonly catalog: CatalogService,
     private readonly search: SearchStrategy,
     private readonly drafts: DraftUpdater,
     private readonly history: MatchHistoryWriter,
     private readonly cfg: ProductIntelligenceConfig,
     private readonly background: BackgroundResolveEnqueuer | null,
     private readonly ingestId: string,
-  ) {
-    this.local = new LocalCatalogSearch(catalog);
-  }
+  ) {}
 
   async resolveIngest(drafts: AiDraftInput[]): Promise<ResolveDraftResult[]> {
     const out: ResolveDraftResult[] = [];
@@ -170,7 +178,7 @@ export class ProductResolver {
       );
     }
 
-    const localHit = await this.local.search(norm);
+    const localHit = await this.catalog.localSearch(norm);
     if (
       localHit &&
       localHit.score >= this.cfg.catalogHitMinScore &&
@@ -181,10 +189,32 @@ export class ProductResolver {
         via: localHit.via,
         score: localHit.score,
       });
-      const localProduct = await this.catalog.update(localHit.product.id, {
+      const hit = localHit.product;
+      const localProduct = await this.catalog.createOrUpdateFromResolve(hit.id, {
+        name: hit.name,
+        normalizedName: hit.normalizedName,
+        canonicalSlug: hit.canonicalSlug,
+        brand: hit.brand,
+        model: hit.model,
+        category: hit.category,
+        description: hit.description,
+        imageUrl: hit.imageUrl,
+        merchant: hit.merchant,
+        merchantUrl: hit.merchantUrl,
+        preferredShoppingUrl: hit.preferredShoppingUrl,
+        shoppingProvider: hit.shoppingProvider,
+        currency: hit.currency,
+        price: hit.price,
+        verificationStatus: 'VERIFIED',
+        verificationProvider: hit.verificationProvider ?? 'catalog',
+        verificationSource: 'catalog',
+        verificationVersion: this.cfg.verificationVersion,
+        aiConfidence: hit.aiConfidence,
+        matchConfidence: localHit.score,
+        verificationConfidence: hit.verificationConfidence,
         metadata: {
           field_provenance:
-            localHit.product.metadata.field_provenance ?? {
+            hit.metadata.field_provenance ?? {
               title: { source: 'catalog' },
               brand: { source: 'catalog' },
               price: { source: 'catalog' },
@@ -223,7 +253,13 @@ export class ProductResolver {
       reason: builtQuery.reasons.join(','),
       specificityScore: specificity.score,
     });
-    const searchResult = await this.search.search(builtQuery.query);
+    const creatorUrl = draft.creatorSuppliedUrl ? draft.merchantUrl ?? null : null;
+    const searchResult = await this.search.search(
+      builtQuery.query,
+      creatorUrl
+        ? { seedMerchantUrl: creatorUrl, skipDiscoveryIfSeedStrong: true }
+        : undefined,
+    );
 
     if (searchResult.kind === 'Failed') {
       emitPiEvent('search.failed', {
@@ -293,7 +329,7 @@ export class ProductResolver {
         model: norm.model,
         category: norm.category,
         imageUrl: norm.imageHint,
-        merchantUrl: null,
+        merchantUrl: creatorUrl ?? null,
         price: norm.priceHint,
         currency: norm.currencyHint,
         verificationStatus: 'UNVERIFIED',
@@ -331,16 +367,18 @@ export class ProductResolver {
     const metadataCandidates = searchResult.candidates.filter(
       (c) =>
         c.enrichmentSucceeded === true &&
-        this.scorer.score(norm, c).score >= this.cfg.verificationMatchMin,
+        (Boolean(creatorUrl && merchantUrlsMatch(c.merchantUrl, creatorUrl)) ||
+          this.scorer.score(norm, c).score >= this.cfg.verificationMatchMin),
     );
     const commerceCandidates = metadataCandidates.filter(
       (c) => {
-        const usage = classifyCandidatePage({
+        const classification = classifyCandidatePage({
           url: c.merchantUrl,
           sourceTier: c.sourceTier,
+          title: c.title,
         });
         return (
-          (c.shoppingEligible ?? usage.shoppingEligible) &&
+          (c.capabilities ?? classification.capabilities).commerce &&
           c.pdpVerdict === 'pdp' &&
           (c.pdpScore ?? 0) >= this.cfg.pdpClassifierMin
         );
@@ -431,24 +469,9 @@ export class ProductResolver {
         url: c.merchantUrl,
         sourceTier: c.sourceTier,
         merchant: c.merchant,
-        candidatePageType: c.candidatePageType,
-        shoppingEligible: c.shoppingEligible,
-        sourceAuthority: c.sourceAuthority,
-        pdpScore: c.pdpScore,
-        availability:
-          typeof c.enrichmentMeta?.availability === 'string'
-            ? c.enrichmentMeta.availability
-            : null,
-        affiliateSupported: false,
-      })),
-    );
-    const shopping = resolveShoppingDestination(
-      commerceCandidates.map((c) => ({
-        url: c.merchantUrl,
-        sourceTier: c.sourceTier,
-        merchant: c.merchant,
-        candidatePageType: c.candidatePageType,
-        shoppingEligible: c.shoppingEligible,
+        sourceType: c.sourceType,
+        pageType: c.pageType,
+        capabilities: c.capabilities,
         sourceAuthority: c.sourceAuthority,
         pdpScore: c.pdpScore,
         availability:
@@ -459,6 +482,55 @@ export class ProductResolver {
       })),
     );
 
+    const existingCatalog = draft.catalogProductId
+      ? await this.catalog.getById(draft.catalogProductId)
+      : null;
+    const shoppingResolvedSelection = resolveShoppingSelectionForProduct(
+      draft.catalogProductId ?? existingCatalog?.id ?? null,
+      existingCatalog?.metadata ?? null,
+    );
+
+    const shoppingResolved = resolveShoppingDestination(
+      commerceCandidates.map((c) => ({
+        url: c.merchantUrl,
+        sourceTier: c.sourceTier,
+        merchant: c.merchant,
+        sourceType: c.sourceType,
+        pageType: c.pageType,
+        capabilities: c.capabilities,
+        sourceAuthority: c.sourceAuthority,
+        pdpScore: c.pdpScore,
+        availability:
+          typeof c.enrichmentMeta?.availability === 'string'
+            ? c.enrichmentMeta.availability
+            : null,
+        affiliateSupported: false,
+      })),
+      shoppingResolvedSelection.merchantPriority,
+    );
+
+    const shoppingChoice = applyShoppingSelectionPrecedence({
+      config: shoppingResolvedSelection.selection,
+      discoveredOffers: commerceCandidates.map((c) => ({
+        url: c.merchantUrl,
+        sourceType: c.sourceType,
+      })),
+      resolverWinnerUrl: shoppingResolved?.preferredShoppingUrl ?? null,
+      priority: shoppingResolvedSelection.merchantPriority,
+    });
+    const shopping =
+      shoppingChoice.preferredShoppingUrl != null
+        ? {
+            preferredShoppingUrl: shoppingChoice.preferredShoppingUrl,
+            shoppingProvider:
+              shoppingChoice.shoppingProvider ??
+              shoppingResolved?.shoppingProvider ??
+              'merchant',
+            offers: shoppingResolved?.offers ?? [],
+            selectionSource: shoppingChoice.source,
+          }
+        : null;
+
     const metadataWinners = new Set(
       Object.values(merged.metadataSourceMap).map((field) => field.source),
     );
@@ -466,6 +538,11 @@ export class ProductResolver {
       metadataCandidates.map((candidate) => candidate.merchantUrl),
     );
     for (const candidate of searchResult.candidates) {
+      const classification = classifyCandidatePage({
+        url: candidate.merchantUrl,
+        sourceTier: candidate.sourceTier,
+        title: candidate.title,
+      });
       const selectedForMetadata = metadataWinners.has(sourceHost(candidate.merchantUrl));
       const selectedShoppingOffer = shopping?.offers.find(
         (offer) => offer.url === candidate.merchantUrl,
@@ -482,9 +559,9 @@ export class ProductResolver {
             ? candidate.enrichmentSucceeded
               ? 'below_match_threshold'
               : 'enrichment_failed'
-            : candidate.shoppingEligible
+            : (candidate.capabilities ?? classification.capabilities).commerce
               ? 'lower_shopping_score'
-              : 'not_shopping_eligible',
+              : 'commerce_capability_disabled',
       });
     }
 
@@ -496,16 +573,27 @@ export class ProductResolver {
     const bestPdpScore = Math.max(...decisionCandidates.map((c) => c.pdpScore ?? 0));
 
     const hasShoppingOffer = commerceCandidates.length > 0;
-    const verificationStatus: VerificationStatus = hasShoppingOffer
-      ? 'VERIFIED'
-      : 'UNVERIFIED';
-    const resolutionDecision = draft.catalogProductId
-      ? hasShoppingOffer
-        ? 'updated_verified'
-        : 'updated_metadata_only'
-      : hasShoppingOffer
-        ? 'created_verified'
-        : 'created_metadata_only';
+    const seedCandidate =
+      creatorUrl != null
+        ? searchResult.candidates.find(
+            (c) => c.enrichmentSucceeded && merchantUrlsMatch(c.merchantUrl, creatorUrl),
+          ) ?? null
+        : null;
+    const identityUrl = creatorUrl ?? shopping?.preferredShoppingUrl ??
+      commerceCandidates.find((c) => c.merchantUrl)?.merchantUrl ??
+      null;
+    const verificationDecision = decideProductVerification({
+      hasCommerceOffer: hasShoppingOffer,
+      bestMatch,
+      identityUrl,
+      bestPdpScore,
+      catalogHitMinScore: this.cfg.catalogHitMinScore,
+      verificationMatchMin: this.cfg.verificationMatchMin,
+      pdpClassifierMin: this.cfg.pdpClassifierMin,
+      hadExistingCatalog: Boolean(draft.catalogProductId),
+    });
+    const verificationStatus = verificationDecision.verificationStatus;
+    const resolutionDecision = verificationDecision.decision;
     const fieldProvenance: Record<
       string,
       {
@@ -514,6 +602,9 @@ export class ProductResolver {
         confidence: number;
         value: unknown;
         metadataScore: number;
+        sourceType: string;
+        pageType: string;
+        trustRank: number;
       }
     > = {};
     for (const [field, entry] of Object.entries(merged.metadataSourceMap)) {
@@ -523,31 +614,38 @@ export class ProductResolver {
         confidence: entry.confidence,
         value: entry.value,
         metadataScore: entry.metadataScore,
+        sourceType: entry.sourceType,
+        pageType: entry.pageType,
+        trustRank: entry.trustRank,
       };
     }
 
     const created = await this.upsertCatalog(draft.catalogProductId, {
-      name: merged.title || norm.name,
+      name: (creatorUrl ? seedCandidate?.title : null) || merged.title || norm.name,
       normalizedName: norm.normalizedName,
       canonicalSlug: norm.canonicalSlugBase,
-      brand: merged.brand ?? norm.brand,
-      model: norm.model,
-      category: norm.category,
-      description: merged.description ?? null,
-      imageUrl: merged.heroImage ?? norm.imageHint,
-      merchant: verification?.merchant ?? merged.merchant,
-      merchantUrl: verification?.merchantUrl ?? null,
-      preferredShoppingUrl: shopping?.preferredShoppingUrl ?? null,
+      brand: (creatorUrl ? seedCandidate?.brand : null) || merged.brand || norm.brand,
+      model: merged.model ?? norm.model,
+      category: merged.category ?? norm.category,
+      description: merged.description ?? seedCandidate?.description ?? null,
+      imageUrl: merged.heroImage ?? seedCandidate?.image ?? norm.imageHint,
+      merchant: seedCandidate?.merchant ?? merged.offer?.merchant ?? verification?.merchant ?? null,
+      merchantUrl: creatorUrl ?? merged.offer?.merchantUrl ?? verification?.merchantUrl ?? null,
+      preferredShoppingUrl: shopping?.preferredShoppingUrl ?? creatorUrl ?? null,
+      affiliateUrl: merged.offer?.affiliateUrl ?? null,
       shoppingProvider: shopping?.shoppingProvider ?? null,
-      price: merged.price ?? validPriceValue(norm.priceHint, norm.currencyHint),
-      currency: merged.currency ?? norm.currencyHint,
+      price: merged.offer?.price ?? null,
+      currency: merged.offer?.currency ?? null,
       verificationStatus,
       verificationSource: searchResult.provider,
       verificationProvider: searchResult.provider,
       verificationVersion: this.cfg.verificationVersion,
       aiConfidence: norm.aiConfidence,
       matchConfidence: bestMatch.matchConfidence,
-      verificationConfidence: Math.min(1, bestMatch.score + (hasShoppingOffer ? 0.1 : 0)),
+      verificationConfidence: Math.min(
+        1,
+        bestMatch.score + (verificationStatus === 'VERIFIED' ? 0.1 : 0),
+      ),
       aliases: norm.aliases,
       metadata: {
         source: searchResult.provider,
@@ -557,6 +655,10 @@ export class ProductResolver {
         gallery: merged.gallery,
         primary_image: merged.heroImage,
         availability: merged.availability,
+        offer: merged.offer,
+        frameRefs: merged.frameRefs,
+        evidence: merged.evidence,
+        evidenceProvenance: merged.evidenceProvenance,
         metadata_completeness: merged.metadataCompleteness,
         metadataSources: merged.metadataSources,
         metadataSourceMap: merged.metadataSourceMap,
@@ -564,12 +666,18 @@ export class ProductResolver {
           const usage = classifyCandidatePage({
             url: candidate.merchantUrl,
             sourceTier: candidate.sourceTier,
+            title: candidate.title,
           });
           return {
             url: candidate.merchantUrl,
             sourceTier: candidate.sourceTier ?? 'retailer',
-            candidatePageType: candidate.candidatePageType ?? usage.pageType,
-            shoppingEligible: candidate.shoppingEligible ?? usage.shoppingEligible,
+            sourceType: candidate.sourceType ?? usage.sourceType,
+            pageType: candidate.pageType ?? usage.pageType,
+            capabilities: candidate.capabilities ?? usage.capabilities,
+            candidatePageType:
+              candidate.candidatePageType ?? usage.candidatePageType,
+            shoppingEligible:
+              candidate.capabilities?.commerce ?? usage.capabilities.commerce,
             sourceAuthority:
               candidate.sourceAuthority ?? scoreCandidateDecisions(candidate).sourceAuthority,
             metadataScore:
@@ -577,6 +685,11 @@ export class ProductResolver {
           };
         }),
         shopping_candidates: shopping?.offers ?? [],
+        // Preserve business shopping config; never replace with pipeline evidence.
+        ...(existingCatalog?.metadata?.shoppingSelection
+          ? { shoppingSelection: existingCatalog.metadata.shoppingSelection }
+          : {}),
+        shoppingSelectionSource: shoppingChoice.source,
         field_provenance: fieldProvenance,
         scores: {
           specificity: specificity.score,
@@ -590,6 +703,7 @@ export class ProductResolver {
           decision: resolutionDecision,
           reason: bestMatch.reason,
           status: verificationStatus,
+          identityPath: verificationDecision.identityPath,
           source: searchResult.provider,
           sourceTier: verification?.sourceTier ?? 'retailer',
           version: this.cfg.verificationVersion,
@@ -597,7 +711,9 @@ export class ProductResolver {
       },
     });
     emitPiEvent(
-      hasShoppingOffer ? 'catalog.created_verified' : 'catalog.created_unverified',
+      verificationStatus === 'VERIFIED'
+        ? 'catalog.created_verified'
+        : 'catalog.created_unverified',
       { catalogId: created.id },
     );
     return this.finishWithCatalog(
@@ -617,52 +733,13 @@ export class ProductResolver {
   /**
    * Background enrichment updates an existing catalog row in place.
    * First-time resolve creates a new catalog row.
+   * All persistence goes through CatalogService (Catalog BC).
    */
   private async upsertCatalog(
     existingId: string | null | undefined,
-    input: Parameters<CatalogRepository['create']>[0],
+    input: Parameters<CatalogService['createFromResolve']>[0],
   ): Promise<CatalogProduct> {
-    if (existingId) {
-      const existing = await this.catalog.findById(existingId);
-      if (existing) {
-        return this.catalog.update(existingId, {
-          name: input.name,
-          brand: input.brand ?? existing.brand,
-          model: input.model ?? existing.model,
-          category: input.category ?? existing.category,
-          description: input.description ?? existing.description,
-          imageUrl: input.imageUrl ?? existing.imageUrl,
-          merchant: input.merchant ?? existing.merchant,
-          merchantUrl: input.merchantUrl ?? existing.merchantUrl,
-          preferredShoppingUrl:
-            input.preferredShoppingUrl !== undefined
-              ? input.preferredShoppingUrl
-              : existing.preferredShoppingUrl,
-          shoppingProvider:
-            input.shoppingProvider !== undefined
-              ? input.shoppingProvider
-              : existing.shoppingProvider,
-          price: input.price ?? existing.price,
-          currency: input.currency ?? existing.currency,
-          verificationStatus: input.verificationStatus,
-          verificationProvider: input.verificationProvider ?? input.verificationSource,
-          verificationSource: input.verificationSource,
-          verificationVersion: input.verificationVersion,
-          aiConfidence: input.aiConfidence,
-          matchConfidence: input.matchConfidence,
-          verificationConfidence: input.verificationConfidence,
-          metadata: input.metadata,
-        });
-      }
-    }
-    return this.catalog.create({
-      ...input,
-      preferredShoppingUrl:
-        input.preferredShoppingUrl ?? input.merchantUrl ?? null,
-      shoppingProvider:
-        input.shoppingProvider ??
-        (input.preferredShoppingUrl || input.merchantUrl ? 'merchant' : null),
-    });
+    return this.catalog.createOrUpdateFromResolve(existingId, input);
   }
 
   private async finishWithCatalog(
@@ -677,7 +754,7 @@ export class ProductResolver {
       pdpClassifierScore: null,
     },
   ): Promise<ResolveDraftResult> {
-    // preferredShoppingUrl is owned by commerce priority resolution — never force it to merchantUrl.
+    // preferredShoppingUrl: configured URL / preferred-merchant exact / resolver — never force to merchantUrl.
     const merchantUrl = product.merchantUrl;
 
     const status: VerificationStatus = product.verificationStatus;
@@ -714,7 +791,7 @@ export class ProductResolver {
         : null,
       metadataSourceMap: provenance ? JSON.stringify(provenance).slice(0, 500) : null,
     });
-    await this.persistDraft(result, product);
+    await this.persistDraft(result, product, draft);
     await this.history.write({
       draftId: draft.draftId,
       catalogProductId: product.id,
@@ -728,7 +805,11 @@ export class ProductResolver {
     return result;
   }
 
-  private async persistDraft(result: ResolveDraftResult, product?: CatalogProduct): Promise<void> {
+  private async persistDraft(
+    result: ResolveDraftResult,
+    product?: CatalogProduct,
+    draft?: AiDraftInput,
+  ): Promise<void> {
     await this.drafts.updateResolution({
       draftId: result.draftId,
       catalogProductId: result.catalogProductId,
@@ -742,7 +823,8 @@ export class ProductResolver {
       displayImage: product?.imageUrl?.startsWith('http') ? product.imageUrl : undefined,
       displayPrice: product?.price && product.price !== '—' ? product.price : undefined,
       displayCurrency: product?.currency,
-      displayProvider: product?.merchant,
+      // Keep provider='manual' so CollectionProductTag mapping stays CREATOR_MANUAL.
+      displayProvider: draft?.creatorSuppliedUrl ? undefined : product?.merchant,
       displayBrand: product?.brand,
     });
   }

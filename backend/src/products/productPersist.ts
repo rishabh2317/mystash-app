@@ -30,6 +30,9 @@ export async function persistPipelineProducts(
     pipelineMeta: Record<string, unknown>;
     thumbnail?: string | null;
     videoTitle?: string;
+    videoDescription?: string;
+    videoDescriptionSource?: string;
+    videoCreator?: string;
   },
 ): Promise<void> {
   const draftRows: Record<string, unknown>[] = [];
@@ -105,6 +108,13 @@ export async function persistPipelineProducts(
   };
   if (params.thumbnail) update.thumbnail = params.thumbnail;
   if (params.videoTitle) update.video_title = params.videoTitle;
+  if (params.videoDescription !== undefined) {
+    update.video_description = params.videoDescription;
+  }
+  if (params.videoDescriptionSource) {
+    update.video_description_source = params.videoDescriptionSource;
+  }
+  if (params.videoCreator) update.video_creator = params.videoCreator;
 
   await admin.from('ingest_requests').update(update).eq('id', params.ingestId);
 }

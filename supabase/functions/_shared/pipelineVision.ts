@@ -84,6 +84,11 @@ export async function runVisionAgent(
 Video title: ${pack.title}
 Channel: ${pack.authorName}
 
+Description:
+"""
+${pack.description.slice(0, 10000)}
+"""
+
 Transcript (may be partial or empty):
 """
 ${pack.transcript.slice(0, 12000)}

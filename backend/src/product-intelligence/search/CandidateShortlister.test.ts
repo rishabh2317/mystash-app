@@ -46,21 +46,24 @@ describe('CandidateShortlister', () => {
       5,
     );
 
-    assert.ok(shortlisted.length >= 4);
+    assert.equal(shortlisted.length, 4);
     assert.ok(shortlisted.some((c) => /adidas\.com/i.test(c.merchantUrl)));
     assert.ok(shortlisted.some((c) => /amazon\.com/i.test(c.merchantUrl)));
-    assert.ok(!shortlisted.some((c) => /youtube/i.test(c.merchantUrl)));
+    assert.equal(shortlisted.some((c) => /youtube/i.test(c.merchantUrl)), false);
 
     const brandNews = shortlisted.find((c) => /about\.adidas/i.test(c.merchantUrl));
-    assert.equal(brandNews?.candidatePageType, 'official_brand_news');
-    assert.equal(brandNews?.shoppingEligible, false);
+    assert.equal(brandNews?.sourceType, 'OFFICIAL');
+    assert.equal(brandNews?.pageType, 'NEWS');
+    assert.equal(brandNews?.capabilities.commerce, false);
 
     const review = shortlisted.find((c) => /believeintherun/i.test(c.merchantUrl));
-    assert.equal(review?.candidatePageType, 'review_site');
-    assert.equal(review?.shoppingEligible, false);
+    assert.equal(review?.sourceType, 'REVIEW');
+    assert.equal(review?.pageType, 'REVIEW');
+    assert.equal(review?.capabilities.commerce, false);
 
     const officialProduct = shortlisted.find((c) => /adidas\.com/i.test(c.merchantUrl));
-    assert.equal(officialProduct?.candidatePageType, 'official_product');
-    assert.equal(officialProduct?.shoppingEligible, true);
+    assert.equal(officialProduct?.sourceType, 'OFFICIAL');
+    assert.equal(officialProduct?.pageType, 'PRODUCT');
+    assert.equal(officialProduct?.capabilities.commerce, true);
   });
 });

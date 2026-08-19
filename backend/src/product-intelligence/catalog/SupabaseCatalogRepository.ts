@@ -192,6 +192,8 @@ export class SupabaseCatalogRepository implements CatalogRepository {
     if (patch.currency !== undefined) row.currency = patch.currency;
     if (patch.price !== undefined) row.price = patch.price;
     if (patch.availability !== undefined) row.availability = patch.availability;
+    if (patch.status !== undefined) row.status = patch.status;
+    if (patch.mergedIntoId !== undefined) row.merged_into_id = patch.mergedIntoId;
     if (patch.verificationStatus !== undefined) {
       row.verification_status = patch.verificationStatus;
       if (patch.verificationStatus === 'VERIFIED' && patch.lastVerifiedAt === undefined) {
@@ -230,6 +232,14 @@ export class SupabaseCatalogRepository implements CatalogRepository {
       { catalog_product_id: catalogProductId, alias: a },
       { onConflict: 'catalog_product_id,alias', ignoreDuplicates: true },
     );
+  }
+
+  async listAliases(catalogProductId: string): Promise<string[]> {
+    const { data } = await this.admin
+      .from('catalog_aliases')
+      .select('alias')
+      .eq('catalog_product_id', catalogProductId);
+    return (data ?? []).map((r) => String((r as { alias: string }).alias));
   }
 
   async listActiveForFuzzy(limit = 200): Promise<CatalogProduct[]> {

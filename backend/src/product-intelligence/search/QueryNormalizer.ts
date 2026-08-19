@@ -1,4 +1,9 @@
+import { canonicalizeProductIdentityText } from '../normalizer/ProductIdentityCanonicalizer';
+
 const NOISE_WORDS = new Set([
+  'announcement',
+  'announced',
+  'asmr',
   'review',
   'reviews',
   'rating',
@@ -15,6 +20,24 @@ const NOISE_WORDS = new Set([
   'instagram',
   'item',
   'latest',
+  'new',
+  'newest',
+  'exclusive',
+  'full',
+  'honest',
+  'detailed',
+  'ultimate',
+  'viral',
+  'sponsored',
+  'promo',
+  'promotional',
+  'launch',
+  'launched',
+  'introducing',
+  'unboxing',
+  'short',
+  'shorts',
+  'watch',
   'seen',
   'using',
   'wearing',
@@ -29,11 +52,15 @@ const NOISE_WORDS = new Set([
 
 export function normalizeQueryTokens(value: string | null | undefined): string[] {
   if (!value) return [];
-  const cleaned = value
+  const cleaned = canonicalizeProductIdentityText(value)
     .replace(/[^a-zA-Z0-9+\- ]/g, ' ')
     .split(/\s+/)
     .map((token) => token.trim())
-    .filter((token) => token.length >= 2 && !NOISE_WORDS.has(token.toLowerCase()));
+    .filter(
+      (token) =>
+        (token.length >= 2 || /^\d+$/.test(token)) &&
+        !NOISE_WORDS.has(token.toLowerCase()),
+    );
 
   const seen = new Set<string>();
   return cleaned.filter((token) => {

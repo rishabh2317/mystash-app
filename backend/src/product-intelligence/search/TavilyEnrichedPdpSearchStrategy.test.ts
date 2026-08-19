@@ -88,13 +88,14 @@ describe('TavilyEnrichedPdpSearchStrategy integration', () => {
     );
 
     assert.equal(result.kind, 'Succeeded');
+    assert.equal(extracted.includes('https://www.youtube.com/watch?v=x'), false);
     assert.ok(extracted.includes('https://www.apple.com/in/macbook-air/'));
     assert.ok(extracted.includes('https://www.amazon.in/dp/mac'));
     assert.ok(maxInFlight >= 2, 'independent enrichments should overlap');
     if (result.kind === 'Succeeded') {
       assert.ok(result.candidates.length >= 2);
       assert.ok(result.candidates.every((c) => c.enrichmentSucceeded === true));
-      assert.ok(result.candidates.some((c) => c.sourceTier === 'official'));
+      assert.ok(result.candidates.some((c) => c.sourceType === 'OFFICIAL'));
       assert.ok(result.candidates.some((c) => /amazon\./i.test(c.merchantUrl)));
     }
   });
@@ -162,5 +163,175 @@ describe('TavilyEnrichedPdpSearchStrategy integration', () => {
       assert.equal(result.candidates[0]?.enrichmentSucceeded, true);
       assert.equal(result.candidates[0]?.pdpVerdict, 'pdp');
     }
+  });
+
+  it('skips Serper discovery when the creator-supplied URL is a strong PDP', async () => {
+    let discoveryCalls = 0;
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        discoveryCalls += 1;
+        return { kind: 'Succeeded', provider: 'serper', candidates: [] };
+      },
+    };
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        return {
+          title: 'PlayStation VR Camera Bundle',
+          brand: 'Sony',
+          image: 'https://m.media-amazon.com/I/p.jpg',
+          primaryImage: 'https://m.media-amazon.com/I/p.jpg',
+          merchantUrl: input.merchantUrl,
+          price: '205.02',
+          currency: 'USD',
+          specifications: { Platform: 'PS4' },
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+    );
+    const seed = 'https://www.amazon.com/dp/B0747YTV7B';
+    const result = await pdpSearchHintsAls.run(
+      { brand: 'Sony', name: 'PlayStation VR Camera Bundle', category: 'gaming' },
+      () =>
+        strategy.search('PlayStation VR Camera Bundle', {
+          seedMerchantUrl: seed,
+          skipDiscoveryIfSeedStrong: true,
+        }),
+    );
+    assert.equal(discoveryCalls, 0);
+    assert.equal(result.kind, 'Succeeded');
+    if (result.kind === 'Succeeded') {
+      assert.equal(result.provider, 'direct_url');
+      assert.equal(result.candidates.length, 1);
+      assert.equal(result.candidates[0]?.merchantUrl, seed);
+    }
+  });
+
+  it('classifies Amazon short URLs as commerce-capable marketplace PDPs', async () => {
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        throw new Error('Serper must not run for a strong Amazon short URL');
+      },
+    };
+    let sawPartialCacheFlag: boolean | undefined;
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        sawPartialCacheFlag = input.acceptPartialCache;
+        return {
+          title: 'Xbox Series S',
+          brand: 'Microsoft',
+          image: 'https://img.example/xbox.jpg',
+          primaryImage: 'https://img.example/xbox.jpg',
+          description: 'All-digital next-gen console with 1TB storage.',
+          merchantUrl: input.merchantUrl,
+          price: '₹66,999.00',
+          currency: 'INR',
+          specifications: { Storage: '1TB' },
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+    );
+    const seed = 'https://amzn.in/d/01fhRXW8';
+    const result = await pdpSearchHintsAls.run(
+      { brand: 'Microsoft', name: 'Xbox Series S', category: 'gaming' },
+      () =>
+        strategy.search('Xbox Series S', {
+          seedMerchantUrl: seed,
+          skipDiscoveryIfSeedStrong: true,
+        }),
+    );
+    assert.equal(sawPartialCacheFlag, false);
+    assert.equal(result.kind, 'Succeeded');
+    if (result.kind === 'Succeeded') {
+      const candidate = result.candidates[0];
+      assert.equal(candidate?.merchantUrl, seed);
+      assert.equal(candidate?.sourceType, 'MARKETPLACE');
+      assert.equal(candidate?.pageType, 'PRODUCT');
+      assert.equal(candidate?.capabilities?.commerce, true);
+      assert.equal(candidate?.capabilities?.metadata, true);
+      assert.notEqual(candidate?.sourceType, 'UNKNOWN');
+    }
+  });
+
+  it('falls back to Serper when the supplied URL is not a product page', async () => {
+    let discoveryCalls = 0;
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        discoveryCalls += 1;
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'amazon.com',
+              merchantUrl: 'https://www.amazon.com/dp/B0747YTV7B',
+              title: 'PlayStation VR',
+              image: null,
+              score: 0.9,
+            },
+          ],
+        };
+      },
+    };
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        if (input.merchantUrl.includes('/blog/')) {
+          return {
+            title: 'Our latest VR news',
+            brand: null,
+            merchantUrl: input.merchantUrl,
+            provider: 'mock',
+            extractedAt: new Date().toISOString(),
+          };
+        }
+        return {
+          title: 'PlayStation VR Camera Bundle',
+          brand: 'Sony',
+          image: 'https://m.media-amazon.com/I/p.jpg',
+          primaryImage: 'https://m.media-amazon.com/I/p.jpg',
+          merchantUrl: input.merchantUrl,
+          price: '205.02',
+          currency: 'USD',
+          specifications: { Platform: 'PS4' },
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+    );
+    const result = await pdpSearchHintsAls.run(
+      { brand: 'Sony', name: 'PlayStation VR', category: 'gaming' },
+      () =>
+        strategy.search('PlayStation VR', {
+          seedMerchantUrl: 'https://www.example.com/blog/vr-roundup',
+          skipDiscoveryIfSeedStrong: true,
+        }),
+    );
+    assert.ok(discoveryCalls >= 1);
+    assert.equal(result.kind, 'Succeeded');
   });
 });

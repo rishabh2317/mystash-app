@@ -4,6 +4,9 @@ import { logger } from '../../logger';
 import { getBullmqConnection, withTimeout } from '../../workers/redisConnection';
 import { createProductIntelligence } from '../factory';
 import { pdpSearchHintsAls } from '../search/pdpSearchHints';
+import { createCollectionTagRemap } from '../../collection/factory';
+import { createCartItemRemap } from '../../cart/factory';
+import { composeCollectionTagRemaps } from '../../catalog/ports';
 
 export const PRODUCT_RESOLVE_QUEUE = 'product-resolve';
 
@@ -130,6 +133,10 @@ export function startProductResolveWorker(admin: SupabaseClient): Worker<Product
           },
         },
         job.data.traceId ?? ingestId,
+        composeCollectionTagRemaps(
+          createCollectionTagRemap(admin),
+          createCartItemRemap(admin),
+        ),
       );
       if (!pi) return;
       const { data: ingest } = await admin

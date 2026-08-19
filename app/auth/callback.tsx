@@ -16,6 +16,8 @@ export default function AuthCallbackScreen() {
     /** Same route-level intent keys as Profile (OD-12), when present on redirectTo. */
     intent?: string | string[];
     catalogProductId?: string | string[];
+    creatorId?: string | string[];
+    username?: string | string[];
   }>();
   const [callbackError, setCallbackError] = useState<string | null>(null);
 
@@ -30,6 +32,8 @@ export default function AuthCallbackScreen() {
         buildProfileHrefAfterAuth({
           intent: params.intent,
           catalogProductId: params.catalogProductId,
+          creatorId: params.creatorId,
+          username: params.username,
         }),
       );
     };

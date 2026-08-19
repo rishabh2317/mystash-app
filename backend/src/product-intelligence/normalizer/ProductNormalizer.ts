@@ -1,4 +1,5 @@
 import type { AiDraftInput, NormalizedProduct } from '../domain/types';
+import { canonicalizeProductIdentityText } from './ProductIdentityCanonicalizer';
 
 const BRAND_ALIASES: Record<string, string> = {
   apple: 'Apple',
@@ -61,7 +62,9 @@ export function toCanonicalSlug(parts: string[]): string {
 
 export class ProductNormalizer {
   normalize(draft: AiDraftInput): NormalizedProduct {
-    const rawName = collapseWs(stripPunct(draft.name || ''));
+    const rawName = collapseWs(
+      stripPunct(canonicalizeProductIdentityText(draft.name)),
+    );
     const name = titleCaseProduct(dedupeWords(rawName));
     let brand =
       draft.brand == null || String(draft.brand).trim() === ''
@@ -77,10 +80,10 @@ export class ProductNormalizer {
       if (first && BRAND_ALIASES[first]) brand = BRAND_ALIASES[first]!;
     }
 
-    const model =
-      draft.model == null || String(draft.model).trim() === ''
-        ? null
-        : collapseWs(String(draft.model));
+    const canonicalModel = canonicalizeProductIdentityText(
+      draft.model == null ? null : String(draft.model),
+    );
+    const model = canonicalModel ? collapseWs(canonicalModel) : null;
 
     const category = (draft.category || 'unknown').toString().trim().toLowerCase() || 'unknown';
     const normalizedName = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();

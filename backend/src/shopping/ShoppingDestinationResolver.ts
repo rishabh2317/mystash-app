@@ -1,7 +1,20 @@
 import { logger } from '../logger';
-import type { CandidatePageType, SearchCandidate } from '../product-intelligence/domain/types';
-import { scoreCandidateDecisions, sourceAuthorityFor } from '../product-intelligence/scoring/CandidateScoring';
-import { classifyCandidatePage } from '../product-intelligence/search/CandidatePageClassifier';
+import type {
+  CandidatePageType,
+  PageCapabilities,
+  PageType,
+  SearchCandidate,
+  SourceType,
+} from '../product-intelligence/domain/types';
+import {
+  scoreCandidateDecisions,
+  sourceAuthorityFor,
+  destinationSpecificityFor,
+} from '../product-intelligence/scoring/CandidateScoring';
+import {
+  classifyCandidatePage,
+  legacyCandidatePageType,
+} from '../product-intelligence/search/CandidatePageClassifier';
 import { validHttpUrl } from './urlValidation';
 import {
   classifyShoppingProvider,
@@ -11,31 +24,32 @@ import {
 export type ShoppingOffer = {
   url: string;
   merchant?: string | null;
-  candidatePageType?: CandidatePageType;
+  sourceType?: SourceType;
+  pageType?: PageType;
+  capabilities?: PageCapabilities;
   shoppingScore?: number;
   sourceAuthority?: number;
   affiliateSupported?: boolean;
-  shoppingEligible?: boolean;
   merchantPriority?: number;
   pdpScore?: number;
   availability?: string | null;
+  /** @deprecated Compatibility inputs. */
   sourceTier?: 'official' | 'marketplace' | 'retailer' | 'editorial' | null;
+  candidatePageType?: CandidatePageType;
+  shoppingEligible?: boolean;
 };
 
-type ScoredShoppingOffer = Required<
-  Pick<
-    ShoppingOffer,
-    | 'url'
-    | 'candidatePageType'
-    | 'shoppingScore'
-    | 'sourceAuthority'
-    | 'affiliateSupported'
-    | 'shoppingEligible'
-    | 'merchantPriority'
-    | 'pdpScore'
-  >
-> & {
+type ScoredShoppingOffer = {
+  url: string;
   merchant: string | null;
+  sourceType: SourceType;
+  pageType: PageType;
+  capabilities: PageCapabilities;
+  shoppingScore: number;
+  sourceAuthority: number;
+  affiliateSupported: boolean;
+  merchantPriority: number;
+  pdpScore: number;
   availability: string | null;
   sourceTier: ShoppingOffer['sourceTier'];
   shoppingProvider: string;
@@ -48,6 +62,10 @@ export type ShoppingDestinationChoice = {
     url: string;
     shoppingProvider: string;
     sourceTier: string | null;
+    sourceType: SourceType;
+    pageType: PageType;
+    capabilities: PageCapabilities;
+    /** @deprecated Compatibility projection. */
     candidatePageType: CandidatePageType;
     shoppingScore: number;
     sourceAuthority: number;
@@ -60,15 +78,7 @@ function priorityScore(provider: string, priority: string[]): number {
   return index < 0 ? 0 : Math.max(1, 10 - index);
 }
 
-function toCandidate(offer: {
-  url: string;
-  merchant: string | null;
-  candidatePageType: CandidatePageType;
-  shoppingEligible: boolean;
-  pdpScore: number;
-  sourceTier: ShoppingOffer['sourceTier'];
-  availability: string | null;
-}): SearchCandidate {
+function toCandidate(offer: ScoredShoppingOffer): SearchCandidate {
   return {
     merchant: offer.merchant,
     merchantUrl: offer.url,
@@ -78,8 +88,11 @@ function toCandidate(offer: {
     pdpScore: offer.pdpScore,
     pdpVerdict: 'pdp',
     sourceTier: offer.sourceTier ?? undefined,
-    candidatePageType: offer.candidatePageType,
-    shoppingEligible: offer.shoppingEligible,
+    sourceType: offer.sourceType,
+    pageType: offer.pageType,
+    capabilities: offer.capabilities,
+    candidatePageType: legacyCandidatePageType(offer.sourceType, offer.pageType),
+    shoppingEligible: offer.capabilities.commerce,
     enrichmentMeta: { availability: offer.availability },
   };
 }
@@ -90,61 +103,54 @@ function scoreOffers(offers: ShoppingOffer[], priority: string[]): ScoredShoppin
       const url = validHttpUrl(offer.url);
       if (!url) return null;
 
-      const usage = classifyCandidatePage({ url, sourceTier: offer.sourceTier });
-      const candidatePageType = offer.candidatePageType ?? usage.pageType;
-      const shoppingEligible = offer.shoppingEligible ?? usage.shoppingEligible;
-      const hardEligible =
-        shoppingEligible &&
-        ['official_product', 'marketplace_pdp', 'retailer_pdp'].includes(candidatePageType);
-      if (!hardEligible) {
+      const fallback = classifyCandidatePage({
+        url,
+        sourceTier: offer.sourceTier,
+        title: offer.merchant,
+      });
+      const sourceType = offer.sourceType ?? fallback.sourceType;
+      const pageType = offer.pageType ?? fallback.pageType;
+      const capabilities = offer.capabilities ?? fallback.capabilities;
+      if (!capabilities.commerce) {
         logger.info(
           {
             merchant: offer.merchant ?? null,
-            candidateType: candidatePageType,
-            shoppingEligible: false,
-            rejectionReason: 'not_a_purchasable_pdp',
+            sourceType,
+            pageType,
+            commerceCapable: false,
+            rejectionReason: 'commerce_capability_disabled',
           },
           'shopping.candidate.rejected',
         );
         return null;
       }
 
-      const shoppingProvider = classifyShoppingProvider(url, offer.sourceTier);
+      const shoppingProvider = classifyShoppingProvider(url, sourceType);
       const merchantPriority =
         offer.merchantPriority ?? priorityScore(shoppingProvider, priority);
       const affiliateSupported = offer.affiliateSupported ?? false;
       const pdpScore = Math.max(0, Math.min(1, offer.pdpScore ?? 0));
-      const candidate = toCandidate({
+      const base: ScoredShoppingOffer = {
         url,
         merchant: offer.merchant ?? null,
-        candidatePageType,
-        shoppingEligible,
-        pdpScore,
-        sourceTier: offer.sourceTier,
-        availability: offer.availability ?? null,
-      });
-      const scores = scoreCandidateDecisions(candidate, {
-        merchantPriority,
+        sourceType,
+        pageType,
+        capabilities,
+        shoppingScore: 0,
+        sourceAuthority: offer.sourceAuthority ?? sourceAuthorityFor(sourceType),
         affiliateSupported,
-      });
-      const sourceAuthority =
-        offer.sourceAuthority ?? sourceAuthorityFor(candidatePageType);
-      const shoppingScore = offer.shoppingScore ?? scores.shoppingScore;
-
-      return {
-        url,
-        merchant: offer.merchant ?? null,
-        candidatePageType,
-        shoppingScore,
-        sourceAuthority,
-        affiliateSupported,
-        shoppingEligible,
         merchantPriority,
         pdpScore,
         availability: offer.availability ?? null,
         sourceTier: offer.sourceTier,
         shoppingProvider,
       };
+      const scores = scoreCandidateDecisions(toCandidate(base), {
+        merchantPriority,
+        affiliateSupported,
+      });
+      base.shoppingScore = offer.shoppingScore ?? scores.shoppingScore;
+      return base;
     })
     .filter((offer): offer is ScoredShoppingOffer => offer !== null)
     .sort(
@@ -156,7 +162,7 @@ function scoreOffers(offers: ShoppingOffer[], priority: string[]): ScoredShoppin
     );
 }
 
-/** Shopping-only decision. Metadata scores are never read here. */
+/** Shopping-only decision routed through candidate commerce capabilities. */
 export function resolveShoppingDestination(
   offers: ShoppingOffer[],
   priority: string[] = getShoppingProviderPriority(),
@@ -170,11 +176,12 @@ export function resolveShoppingDestination(
     logger.info(
       {
         merchant: offer.merchant,
-        candidateType: offer.candidatePageType,
+        sourceType: offer.sourceType,
+        pageType: offer.pageType,
         shoppingScore: offer.shoppingScore,
         sourceAuthority: offer.sourceAuthority,
         pdpScore: offer.pdpScore,
-        shoppingEligible: offer.shoppingEligible,
+        commerceCapable: offer.capabilities.commerce,
         selectedForShopping: offer === winner,
         rejectionReason: offer === winner ? null : 'lower_shopping_score',
       },
@@ -197,7 +204,10 @@ export function resolveShoppingDestination(
       url: offer.url,
       shoppingProvider: offer.shoppingProvider,
       sourceTier: offer.sourceTier ?? null,
-      candidatePageType: offer.candidatePageType,
+      sourceType: offer.sourceType,
+      pageType: offer.pageType,
+      capabilities: offer.capabilities,
+      candidatePageType: legacyCandidatePageType(offer.sourceType, offer.pageType),
       shoppingScore: offer.shoppingScore,
       sourceAuthority: offer.sourceAuthority,
       merchantPriority: offer.merchantPriority,
@@ -205,14 +215,16 @@ export function resolveShoppingDestination(
   };
 }
 
-/** Verification is authority-driven and independent from shopping and metadata merge. */
+/** Verification merchant prefers specific product destinations over hubs. */
 export function pickVerificationMerchantUrl(
   offers: ShoppingOffer[],
 ): { merchantUrl: string; merchant: string | null; sourceTier: string } | null {
   const valid = scoreOffers(offers, getShoppingProviderPriority()).sort(
     (a, b) =>
-      Number(b.candidatePageType === 'official_product') -
-        Number(a.candidatePageType === 'official_product') ||
+      destinationSpecificityFor(b.url, b.pageType) -
+        destinationSpecificityFor(a.url, a.pageType) ||
+      Number(b.sourceType === 'OFFICIAL' && b.pageType === 'PRODUCT') -
+        Number(a.sourceType === 'OFFICIAL' && a.pageType === 'PRODUCT') ||
       b.sourceAuthority - a.sourceAuthority ||
       b.pdpScore - a.pdpScore,
   );
@@ -221,6 +233,6 @@ export function pickVerificationMerchantUrl(
   return {
     merchantUrl: chosen.url,
     merchant: chosen.merchant,
-    sourceTier: chosen.sourceTier ?? 'retailer',
+    sourceTier: chosen.sourceTier ?? chosen.sourceType.toLowerCase(),
   };
 }

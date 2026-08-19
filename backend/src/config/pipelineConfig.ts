@@ -1,5 +1,8 @@
 import { getEnv } from '../env';
 
+/** Cache namespace for normalized inputs that affect reasoning results. */
+export const EXTRACTION_CONTEXT_VERSION = 'youtube-metadata-v2';
+
 function num(key: string, fallback: number): number {
   const raw = getEnv(key);
   if (raw == null) return fallback;
@@ -45,7 +48,7 @@ export function getPipelineConfig(): PipelineConfig {
 
   const reasonerModel = str('OPENAI_REASONER_MODEL', str('OPENAI_MODEL', 'gpt-4o-mini'));
   const visionModel = str('OPENAI_VISION_MODEL', reasonerModel);
-  const pipelineVersion = str('PIPELINE_VERSION', 'v5-progressive');
+  const pipelineVersion = str('PIPELINE_VERSION', 'v6-youtube-metadata');
   const providerVersion = str(
     'PROVIDER_VERSION',
     `reasoner-${reasonerModel}+mu-openai-gcp-v1`,
@@ -105,6 +108,7 @@ export function buildCacheKey(params: {
     params.externalVideoId,
     params.pipelineVersion ?? cfg.pipelineVersion,
     params.providerVersion ?? cfg.providerVersion,
+    EXTRACTION_CONTEXT_VERSION,
   ].join(':');
 }
 

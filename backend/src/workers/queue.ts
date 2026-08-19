@@ -28,12 +28,32 @@ const ENQUEUE_TIMEOUT_MS = 5_000;
 
 export async function enqueueIngestPipeline(data: IngestPipelineJobData): Promise<string> {
   const q = getIngestQueue();
-  const job = await withTimeout(
-    q.add('run', data, {
-      jobId: `ingest-${data.ingestRequestId}`,
-    }),
-    ENQUEUE_TIMEOUT_MS,
-    'ingest.enqueue',
-  );
-  return job.id ?? data.ingestRequestId;
+  const jobId = `ingest-${data.ingestRequestId}`;
+  const addPromise = q.add('run', data, { jobId });
+
+  try {
+    const job = await withTimeout(addPromise, ENQUEUE_TIMEOUT_MS, 'ingest.enqueue');
+    return job.id ?? data.ingestRequestId;
+  } catch (err) {
+    // withTimeout does not cancel q.add. If Redis is slow, add may still succeed
+    // after the race rejects — falling back to in-process would double-run.
+    try {
+      const existing = await withTimeout(q.getJob(jobId), 2_000, 'ingest.getJob');
+      if (existing) {
+        return existing.id ?? data.ingestRequestId;
+      }
+      const late = await Promise.race([
+        addPromise,
+        new Promise<null>((resolve) => {
+          setTimeout(() => resolve(null), 1_500);
+        }),
+      ]);
+      if (late) {
+        return late.id ?? data.ingestRequestId;
+      }
+    } catch {
+      // fall through and rethrow original enqueue failure
+    }
+    throw err;
+  }
 }

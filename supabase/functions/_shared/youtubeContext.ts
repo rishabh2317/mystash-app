@@ -1,6 +1,6 @@
 /**
  * Stage 1 — Context Gatherer ("Researcher")
- * Fetches title (oEmbed), optional description hint, and transcript when captions exist.
+ * Fetches oEmbed metadata, Innertube description, and transcript when captions exist.
  */
 
 import { ingestLog } from './ingestLog.ts';
@@ -10,14 +10,29 @@ export type YoutubeContextPack = {
   title: string;
   authorName: string;
   description: string;
+  descriptionSource: YoutubeDescriptionSource;
   transcript: string;
   thumbnailUrl: string | null;
   /** Which subsystems contributed non-empty fields. */
   sources: string[];
 };
 
+export type YoutubeDescriptionSource =
+  | 'innertube_video_details'
+  | 'innertube_microformat'
+  | 'innertube_structured'
+  | 'empty_confirmed'
+  | 'none';
+
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+const INNERTUBE_CLIENT = {
+  hl: 'en',
+  gl: 'US',
+  clientName: 'WEB',
+  clientVersion: '2.20241126.01.00',
+} as const;
 
 function appendSource(sources: string[], name: string) {
   if (!sources.includes(name)) sources.push(name);
@@ -26,9 +41,9 @@ function appendSource(sources: string[], name: string) {
 async function fetchOEmbed(videoId: string): Promise<{ title: string; author_name: string; thumbnail_url: string } | null> {
   const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const url = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
-  const res = await fetch(url, { headers: { 'User-Agent': UA } });
-  if (!res.ok) return null;
   try {
+    const res = await fetch(url, { headers: { 'User-Agent': UA } });
+    if (!res.ok) return null;
     return (await res.json()) as { title: string; author_name: string; thumbnail_url: string };
   } catch {
     return null;
@@ -59,16 +74,141 @@ async function fetchTimedtextDirect(videoId: string): Promise<string> {
     `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(videoId)}&fmt=json3&lang=en-US`,
   ];
   for (const u of bases) {
-    const res = await fetch(u, { headers: { 'User-Agent': UA } });
-    if (!res.ok) continue;
-    const text = await res.text();
-    const parsed = parseJson3Captions(text);
-    if (parsed.length > 40) return parsed;
+    try {
+      const res = await fetch(u, { headers: { 'User-Agent': UA } });
+      if (!res.ok) continue;
+      const text = await res.text();
+      const parsed = parseJson3Captions(text);
+      if (parsed.length > 40) return parsed;
+    } catch {
+      // Try the next timedtext variant, then Innertube captions.
+    }
   }
   return '';
 }
 
 type CaptionTrack = { baseUrl?: string; languageCode?: string; kind?: string };
+type InnertubeText = {
+  simpleText?: string;
+  runs?: Array<{ text?: string }>;
+};
+type InnertubePlayerContext = {
+  title: string;
+  authorName: string;
+  thumbnailUrl: string | null;
+  description: string;
+  descriptionSource: YoutubeDescriptionSource;
+  captionTracks: CaptionTrack[];
+  playabilityStatus: string | null;
+};
+
+export type StructuredDescriptionResult = {
+  description: string;
+  emptyConfirmed: boolean;
+};
+
+function innertubeText(value: InnertubeText | undefined): string {
+  if (typeof value?.simpleText === 'string') return value.simpleText.trim();
+  return (value?.runs ?? [])
+    .map((run) => run.text ?? '')
+    .join('')
+    .trim();
+}
+
+/** Pure parser kept separate so response-shape regressions can be tested without network access. */
+export function parseInnertubePlayerContext(json: unknown): InnertubePlayerContext {
+  const root = (json && typeof json === 'object' ? json : {}) as {
+    playabilityStatus?: { status?: string };
+    videoDetails?: {
+      title?: string;
+      author?: string;
+      shortDescription?: string;
+      thumbnail?: { thumbnails?: Array<{ url?: string; width?: number }> };
+    };
+    microformat?: {
+      playerMicroformatRenderer?: {
+        description?: InnertubeText;
+      };
+    };
+    captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } };
+  };
+  const videoDetailsDescription = root.videoDetails?.shortDescription?.trim() ?? '';
+  const microformatDescription = innertubeText(
+    root.microformat?.playerMicroformatRenderer?.description,
+  );
+  const thumbnails = root.videoDetails?.thumbnail?.thumbnails ?? [];
+  const thumbnailUrl =
+    [...thumbnails]
+      .filter((thumbnail) => typeof thumbnail.url === 'string')
+      .sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ?? null;
+
+  return {
+    title: root.videoDetails?.title?.trim() ?? '',
+    authorName: root.videoDetails?.author?.trim() ?? '',
+    thumbnailUrl,
+    description: videoDetailsDescription || microformatDescription,
+    descriptionSource: videoDetailsDescription
+      ? 'innertube_video_details'
+      : microformatDescription
+        ? 'innertube_microformat'
+        : 'none',
+    captionTracks:
+      root.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [],
+    playabilityStatus: root.playabilityStatus?.status?.trim() || null,
+  };
+}
+
+/**
+ * Modern YouTube often parks the full description in the watch "next" engagement panel
+ * (`engagement-panel-structured-description`) rather than only in player `shortDescription`.
+ */
+export function parseStructuredDescriptionFromNext(json: unknown): StructuredDescriptionResult {
+  const root = (json && typeof json === 'object' ? json : {}) as {
+    engagementPanels?: Array<{
+      engagementPanelSectionListRenderer?: {
+        panelIdentifier?: string;
+        targetId?: string;
+        content?: {
+          structuredDescriptionContentRenderer?: {
+            items?: Array<Record<string, unknown>>;
+          };
+        };
+      };
+    }>;
+  };
+
+  for (const panel of root.engagementPanels ?? []) {
+    const section = panel.engagementPanelSectionListRenderer;
+    const id = section?.panelIdentifier ?? section?.targetId;
+    if (id !== 'engagement-panel-structured-description') continue;
+
+    for (const item of section?.content?.structuredDescriptionContentRenderer?.items ?? []) {
+      const body = item.expandableVideoDescriptionBodyRenderer as
+        | {
+            descriptionPlaceholder?: { content?: string };
+            attributedDescriptionBodyText?: { content?: string };
+            colorSampledDescriptionBodyText?: { content?: string };
+            descriptionBodyText?: InnertubeText;
+          }
+        | undefined;
+      if (!body) continue;
+
+      const placeholder = body.descriptionPlaceholder?.content?.trim() ?? '';
+      const emptyConfirmed = /no description has been added/i.test(placeholder);
+
+      const attributed = body.attributedDescriptionBodyText?.content?.trim() ?? '';
+      const colorSampled = body.colorSampledDescriptionBodyText?.content?.trim() ?? '';
+      const classic = innertubeText(body.descriptionBodyText);
+      const description = attributed || colorSampled || classic;
+
+      if (description || emptyConfirmed) {
+        return { description, emptyConfirmed };
+      }
+    }
+  }
+
+  return { description: '', emptyConfirmed: false };
+}
 
 function pickCaptionTrack(tracks: CaptionTrack[]): CaptionTrack | null {
   const human = tracks.find((t) => t.kind !== 'asr' && t.baseUrl);
@@ -77,46 +217,64 @@ function pickCaptionTrack(tracks: CaptionTrack[]): CaptionTrack | null {
   return asr ?? null;
 }
 
-async function fetchTranscriptViaPlayer(videoId: string): Promise<string> {
-  const body = {
-    context: {
-      client: {
-        hl: 'en',
-        gl: 'US',
-        clientName: 'WEB',
-        clientVersion: '2.20241126.01.00',
-      },
-    },
+function innertubeHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'User-Agent': UA,
+    'X-YouTube-Client-Name': '1',
+    'X-YouTube-Client-Version': INNERTUBE_CLIENT.clientVersion,
+  };
+}
+
+function innertubeBody(videoId: string) {
+  return {
+    context: { client: { ...INNERTUBE_CLIENT } },
     videoId,
   };
-  const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': UA,
-      'X-YouTube-Client-Name': '1',
-      'X-YouTube-Client-Version': '2.20241126.01.00',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return '';
-  let json: unknown;
+}
+
+async function fetchInnertubePlayerContext(videoId: string): Promise<InnertubePlayerContext> {
   try {
-    json = await res.json();
+    const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+      method: 'POST',
+      headers: innertubeHeaders(),
+      body: JSON.stringify(innertubeBody(videoId)),
+    });
+    if (!res.ok) return parseInnertubePlayerContext(null);
+    return parseInnertubePlayerContext(await res.json());
   } catch {
-    return '';
+    return parseInnertubePlayerContext(null);
   }
-  const root = json as {
-    captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } };
-  };
-  const tracks = root.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+}
+
+async function fetchInnertubeStructuredDescription(
+  videoId: string,
+): Promise<StructuredDescriptionResult> {
+  try {
+    const res = await fetch('https://www.youtube.com/youtubei/v1/next?prettyPrint=false', {
+      method: 'POST',
+      headers: innertubeHeaders(),
+      body: JSON.stringify(innertubeBody(videoId)),
+    });
+    if (!res.ok) return { description: '', emptyConfirmed: false };
+    return parseStructuredDescriptionFromNext(await res.json());
+  } catch {
+    return { description: '', emptyConfirmed: false };
+  }
+}
+
+async function fetchTranscriptFromTracks(tracks: CaptionTrack[]): Promise<string> {
   const track = pickCaptionTrack(tracks);
   if (!track?.baseUrl) return '';
   const capUrl = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=json3`;
-  const capRes = await fetch(capUrl, { headers: { 'User-Agent': UA } });
-  if (!capRes.ok) return '';
-  const raw = await capRes.text();
-  return parseJson3Captions(raw);
+  try {
+    const capRes = await fetch(capUrl, { headers: { 'User-Agent': UA } });
+    if (!capRes.ok) return '';
+    const raw = await capRes.text();
+    return parseJson3Captions(raw);
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -131,22 +289,47 @@ export async function gatherYoutubeContext(
   let authorName = '';
   let thumbnailUrl: string | null = null;
   let description = '';
+  let descriptionSource: YoutubeDescriptionSource = 'none';
 
   ingestLog('info', 'pipeline.s1.youtube.start', { ...logCtx, videoId });
 
-  const o = await fetchOEmbed(videoId);
+  const [o, player, directTranscript] = await Promise.all([
+    fetchOEmbed(videoId),
+    fetchInnertubePlayerContext(videoId),
+    fetchTimedtextDirect(videoId),
+  ]);
   if (o) {
     title = o.title ?? '';
     authorName = o.author_name ?? '';
     thumbnailUrl = o.thumbnail_url ?? null;
     appendSource(sources, 'oembed');
   }
+  title ||= player.title;
+  authorName ||= player.authorName;
+  thumbnailUrl ??= player.thumbnailUrl;
+  description = player.description;
+  descriptionSource = player.descriptionSource;
+  if (descriptionSource !== 'none') appendSource(sources, descriptionSource);
 
-  let transcript = await fetchTimedtextDirect(videoId);
+  let emptyConfirmed = false;
+  if (!description) {
+    const structured = await fetchInnertubeStructuredDescription(videoId);
+    emptyConfirmed = structured.emptyConfirmed;
+    if (structured.description) {
+      description = structured.description;
+      descriptionSource = 'innertube_structured';
+      appendSource(sources, descriptionSource);
+    } else if (structured.emptyConfirmed) {
+      descriptionSource = 'empty_confirmed';
+      appendSource(sources, descriptionSource);
+    }
+  }
+
+  let transcript = directTranscript;
   if (transcript.length > 40) {
     appendSource(sources, 'timedtext_direct');
   } else {
-    transcript = await fetchTranscriptViaPlayer(videoId);
+    transcript = await fetchTranscriptFromTracks(player.captionTracks);
     if (transcript.length > 40) appendSource(sources, 'innertube_captions');
   }
 
@@ -156,6 +339,10 @@ export async function gatherYoutubeContext(
     ...logCtx,
     videoId,
     titleLen: title.length,
+    descriptionLength: description.length,
+    descriptionSource,
+    descriptionEmptyConfirmed: emptyConfirmed,
+    playabilityStatus: player.playabilityStatus,
     transcriptLen: transcript.length,
     sources: sources.join(','),
   });
@@ -165,6 +352,7 @@ export async function gatherYoutubeContext(
     title,
     authorName,
     description,
+    descriptionSource,
     transcript,
     thumbnailUrl,
     sources,

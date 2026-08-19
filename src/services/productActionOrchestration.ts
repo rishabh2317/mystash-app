@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/contexts/AuthContext';
+import { useCartOptional } from '@/contexts/CartContext';
 import { buildAddToCartLoginHref } from '@/src/navigation/authIntent';
 import { requestAddToCart } from '@/src/services/cartBoundary';
 import { openProductShopping } from '@/src/services/shoppingClick';
@@ -28,12 +29,13 @@ export function useProductBuyHandler() {
 }
 
 /**
- * Auth-gated Add to Cart boundary (Phase 1).
- * Authenticated → Phase 2 cart boundary placeholder.
+ * Auth-gated Add to Cart boundary.
+ * Authenticated → Cart API via boundary / CartContext.
  * Unauthenticated → Login with route intent (OD-12).
  */
 export function useProductAddToCartHandler() {
   const { user } = useAuth();
+  const cart = useCartOptional();
   const router = useRouter();
 
   return useCallback(
@@ -43,7 +45,10 @@ export function useProductAddToCartHandler() {
         return;
       }
       if (user) {
-        requestAddToCart(product.catalogProductId);
+        const id = product.catalogProductId;
+        void (cart ? cart.addItem(id) : requestAddToCart(id)).catch((e) => {
+          Alert.alert('Cart', e instanceof Error ? e.message : 'Could not add to cart.');
+        });
         return;
       }
       const loginHref = buildAddToCartLoginHref(product.catalogProductId);
@@ -53,6 +58,6 @@ export function useProductAddToCartHandler() {
       }
       router.push(loginHref);
     },
-    [router, user],
+    [cart, router, user],
   );
 }

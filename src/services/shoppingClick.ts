@@ -2,8 +2,12 @@ import { Linking, Platform } from 'react-native';
 
 export type ShoppingClickContext = {
   catalogProductId: string;
+  /** Preferred Engagement attribution dim for MerchantClicked. */
+  collectionId?: string | null;
+  /** Legacy Home Reel video id — optional; do not pass collectionId as videoId. */
   videoId?: string | null;
   creatorId?: string | null;
+  tagId?: string | null;
   country?: string | null;
 };
 
@@ -18,8 +22,10 @@ function shoppingApiBase(): string {
 /** Opens only the backend redirect; destination selection never happens in the client. */
 export async function openProductShopping(context: ShoppingClickContext): Promise<void> {
   const query = new URLSearchParams();
+  if (context.collectionId) query.set('collectionId', context.collectionId);
   if (context.videoId) query.set('videoId', context.videoId);
   if (context.creatorId) query.set('creatorId', context.creatorId);
+  if (context.tagId) query.set('tagId', context.tagId);
   if (context.country) query.set('country', context.country);
   query.set('platform', Platform.OS);
 

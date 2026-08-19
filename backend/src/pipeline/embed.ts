@@ -1,4 +1,4 @@
-import { detectPlatform, extractYouTubeVideoId } from './detect';
+import { detectPlatform, extractInstagramPostId, extractYouTubeVideoId } from './sourceIdentity';
 
 function isValidUrl(url: string): boolean {
   try {
@@ -7,20 +7,6 @@ function isValidUrl(url: string): boolean {
   } catch {
     return false;
   }
-}
-
-function extractInstagramPostId(url: string): string | null {
-  if (!isValidUrl(url)) return null;
-  const patterns = [
-    /(?:instagram\.com\/p\/)([A-Za-z0-9_-]+)/,
-    /(?:instagram\.com\/reels\/)([A-Za-z0-9_-]+)/,
-    /(?:instagram\.com\/reel\/)([A-Za-z0-9_-]+)/,
-  ];
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match?.[1]) return match[1];
-  }
-  return null;
 }
 
 export function transformToEmbedUrl(url: string, platformHint?: string): string | null {

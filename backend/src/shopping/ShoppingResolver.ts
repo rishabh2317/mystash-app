@@ -1,9 +1,11 @@
 import type { CatalogProduct } from '../product-intelligence/domain/types';
 import { logger } from '../logger';
 import { AffiliateService } from './AffiliateService';
+import { classifyShoppingProvider } from './shoppingPriorityConfig';
+import { resolveShoppingSelectionForProduct } from './ShoppingConfiguration';
 import { validHttpUrl } from './urlValidation';
 
-export type ShoppingDestinationType = 'affiliate' | 'preferred' | 'merchant';
+export type ShoppingDestinationType = 'configured' | 'affiliate' | 'preferred' | 'merchant';
 
 export type ShoppingResolution = {
   url: string;
@@ -15,11 +17,30 @@ export type ShoppingResolution = {
 /**
  * The single backend authority for outbound shopping destinations.
  * Controllers and clients must not duplicate this selection order.
+ *
+ * Precedence:
+ * configured buying URL (ShoppingConfiguration / file overrides) >
+ * affiliate (when enabled) >
+ * preferredShoppingUrl (may already reflect preferred-merchant exact / resolver) >
+ * merchantUrl >
+ * none
  */
 export class ShoppingResolver {
   constructor(private readonly affiliateService: AffiliateService) {}
 
   resolve(product: CatalogProduct): ShoppingResolution | null {
+    const resolved = resolveShoppingSelectionForProduct(product.id, product.metadata);
+    const configured = validHttpUrl(resolved.selection.configuredBuyingUrl ?? null);
+    if (configured) {
+      return this.selected(product, {
+        url: configured,
+        destinationType: 'configured',
+        shoppingProvider:
+          product.shoppingProvider ?? classifyShoppingProvider(configured),
+        affiliateProvider: null,
+      });
+    }
+
     const affiliate = this.affiliateService.resolveShoppingUrl(product);
     if (affiliate) {
       return this.selected(product, {

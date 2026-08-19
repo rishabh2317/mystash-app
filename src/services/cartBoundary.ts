@@ -1,17 +1,34 @@
 /**
- * Phase 1 Cart boundary — not a Cart implementation.
- *
- * Phase 2 will replace this with the authenticated DB-backed Cart service.
- * Callers must already have authenticated the user and validated catalogProductId.
+ * Authenticated Add-to-Cart boundary used by orchestration + intent resume.
+ * HTTP via cartApi; CartContext.refresh keeps UI in sync when mounted.
  */
-export function requestAddToCart(catalogProductId: string): void {
-  if (!catalogProductId.trim()) {
+import {
+  addCartItem,
+  type CartItemSource,
+} from '@/src/services/cartApi';
+
+type CartRefresh = () => Promise<void>;
+
+let refreshHandler: CartRefresh | null = null;
+
+/** CartProvider registers so intent-resume / orchestration stay single-path. */
+export function registerCartRefreshHandler(handler: CartRefresh | null): void {
+  refreshHandler = handler;
+}
+
+export async function requestAddToCart(
+  catalogProductId: string,
+  source?: CartItemSource | null,
+): Promise<void> {
+  const id = catalogProductId.trim();
+  if (!id) {
     if (__DEV__) {
       console.warn('[cart-boundary] refused empty catalogProductId');
     }
     return;
   }
-  if (__DEV__) {
-    console.log('[cart-boundary] addToCart deferred to Phase 2', { catalogProductId });
+  await addCartItem(id, source);
+  if (refreshHandler) {
+    await refreshHandler();
   }
 }

@@ -2,12 +2,14 @@ import type { SearchCandidate, SearchResult } from '../domain/types';
 import type { MerchantEnrichmentService } from '../enrichment/MerchantEnrichmentService';
 import { validPriceValue } from '../enrichment/MetadataMergeService';
 import type { ProductSearchProvider } from '../interfaces/ProductSearchProvider';
-import type { SearchStrategy } from '../interfaces/ProductSearchProvider';
+import type { SearchStrategy, SearchStrategyHints } from '../interfaces/ProductSearchProvider';
 import { ingestLog } from '../../pipeline/ingestLog';
 import { getPdpSearchHints } from './pdpSearchHints';
 import { classifyPdp } from './PdpClassifier';
 import { shortlistPdpCandidates } from './CandidateShortlister';
 import { scoreCandidateDecisions } from '../scoring/CandidateScoring';
+import { classifyCandidatePage } from './CandidatePageClassifier';
+import { isStrongDirectUrlCandidate, merchantUrlsMatch } from './directUrlIdentity';
 
 /**
  * Discovery (Serper) → shortlist many PDPs → enrich until fields fill → return all successes.
@@ -22,13 +24,35 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
     private readonly maxCandidates: number = 5,
   ) {}
 
-  async search(query: string): Promise<SearchResult> {
-    const discovery = await this.discovery.search(query);
-    if (discovery.kind === 'Failed') return discovery;
+  async search(query: string, hints?: SearchStrategyHints): Promise<SearchResult> {
+    const seed = hints?.seedMerchantUrl
+      ? await this.enrichSeedUrl(hints.seedMerchantUrl)
+      : null;
 
-    const hints = getPdpSearchHints();
+    if (hints?.skipDiscoveryIfSeedStrong && seed && isStrongDirectUrlCandidate(seed)) {
+      ingestLog('info', 'search.direct_url.used', {
+        svc: 'product-intelligence',
+        merchantUrl: seed.merchantUrl.slice(0, 160),
+        skippedDiscovery: true,
+        pdpScore: seed.pdpScore,
+      });
+      return { kind: 'Succeeded', candidates: [seed], provider: 'direct_url' };
+    }
+
+    const discovery = await this.discovery.search(query);
+    if (discovery.kind === 'Failed') {
+      return seed
+        ? { kind: 'Succeeded', candidates: [seed], provider: 'direct_url' }
+        : discovery;
+    }
+
+    const pdpHints = getPdpSearchHints();
     if (!discovery.candidates.length) {
-      return { kind: 'Succeeded', candidates: [], provider: this.discovery.name };
+      return {
+        kind: 'Succeeded',
+        candidates: seed ? [seed] : [],
+        provider: seed ? 'direct_url' : this.discovery.name,
+      };
     }
 
     // Serper is discovery-only — never use search snippets/images as catalog metadata.
@@ -44,9 +68,9 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
     const shortlisted = shortlistPdpCandidates(
       discoveryCandidates,
       {
-        brand: hints.brand,
-        name: hints.name ?? query,
-        category: hints.category,
+        brand: pdpHints.brand,
+        name: pdpHints.name ?? query,
+        category: pdpHints.category,
       },
       this.maxCandidates,
     );
@@ -57,7 +81,11 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         provider: this.discovery.name,
         candidateCount: discoveryCandidates.length,
       });
-      return { kind: 'Succeeded', candidates: [], provider: this.discovery.name };
+      return {
+        kind: 'Succeeded',
+        candidates: seed ? [seed] : [],
+        provider: this.discovery.name,
+      };
     }
 
     // Candidates are independent. Promise.all is bounded by the configured
@@ -69,17 +97,19 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         provider: this.discovery.name,
         merchantUrl: best.merchantUrl.slice(0, 160),
         sourceTier: best.sourceTier,
-        candidatePageType: best.candidatePageType,
-        shoppingEligible: best.shoppingEligible,
+        sourceType: best.sourceType,
+        pageType: best.pageType,
+        metadataCapable: best.capabilities.metadata,
+        commerceCapable: best.capabilities.commerce,
         pdpRankScore: best.pdpScore,
       });
 
       const started = Date.now();
       const enriched = await this.enrichment.enrich({
         merchantUrl: best.merchantUrl,
-        titleHint: hints.name ?? best.title,
-        brandHint: hints.brand,
-        categoryHint: hints.category,
+        titleHint: pdpHints.name ?? best.title,
+        brandHint: pdpHints.brand,
+        categoryHint: pdpHints.category,
         ingestId: this.ingestId,
         traceId: this.traceId,
       });
@@ -104,7 +134,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       const classification = classifyPdp({
         url: m.merchantUrl,
         title: m.title,
-        expectedBrand: hints.brand,
+        expectedBrand: pdpHints.brand,
         metadata: {
           hasOffer: Boolean(validPrice),
           price: validPrice,
@@ -113,7 +143,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
           merchantProductMetadata: m.metadataCompleteness >= 35,
         },
       });
-      if (best.shoppingEligible && classification.verdict !== 'pdp') {
+      if (best.capabilities.commerce && classification.verdict !== 'pdp') {
         ingestLog('info', 'search.pdp.rejected', {
           svc: 'product-intelligence',
           merchantUrl: best.merchantUrl.slice(0, 160),
@@ -139,8 +169,12 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         pdpReasons: classification.reasons,
         enrichmentSucceeded: true,
         sourceTier: best.sourceTier,
+        sourceType: best.sourceType,
+        pageType: best.pageType,
+        capabilities: best.capabilities,
         candidatePageType: best.candidatePageType,
-        shoppingEligible: best.shoppingEligible && classification.verdict === 'pdp',
+        shoppingEligible: best.capabilities.commerce && classification.verdict === 'pdp',
+        category: m.category,
         enrichmentMeta: {
           enrichmentProvider: m.provider,
           short_description: m.shortDescription,
@@ -166,8 +200,9 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         svc: 'product-intelligence',
         merchantUrl: best.merchantUrl.slice(0, 160),
         sourceTier: best.sourceTier,
-        candidatePageType: best.candidatePageType,
-        shoppingEligible: candidate.shoppingEligible,
+        sourceType: best.sourceType,
+        pageType: best.pageType,
+        commerceCapable: best.capabilities.commerce,
         sourceAuthority: decisionScores.sourceAuthority,
         metadataScore: decisionScores.metadataScore,
         shoppingScore: decisionScores.shoppingScore,
@@ -183,10 +218,117 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       (candidate): candidate is SearchCandidate => candidate !== null,
     );
 
+    const merged = seed
+      ? [
+          seed,
+          ...enrichedCandidates.filter((c) => !merchantUrlsMatch(c.merchantUrl, seed.merchantUrl)),
+        ]
+      : enrichedCandidates;
+
     return {
       kind: 'Succeeded',
-      candidates: enrichedCandidates,
+      candidates: merged,
       provider: this.discovery.name,
     };
+  }
+
+  private async enrichSeedUrl(seedUrl: string): Promise<SearchCandidate | null> {
+    const pdpHints = getPdpSearchHints();
+    ingestLog('info', 'metadata.enrichment.started', {
+      svc: 'product-intelligence',
+      provider: 'direct_url',
+      merchantUrl: seedUrl.slice(0, 160),
+    });
+    const started = Date.now();
+    const enriched = await this.enrichment.enrich({
+      merchantUrl: seedUrl,
+      titleHint: pdpHints.name,
+      brandHint: pdpHints.brand,
+      categoryHint: pdpHints.category,
+      ingestId: this.ingestId,
+      traceId: this.traceId,
+      acceptPartialCache: false,
+    });
+    if (enriched.kind === 'failed') {
+      ingestLog('info', 'search.direct_url.weak', {
+        svc: 'product-intelligence',
+        merchantUrl: seedUrl.slice(0, 160),
+        reason: 'enrichment_failed',
+      });
+      return null;
+    }
+    const m = enriched.metadata;
+    const identityUrl = m.merchantUrl || seedUrl;
+    const validPrice = validPriceValue(m.price, m.currency);
+    const pdp = classifyPdp({
+      url: identityUrl,
+      title: m.title,
+      expectedBrand: pdpHints.brand,
+      metadata: {
+        hasOffer: Boolean(validPrice),
+        price: validPrice,
+        productImage: m.primaryImage ?? m.image,
+        specifications: m.specifications,
+        merchantProductMetadata: m.metadataCompleteness >= 35,
+      },
+    });
+    const page = classifyCandidatePage({
+      url: identityUrl,
+      title: m.title,
+      expectedBrand: pdpHints.brand,
+      sourceTier: pdp.sourceTier,
+    });
+    const candidate: SearchCandidate = {
+      merchant: m.merchant,
+      merchantUrl: identityUrl,
+      title: m.title,
+      image: m.primaryImage ?? m.image,
+      score: 1,
+      brand: m.brand,
+      description: m.description,
+      price: validPrice,
+      currency: m.currency,
+      pdpScore: pdp.score,
+      pdpVerdict: pdp.verdict,
+      pdpReasons: pdp.reasons,
+      enrichmentSucceeded: true,
+      sourceTier: pdp.sourceTier,
+      sourceType: page.sourceType,
+      pageType: page.pageType,
+      capabilities: page.capabilities,
+      shoppingEligible: page.capabilities.commerce && pdp.verdict === 'pdp',
+      category: m.category,
+      enrichmentMeta: {
+        enrichmentProvider: m.provider,
+        short_description: m.shortDescription,
+        specifications: m.specifications,
+        metadata_completeness: m.metadataCompleteness,
+        price_source: m.priceSource,
+        price_last_verified_at: m.priceLastVerifiedAt,
+        primary_image: m.primaryImage,
+        availability: m.availability,
+        extracted_at: m.extractedAt,
+        pdp_classifier_score: pdp.score,
+        pdp_classifier_reasons: pdp.reasons,
+        source_tier: pdp.sourceTier,
+        identitySource: 'creator_supplied_url',
+      },
+    };
+    const decisionScores = scoreCandidateDecisions(candidate);
+    candidate.sourceAuthority = decisionScores.sourceAuthority;
+    candidate.metadataScore = decisionScores.metadataScore;
+    candidate.shoppingScore = decisionScores.shoppingScore;
+    ingestLog('info', 'metadata.enrichment.completed', {
+      svc: 'product-intelligence',
+      merchantUrl: candidate.merchantUrl.slice(0, 160),
+      sourceType: page.sourceType,
+      pageType: page.pageType,
+      commerceCapable: page.capabilities.commerce,
+      pdpScore: candidate.pdpScore,
+      metadataCompleteness: decisionScores.metadataCompleteness,
+      durationMs: Date.now() - started,
+      identitySource: 'creator_supplied_url',
+    });
+    return candidate;
   }
 }

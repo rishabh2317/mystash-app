@@ -13,7 +13,9 @@ import type { PipelineCtx } from './pipelineVision.ts';
 import { wrapAffiliateDestination } from './affiliate.ts';
 import { gatherYoutubeContext } from './youtubeContext.ts';
 
-const PIPELINE_VERSION = Deno.env.get('EXTRACTION_PIPELINE_VERSION') ?? 'v3-queue-unified';
+const PIPELINE_VERSION =
+  Deno.env.get('EXTRACTION_PIPELINE_VERSION') ?? 'v4-youtube-metadata';
+const YOUTUBE_CONTEXT_VERSION = 'youtube-metadata-v2';
 
 async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
@@ -26,9 +28,13 @@ export async function buildContentCacheHash(parts: {
   platform: string;
   externalKey: string;
   transcript: string;
+  description?: string;
 }): Promise<string> {
   const th = await sha256Hex(parts.transcript.slice(0, 80_000));
-  return sha256Hex(`${PIPELINE_VERSION}|${parts.platform}|${parts.externalKey}|${th}`);
+  const dh = await sha256Hex((parts.description ?? '').slice(0, 20_000));
+  return sha256Hex(
+    `${PIPELINE_VERSION}|${YOUTUBE_CONTEXT_VERSION}|${parts.platform}|${parts.externalKey}|${th}|${dh}`,
+  );
 }
 
 export type ExtractionJobRow = {
@@ -37,6 +43,14 @@ export type ExtractionJobRow = {
   attempts: number;
   max_attempts: number;
   payload: Record<string, unknown>;
+};
+
+type YoutubeMetadata = {
+  title: string;
+  description: string;
+  descriptionSource: string;
+  creator: string;
+  thumbnailUrl: string | null;
 };
 
 async function readCachedExtraction(
@@ -94,7 +108,7 @@ async function computeExtraction(
     traceId: string;
     sourceHost: string;
   },
-): Promise<{ extraction: ExtractionPipelineResult; youtubeTitle?: string }> {
+): Promise<{ extraction: ExtractionPipelineResult; youtubeMetadata?: YoutubeMetadata }> {
   const ctx: PipelineCtx = {
     ingestId: params.ingestId,
     traceId: params.traceId,
@@ -106,11 +120,40 @@ async function computeExtraction(
 
   if (params.platform === 'youtube' && params.videoId && geminiKey) {
     const pack = await gatherYoutubeContext(params.videoId, { ingestId: params.ingestId, traceId: params.traceId });
+    const youtubeMetadata: YoutubeMetadata = {
+      title: pack.title,
+      description: pack.description,
+      descriptionSource: pack.descriptionSource,
+      creator: pack.authorName,
+      thumbnailUrl: pack.thumbnailUrl,
+    };
+    const { error: metadataPersistError } = await admin
+      .from('ingest_requests')
+      .update({
+        video_description: youtubeMetadata.description,
+        video_description_source: youtubeMetadata.descriptionSource,
+        video_creator: youtubeMetadata.creator,
+        ...(youtubeMetadata.thumbnailUrl
+          ? { thumbnail: youtubeMetadata.thumbnailUrl }
+          : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', params.ingestId);
+    if (metadataPersistError) {
+      ingestLog('warn', 'metadata.persist_failed', {
+        ingestId: params.ingestId,
+        traceId: params.traceId,
+        descriptionLength: youtubeMetadata.description.length,
+        descriptionSource: youtubeMetadata.descriptionSource,
+        message: metadataPersistError.message,
+      });
+    }
     const th = await sha256Hex(pack.transcript.slice(0, 80_000));
     const hash = await buildContentCacheHash({
       platform: 'youtube',
       externalKey: params.videoId,
       transcript: pack.transcript,
+      description: pack.description,
     });
 
     const cached = await readCachedExtraction(admin, hash);
@@ -125,6 +168,7 @@ async function computeExtraction(
           pipelineMeta: meta,
           durationMs: 0,
         },
+        youtubeMetadata,
       };
     }
 
@@ -137,7 +181,7 @@ async function computeExtraction(
         transcriptHash: th,
         result: unified,
       });
-      return { extraction: unified, youtubeTitle: pack.title };
+      return { extraction: unified, youtubeMetadata };
     }
 
     ingestLog('warn', 'extract.unified_failed', {
@@ -154,7 +198,7 @@ async function computeExtraction(
           message: unified.message,
         },
       ),
-      youtubeTitle: pack.title,
+      youtubeMetadata,
     };
   }
 
@@ -235,8 +279,7 @@ async function persistExtractionResults(
     platform: string;
     thumbnail: string | null;
     extraction: ExtractionPipelineResult;
-    /** Real title from oEmbed when available (avoids duplicate context API calls). */
-    videoTitleOverride?: string;
+    youtubeMetadata?: YoutubeMetadata;
   },
 ): Promise<void> {
   const {
@@ -300,7 +343,7 @@ async function persistExtractionResults(
   /** Do not replace a curator-provided title with the auto-detected YouTube title. */
   const PLACEHOLDER_INGEST_TITLES = new Set(['YouTube Short', 'Instagram Reel', 'Video']);
   let videoTitlePatch: { video_title: string } | Record<string, never> = {};
-  const override = params.videoTitleOverride?.trim();
+  const override = params.youtubeMetadata?.title.trim();
   if (override) {
     const { data: titleRow } = await admin
       .from('ingest_requests')
@@ -318,7 +361,16 @@ async function persistExtractionResults(
     .update({
       status: 'draft',
       updated_at: new Date().toISOString(),
-      ...(params.thumbnail ? { thumbnail: params.thumbnail } : {}),
+      ...(params.youtubeMetadata?.thumbnailUrl || params.thumbnail
+        ? { thumbnail: params.youtubeMetadata?.thumbnailUrl ?? params.thumbnail }
+        : {}),
+      ...(params.youtubeMetadata
+        ? {
+            video_description: params.youtubeMetadata.description,
+            video_description_source: params.youtubeMetadata.descriptionSource,
+            video_creator: params.youtubeMetadata.creator,
+          }
+        : {}),
       ...videoTitlePatch,
     })
     .eq('id', params.ingestId);
@@ -379,7 +431,7 @@ export async function runOneExtractionJob(
   });
 
   let extraction: ExtractionPipelineResult;
-  let youtubeTitle: string | undefined;
+  let youtubeMetadata: YoutubeMetadata | undefined;
   try {
     const computed = await computeExtraction(admin, {
       sourceUrl,
@@ -391,7 +443,7 @@ export async function runOneExtractionJob(
       sourceHost,
     });
     extraction = computed.extraction;
-    youtubeTitle = computed.youtubeTitle;
+    youtubeMetadata = computed.youtubeMetadata;
   } catch (e) {
     const msg = (e as Error).message ?? 'unknown';
     ingestLog('error', 'extract.job_exception', { jobId: job.id, message: msg.slice(0, 300) });
@@ -408,7 +460,7 @@ export async function runOneExtractionJob(
         platform,
         thumbnail,
         extraction,
-        videoTitleOverride: undefined,
+        youtubeMetadata: undefined,
       });
       await admin
         .from('extraction_jobs')
@@ -480,7 +532,7 @@ export async function runOneExtractionJob(
     platform,
     thumbnail,
     extraction,
-    videoTitleOverride: youtubeTitle,
+    youtubeMetadata,
   });
 
   await admin

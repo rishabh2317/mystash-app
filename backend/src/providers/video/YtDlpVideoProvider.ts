@@ -16,6 +16,52 @@ function run(cmd: string, args: string[]): Promise<{ code: number; stderr: strin
   });
 }
 
+export type YtDlpJsonProbe =
+  | { ok: true; json: Record<string, unknown> }
+  | { ok: false; stderr: string; code: number };
+
+/** Metadata-only probe (no media download). Used by Instagram source adapter. */
+export function probeYtDlpJson(
+  sourceUrl: string,
+  timeoutMs = 25_000,
+): Promise<YtDlpJsonProbe> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      'yt-dlp',
+      ['-j', '--skip-download', '--no-playlist', '--no-warnings', sourceUrl],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve({ ok: false, stderr: 'yt-dlp probe timed out', code: 1 });
+    }, timeoutMs);
+    child.stdout.on('data', (d) => {
+      stdout += String(d);
+    });
+    child.stderr.on('data', (d) => {
+      stderr += String(d);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        resolve({ ok: false, stderr: stderr.slice(0, 800), code: code ?? 1 });
+        return;
+      }
+      try {
+        resolve({ ok: true, json: JSON.parse(stdout) as Record<string, unknown> });
+      } catch {
+        resolve({ ok: false, stderr: 'yt-dlp returned invalid JSON', code: 1 });
+      }
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, stderr: err.message, code: 1 });
+    });
+  });
+}
+
 export class YtDlpVideoProvider implements VideoProvider {
   readonly name = 'yt-dlp';
 

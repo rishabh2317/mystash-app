@@ -31,6 +31,7 @@ export type CatalogRepository = {
   /** Background enrichment updates the existing catalog record in place. */
   update(id: string, patch: UpdateCatalogInput): Promise<CatalogProduct>;
   addAlias(catalogProductId: string, alias: string): Promise<void>;
+  listAliases?(catalogProductId: string): Promise<string[]>;
   listActiveForFuzzy(limit?: number): Promise<CatalogProduct[]>;
 };
 

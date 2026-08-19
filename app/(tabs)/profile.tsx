@@ -7,9 +7,16 @@ import Animated, { Extrapolate, interpolateColor, useAnimatedStyle } from 'react
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { parseAddToCartIntent } from '@/src/navigation/authIntent';
+import {
+  parseAddToCartIntent,
+  parseAuthIntent,
+  parseFollowCreatorIntent,
+  parseSaveCollectionIntent,
+} from '@/src/navigation/authIntent';
 import { requestAddToCart } from '@/src/services/cartBoundary';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { followCreator, getMyCreatorAnalytics, saveCollection, type CreatorAnalyticsSummary } from '@/src/services/engagementApi';
+import { ensureMe, type UserSettingsViewModel } from '@/src/services/userApi';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 
 function ProfileRow({
   icon,
@@ -75,7 +82,13 @@ function ThemeToggleCard() {
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ intent?: string | string[]; catalogProductId?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    intent?: string | string[];
+    catalogProductId?: string | string[];
+    creatorId?: string | string[];
+    username?: string | string[];
+    collectionId?: string | string[];
+  }>();
   const { mode } = useThemeMode();
   const { user, loading, signInWithEmail, signUpWithEmail, signInWithGoogle, signOut } = useAuth();
   const isLight = mode === 'titanium';
@@ -87,33 +100,170 @@ export default function ProfileScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const consumedAuthIntentRef = useRef<string | null>(null);
+  const [me, setMe] = useState<UserSettingsViewModel | null>(null);
+  const [analytics, setAnalytics] = useState<CreatorAnalyticsSummary | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
-  // OD-12: resume ADD_TO_CART after successful auth when route intent params are present.
+  useEffect(() => {
+    if (!user || loading) {
+      setMe(null);
+      return;
+    }
+    let cancelled = false;
+    ensureMe()
+      .then((next) => {
+        if (!cancelled) setMe(next);
+      })
+      .catch(() => {
+        if (!cancelled) setMe(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, loading]);
+
+  useEffect(() => {
+    if (!user || loading || !me || me.creatorStatus === 'NONE') {
+      setAnalytics(null);
+      return;
+    }
+    let cancelled = false;
+    setAnalyticsLoading(true);
+    getMyCreatorAnalytics()
+      .then((next) => {
+        if (!cancelled) setAnalytics(next);
+      })
+      .catch(() => {
+        if (!cancelled) setAnalytics(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAnalyticsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, loading, me]);
+
+  // OD-12: resume ADD_TO_CART / FOLLOW_CREATOR / SAVE_COLLECTION after successful auth.
   useEffect(() => {
     if (!user || loading) return;
-    const intent = parseAddToCartIntent(params);
-    if (!intent) return;
-    const consumeKey = `${intent.intent}:${intent.catalogProductId}`;
-    if (consumedAuthIntentRef.current === consumeKey) return;
-    consumedAuthIntentRef.current = consumeKey;
-    requestAddToCart(intent.catalogProductId);
-    router.replace('/(tabs)/profile');
-  }, [user, loading, params.intent, params.catalogProductId, router]);
+
+    const cartIntent = parseAddToCartIntent(params);
+    if (cartIntent) {
+      const consumeKey = `${cartIntent.intent}:${cartIntent.catalogProductId}`;
+      if (consumedAuthIntentRef.current === consumeKey) return;
+      consumedAuthIntentRef.current = consumeKey;
+      void requestAddToCart(cartIntent.catalogProductId).catch((e) => {
+        if (__DEV__) {
+          console.warn('[profile] add-to-cart intent failed', e);
+        }
+      });
+      router.replace('/(tabs)/profile');
+      return;
+    }
+
+    const followIntent = parseFollowCreatorIntent(params);
+    if (followIntent) {
+      const consumeKey = `${followIntent.intent}:${followIntent.creatorId}`;
+      if (consumedAuthIntentRef.current === consumeKey) return;
+      consumedAuthIntentRef.current = consumeKey;
+      void followCreator(followIntent.creatorId)
+        .catch((e) => {
+          if (__DEV__) {
+            console.warn('[profile] follow intent failed', e);
+          }
+        })
+        .finally(() => {
+          if (followIntent.username) {
+            router.replace(`/creator/${encodeURIComponent(followIntent.username)}` as Href);
+          } else {
+            router.replace('/(tabs)/profile');
+          }
+        });
+      return;
+    }
+
+    const saveIntent = parseSaveCollectionIntent(params);
+    if (saveIntent) {
+      const consumeKey = `${saveIntent.intent}:${saveIntent.collectionId}`;
+      if (consumedAuthIntentRef.current === consumeKey) return;
+      consumedAuthIntentRef.current = consumeKey;
+      void saveCollection(saveIntent.collectionId)
+        .catch((e) => {
+          if (__DEV__) {
+            console.warn('[profile] save intent failed', e);
+          }
+        })
+        .finally(() => {
+          router.replace(`/collection/${saveIntent.collectionId}` as Href);
+        });
+    }
+  }, [
+    user,
+    loading,
+    params.intent,
+    params.catalogProductId,
+    params.creatorId,
+    params.username,
+    params.collectionId,
+    router,
+  ]);
 
   const profileName = useMemo(() => {
     if (!user) return '';
     return (
+      me?.displayName ||
       (user.user_metadata?.full_name as string) ||
       (user.user_metadata?.name as string) ||
       user.email?.split('@')[0] ||
       'Mystash User'
     );
-  }, [user]);
+  }, [user, me?.displayName]);
 
   const profileHandle = useMemo(() => {
     if (!user) return '';
-    return (user.user_metadata?.username as string) || user.email?.split('@')[0] || 'user';
-  }, [user]);
+    return me?.username || (user.user_metadata?.username as string) || user.email?.split('@')[0] || 'user';
+  }, [user, me?.username]);
+
+  const creatorStatusLabel = useMemo(() => {
+    switch (me?.creatorStatus) {
+      case 'ACTIVE':
+        return 'ACTIVE creator';
+      case 'ONBOARDING':
+        return 'Onboarding in progress';
+      case 'SUSPENDED':
+        return 'Creator suspended';
+      case 'NONE':
+        return 'Shopper (not a creator)';
+      default:
+        return 'Loading…';
+    }
+  }, [me?.creatorStatus]);
+
+  const curateCopy = useMemo(() => {
+    if (me?.creatorStatus === 'ACTIVE') {
+      return {
+        title: 'Curate collection',
+        sub: 'Paste a reel URL, review AI picks, publish to the feed. Same flow as the Create tab.',
+      };
+    }
+    if (me?.creatorStatus === 'ONBOARDING') {
+      return {
+        title: 'Finish creator setup',
+        sub: 'Complete onboarding on the Create tab to activate Collections.',
+      };
+    }
+    if (me?.creatorStatus === 'SUSPENDED') {
+      return {
+        title: 'Creator suspended',
+        sub: 'Collection creation is blocked until creator privileges are reinstated.',
+      };
+    }
+    return {
+      title: 'Become a creator',
+      sub: 'Activate your creator account on the Create tab to ingest Collections.',
+    };
+  }, [me?.creatorStatus]);
 
   const onSubmitAuth = async () => {
     if (!email.trim() || !password.trim()) {
@@ -169,8 +319,8 @@ export default function ProfileScreen() {
     setSubmitting(true);
     try {
       // Forward validated Profile route intent into OAuth redirectTo so a cold
-      // Google callback can resume ADD_TO_CART without a second intent store.
-      const authIntent = parseAddToCartIntent(params);
+      // Google callback can resume ADD_TO_CART / FOLLOW_CREATOR / SAVE_COLLECTION.
+      const authIntent = parseAuthIntent(params);
       const { error } = await signInWithGoogle({ authIntent });
       if (error && error !== 'Google sign in canceled.') {
         Alert.alert('Google sign in failed', error);
@@ -307,27 +457,85 @@ export default function ProfileScreen() {
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => router.push('/(tabs)/create')}
+          disabled={me?.creatorStatus === 'SUSPENDED'}
           style={[
             styles.curateCard,
             {
               borderColor: isLight ? 'rgba(0,242,255,0.45)' : 'rgba(168,85,247,0.55)',
               backgroundColor: isLight ? 'rgba(255,255,255,0.88)' : 'rgba(255,255,255,0.08)',
+              opacity: me?.creatorStatus === 'SUSPENDED' ? 0.55 : 1,
             },
           ]}
         >
           <Ionicons name="sparkles-outline" size={22} color={isLight ? '#00AFC0' : '#C084FC'} />
           <View style={{ flex: 1, paddingLeft: 10 }}>
-            <Text style={[styles.curateTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Curate collection</Text>
-            <Text style={[styles.curateSub, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>
-              Paste a reel URL, review AI picks, publish to the feed. Same flow as the Create tab.
-            </Text>
+            <Text style={[styles.curateTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>{curateCopy.title}</Text>
+            <Text style={[styles.curateSub, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>{curateCopy.sub}</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={isLight ? '#64748B' : '#94A3B8'} />
         </TouchableOpacity>
 
+        {me && me.creatorStatus !== 'NONE' ? (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>
+              Analytics
+            </Text>
+            {analyticsLoading && !analytics ? (
+              <ActivityIndicator color={isLight ? '#00AFC0' : '#A855F7'} />
+            ) : analytics ? (
+              <>
+                <ProfileRow
+                  icon="eye-outline"
+                  label="Collection views"
+                  value={String(analytics.totals.views)}
+                />
+                <ProfileRow
+                  icon="people-outline"
+                  label="Followers"
+                  value={String(analytics.totals.followers)}
+                />
+                <ProfileRow
+                  icon="bookmark-outline"
+                  label="Collection saves"
+                  value={String(analytics.totals.saves)}
+                />
+                <ProfileRow
+                  icon="share-outline"
+                  label="Collection shares"
+                  value={String(analytics.totals.shares)}
+                />
+                <ProfileRow
+                  icon="storefront-outline"
+                  label="Shopping redirects"
+                  value={String(analytics.totals.productRedirects)}
+                />
+                {analytics.collections.slice(0, 5).map((c) => (
+                  <ProfileRow
+                    key={c.collectionId}
+                    icon="albums-outline"
+                    label={c.title?.trim() || 'Collection'}
+                    value={`${c.views} views · ${c.saves} saves · ${c.shares} shares · ${c.productRedirects} redirects`}
+                  />
+                ))}
+              </>
+            ) : (
+              <Text style={[styles.curateSub, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>
+                Analytics unavailable right now.
+              </Text>
+            )}
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Account</Text>
           <ProfileRow icon="person-outline" label="Username" value={`@${profileHandle}`} />
+          <ProfileRow icon="create-outline" label="Creator status" value={creatorStatusLabel} />
+          <ProfileRow
+            icon="globe-outline"
+            label="Public profile"
+            value="View as others see you"
+            action={() => router.push(`/creator/${encodeURIComponent(profileHandle)}`)}
+          />
           <ProfileRow icon="mail-outline" label="Email" value={user.email ?? 'N/A'} />
           <ProfileRow icon="shield-checkmark-outline" label="Plan" value="Mystash Pro Beta" />
           <ProfileRow icon="card-outline" label="Payment" value="Visa •••• 2189 (placeholder)" />

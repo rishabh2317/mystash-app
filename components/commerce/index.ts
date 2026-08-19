@@ -9,3 +9,4 @@ export { NO_PRODUCT_DETAILS_ACTIONS } from './productDetailsActions';
 export { ReviewProductCard } from './wrappers/ReviewProductCard';
 export { PublishedVideoProductCard } from './wrappers/PublishedVideoProductCard';
 export { SearchProductCard } from './wrappers/SearchProductCard';
+export { CartPurchaseConfirmModal } from './CartPurchaseConfirmModal';

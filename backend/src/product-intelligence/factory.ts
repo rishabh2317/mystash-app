@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getProductIntelligenceConfig } from './config';
 import {
-  SupabaseCatalogRepository,
   SupabaseMatchHistoryWriter,
   SupabaseSearchCandidateCache,
 } from './catalog/SupabaseCatalogRepository';
@@ -16,6 +15,9 @@ import type { ProductSearchProvider } from './interfaces/ProductSearchProvider';
 import { GoogleCustomSearchProvider } from './search/GoogleCustomSearchProvider';
 import { SerperSearchProvider } from './search/SerperSearchProvider';
 import { TavilyEnrichedPdpSearchStrategy } from './search/TavilyEnrichedPdpSearchStrategy';
+import { createCatalogService } from '../catalog/factory';
+import type { CollectionTagRemapPort } from '../catalog/ports';
+import { noopCollectionTagRemap } from '../catalog/ports';
 
 export type ProductIntelligenceBundle = {
   resolver: ProductResolver;
@@ -43,11 +45,12 @@ export function createProductIntelligence(
   ingestId: string,
   background: BackgroundResolveEnqueuer | null = null,
   traceId: string = ingestId,
+  tagRemap: CollectionTagRemapPort = noopCollectionTagRemap,
 ): ProductIntelligenceBundle | null {
   const cfg = getProductIntelligenceConfig();
   if (!cfg.enabled) return null;
 
-  const catalog = new SupabaseCatalogRepository(admin);
+  const catalog = createCatalogService(admin, tagRemap);
   const cache = new SupabaseSearchCandidateCache(admin);
   const discovery = createDiscoveryProvider(cfg, cache);
   const enrichment = new MerchantEnrichmentService(new TavilyMerchantExtractor(admin));

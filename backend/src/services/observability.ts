@@ -3,6 +3,7 @@ import { ingestLog, type IngestLogFields } from '../pipeline/ingestLog';
 export type PipelineEvent =
   | 'ingest.started'
   | 'metadata.complete'
+  | 'metadata.persist_failed'
   | 'transcript.complete'
   | 'media_understanding.started'
   | 'media_understanding.complete'
@@ -10,6 +11,7 @@ export type PipelineEvent =
   | 'logo.complete'
   | 'scene.complete'
   | 'context.built'
+  | 'reasoning.context.ready'
   | 'reasoning.complete'
   | 'validate.complete'
   | 'rank.complete'

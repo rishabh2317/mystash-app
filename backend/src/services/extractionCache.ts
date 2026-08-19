@@ -6,6 +6,13 @@ export type CachedExtractionPayload = {
   products: ProductCandidate[];
   finalStage: string;
   status: 'ready_for_review' | 'review_required';
+  youtubeMetadata?: {
+    title: string;
+    description: string;
+    descriptionSource: string;
+    creator: string;
+    thumbnailUrl: string | null;
+  };
 };
 
 export async function getVideoExtractionCache(
@@ -30,6 +37,7 @@ export async function setVideoExtractionCache(
     products: ProductCandidate[];
     finalStage: string;
     status: 'ready_for_review' | 'review_required';
+    youtubeMetadata?: CachedExtractionPayload['youtubeMetadata'];
   },
 ): Promise<string> {
   const cacheKey = buildCacheKey(params);
@@ -45,6 +53,7 @@ export async function setVideoExtractionCache(
         products: params.products,
         finalStage: params.finalStage,
         status: params.status,
+        youtubeMetadata: params.youtubeMetadata,
       },
       product_count: params.products.length,
       updated_at: new Date().toISOString(),

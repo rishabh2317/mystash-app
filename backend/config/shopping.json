@@ -1,0 +1,13 @@
+{
+  "preferredMerchant": null,
+  "merchantPriority": [
+    "amazon",
+    "official",
+    "flipkart",
+    "myntra",
+    "ajio",
+    "bestbuy",
+    "merchant"
+  ],
+  "productOverrides": {}
+}

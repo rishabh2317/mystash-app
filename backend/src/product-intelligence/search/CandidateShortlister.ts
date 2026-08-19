@@ -3,12 +3,18 @@ import { ingestLog } from '../../pipeline/ingestLog';
 import { rankPdpCandidates, type PdpRankHints } from './PdpRanker';
 import { classifyPdp } from './PdpClassifier';
 import { classifyCandidatePage } from './CandidatePageClassifier';
+import { mayEnterMetadataEnrichment } from './MetadataEnrichmentAdmissionPolicy';
 
 export type ShortlistedCandidate = SearchCandidate & {
   pdpScore: number;
   pdpVerdict: NonNullable<SearchCandidate['pdpVerdict']>;
   sourceTier: NonNullable<SearchCandidate['sourceTier']>;
+  sourceType: NonNullable<SearchCandidate['sourceType']>;
+  pageType: NonNullable<SearchCandidate['pageType']>;
+  capabilities: NonNullable<SearchCandidate['capabilities']>;
+  /** @deprecated Compatibility projection. */
   candidatePageType: NonNullable<SearchCandidate['candidatePageType']>;
+  /** @deprecated Compatibility projection. */
   shoppingEligible: boolean;
 };
 
@@ -22,7 +28,8 @@ function hostOf(url: string): string {
 
 /**
  * Keep multiple trusted PDPs for metadata enrichment.
- * Rejects editorial / hard-negative / non-PDP verdicts before enrichment.
+ * Preserves the pre-capability enrichment admission policy while attaching
+ * descriptive classification and capability data for downstream routing.
  */
 export function shortlistPdpCandidates(
   candidates: SearchCandidate[],
@@ -43,12 +50,21 @@ export function shortlistPdpCandidates(
     const usage = classifyCandidatePage({
       url: candidate.merchantUrl,
       sourceTier: classification.sourceTier,
+      title: candidate.title,
+      expectedBrand: hints.brand,
     });
-    if (!usage.metadataEligible) continue;
+    if (
+      !mayEnterMetadataEnrichment({
+        url: candidate.merchantUrl,
+        sourceTier: classification.sourceTier,
+      })
+    ) {
+      continue;
+    }
 
     const rankedCandidate = rankByUrl.get(candidate.merchantUrl);
     if (
-      usage.shoppingEligible &&
+      usage.capabilities.commerce &&
       (!rankedCandidate ||
         classification.verdict === 'not_pdp' ||
         !Number.isFinite(rankedCandidate.pdpScore) ||
@@ -64,13 +80,18 @@ export function shortlistPdpCandidates(
       pdpVerdict: classification.verdict,
       pdpReasons: classification.reasons,
       sourceTier: classification.sourceTier,
-      candidatePageType: usage.pageType,
-      shoppingEligible: usage.shoppingEligible,
+      sourceType: usage.sourceType,
+      pageType: usage.pageType,
+      capabilities: usage.capabilities,
+      candidatePageType: usage.candidatePageType,
+      shoppingEligible: usage.capabilities.commerce,
     });
   }
 
   decorated.sort((a, b) => {
-    if (a.shoppingEligible !== b.shoppingEligible) return a.shoppingEligible ? -1 : 1;
+    if (a.capabilities.commerce !== b.capabilities.commerce) {
+      return a.capabilities.commerce ? -1 : 1;
+    }
     return b.pdpScore - a.pdpScore;
   });
 
@@ -81,8 +102,10 @@ export function shortlistPdpCandidates(
       host: hostOf(shortlisted.merchantUrl),
       merchantUrl: shortlisted.merchantUrl.slice(0, 160),
       sourceTier: shortlisted.sourceTier,
-      candidatePageType: shortlisted.candidatePageType,
-      shoppingEligible: shortlisted.shoppingEligible,
+      sourceType: shortlisted.sourceType,
+      pageType: shortlisted.pageType,
+      metadataCapable: shortlisted.capabilities.metadata,
+      commerceCapable: shortlisted.capabilities.commerce,
       pdpScore: shortlisted.pdpScore,
       pdpVerdict: shortlisted.pdpVerdict,
     });

@@ -19,15 +19,18 @@ import { GoogleVisionOcrProvider } from '../providers/ocr/GoogleVisionOcrProvide
 import { OpenAiReasonerProvider } from '../providers/reasoner/OpenAiReasonerProvider';
 import { OpenAiSceneProvider } from '../providers/scene/OpenAiSceneProvider';
 import { OpenAiVisionProvider } from '../providers/vision/OpenAiVisionProvider';
-import { YtDlpVideoProvider } from '../providers/video/YtDlpVideoProvider';
+import { YtDlpVideoProvider, probeYtDlpJson } from '../providers/video/YtDlpVideoProvider';
 import { ProductRanker } from '../products/ProductRanker';
 import { ProductValidator } from '../products/ProductValidator';
 import { persistPipelineProducts } from '../products/productPersist';
 import { resolveIngestDrafts } from '../product-intelligence';
 import { extractYouTubeVideoId } from '../pipeline/detect';
+import { gatherInstagramContext } from '../pipeline/instagramContext';
+import { parseSupportedVideoUrl } from '../pipeline/sourceIdentity';
 import { gatherYoutubeContext } from '../pipeline/youtubeContext';
 import { getVideoExtractionCache, setVideoExtractionCache } from '../services/extractionCache';
 import { emitPipelineEvent } from '../services/observability';
+import { ingestLog } from '../pipeline/ingestLog';
 import {
   estimateTokenCostUsd,
   recordStageArtifact,
@@ -83,10 +86,73 @@ async function finalizePipelineRun(
       status: params.status,
       duration_ms: params.durationMs,
       model_used: params.modelUsed ?? null,
-      error: params.error ? { message: String(params.error).slice(0, 400) } : null,
+      error: params.error ? String(params.error).slice(0, 500) : null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', runId);
+}
+
+async function failIngestDueToSource(
+  admin: SupabaseClient,
+  params: {
+    ingestRequestId: string;
+    collectionId: string | null;
+    pipelineRunId: string | null;
+    stages: string[];
+    startedAt: number;
+    errorCode: string;
+    errorMessage: string;
+    availability: 'unavailable' | 'restricted';
+    title?: string | null;
+  },
+): Promise<OrchestratorResult> {
+  await admin.from('ingest_extractions').insert({
+    ingest_request_id: params.ingestRequestId,
+    payload: {
+      model: 'progressiveMultimodal',
+      count: 0,
+      extractionSource: 'source_adapter',
+      extractionStatus: 'failed',
+      extractionError: {
+        code: params.errorCode,
+        message: params.errorMessage,
+      },
+      pipelineMeta: { contextSources: ['source_adapter'] },
+      durationMs: Math.round(performance.now() - params.startedAt),
+    },
+  });
+  await admin
+    .from('ingest_requests')
+    .update({ status: 'failed', updated_at: new Date().toISOString() })
+    .eq('id', params.ingestRequestId);
+  await finalizePipelineRun(admin, params.pipelineRunId, {
+    stages: params.stages,
+    finalStage: 'metadata',
+    status: 'failed',
+    durationMs: Math.round(performance.now() - params.startedAt),
+    error: params.errorMessage,
+  });
+  if (params.collectionId) {
+    try {
+      const { notifyMediaProcessingFinished } = await import('../collection/ingestBridge');
+      await notifyMediaProcessingFinished(admin, {
+        collectionId: params.collectionId,
+        jobId: params.pipelineRunId ?? params.ingestRequestId,
+        ok: false,
+        errorCode: params.errorCode,
+        sourceAvailability: params.availability,
+        title: params.title ?? null,
+      });
+    } catch {
+      /* collection may be missing on legacy rows */
+    }
+  }
+  emitPipelineEvent('ingest.complete', {
+    ingestId: params.ingestRequestId,
+    status: 'failed',
+    code: params.errorCode,
+  });
+  return { status: 'failed', finalStage: 'metadata', productCount: 0 };
 }
 
 async function reasonValidateRank(
@@ -106,6 +172,10 @@ async function reasonValidateRank(
     traceId,
     hasMedia: !!ctx.media,
     transcriptLen: ctx.transcript.length,
+    descriptionLength: ctx.metadata.description?.length ?? 0,
+    descriptionPresent: Boolean(ctx.metadata.description),
+    creatorPresent: Boolean(ctx.metadata.creator),
+    thumbnailPresent: Boolean(ctx.metadata.thumbnailUrl),
     stage: stageTag,
   });
 
@@ -120,6 +190,10 @@ async function reasonValidateRank(
         externalVideoId: ctx.externalVideoId,
         transcriptLen: ctx.transcript.length,
         transcriptAvailable: ctx.transcript.available,
+        descriptionLength: ctx.metadata.description?.length ?? 0,
+        descriptionPresent: Boolean(ctx.metadata.description),
+        creatorPresent: Boolean(ctx.metadata.creator),
+        thumbnailPresent: Boolean(ctx.metadata.thumbnailUrl),
         hasMedia: !!ctx.media,
         objectCount: ctx.media?.objects.length ?? 0,
         ocrCount: ctx.media?.ocr.length ?? 0,
@@ -137,6 +211,7 @@ async function reasonValidateRank(
     ingestId,
     traceId,
     rawCount: reasoned.products.length,
+    stage: stageTag,
     durationMs: reasoned.meta.durationMs,
     tokens: tokens ?? undefined,
     provider: reasoned.meta.provider,
@@ -154,6 +229,7 @@ async function reasonValidateRank(
       inputSummary: {
         hasMedia: !!ctx.media,
         transcriptLen: ctx.transcript.length,
+        descriptionLength: ctx.metadata.description?.length ?? 0,
         title: ctx.metadata.title?.slice(0, 120) ?? null,
       },
       outputSummary: summarizeProducts(reasoned.products),
@@ -244,7 +320,9 @@ export async function runProgressiveIngestPipeline(
 
   const { data: ingest, error: ingErr } = await admin
     .from('ingest_requests')
-    .select('id, source_url, platform, video_title, thumbnail')
+    .select(
+      'id, source_url, platform, video_title, video_description, video_description_source, video_creator, thumbnail, collection_id',
+    )
     .eq('id', ingestRequestId)
     .maybeSingle();
 
@@ -266,15 +344,28 @@ export async function runProgressiveIngestPipeline(
     return { status: 'failed', finalStage: 'init', productCount: 0 };
   }
 
+  const collectionId = (ingest.collection_id as string) || null;
+  if (collectionId) {
+    const { notifyMediaProcessingStarted } = await import('../collection/ingestBridge');
+    await notifyMediaProcessingStarted(
+      admin,
+      collectionId,
+      pipelineRunId ?? ingestRequestId,
+    );
+  }
+
   const sourceUrl = ingest.source_url as string;
   const platform = (ingest.platform as string) || 'youtube';
+  const identity = parseSupportedVideoUrl(sourceUrl);
   const videoId = platform === 'youtube' ? extractYouTubeVideoId(sourceUrl) : null;
-  const externalKey = videoId ?? sourceUrl;
+  const instagramId = platform === 'instagram' ? identity?.externalId ?? null : null;
+  const externalKey = videoId ?? instagramId ?? sourceUrl;
 
   // ---- Cache ----
   if (platform === 'youtube' && videoId) {
     const hit = await getVideoExtractionCache(admin, { platform, externalVideoId: videoId });
     if (hit) {
+      const cachedMetadata = hit.payload.youtubeMetadata;
       emitPipelineEvent('cache.hit', { ingestId: ingestRequestId, cacheKey: hit.cacheKey });
       await recordStageArtifact(admin, {
         ingestId: ingestRequestId,
@@ -286,6 +377,16 @@ export async function runProgressiveIngestPipeline(
           outputSummary: summarizeProducts(hit.payload.products),
           finalStage: hit.payload.finalStage,
           status: hit.payload.status,
+          metadataSummary: cachedMetadata
+            ? {
+                titleLength: cachedMetadata.title.length,
+                descriptionLength: cachedMetadata.description.length,
+                descriptionSource: cachedMetadata.descriptionSource,
+                creatorPresent: cachedMetadata.creator.length > 0,
+                thumbnailPresent: Boolean(cachedMetadata.thumbnailUrl),
+              }
+            : null,
+          normalizedMetadata: cachedMetadata ?? null,
         },
       });
       await persistPipelineProducts(admin, {
@@ -299,8 +400,14 @@ export async function runProgressiveIngestPipeline(
           priceAgent: 'cached',
           cacheKey: hit.cacheKey,
         },
-        thumbnail: ingest.thumbnail as string | null,
-        videoTitle: ingest.video_title as string | undefined,
+        thumbnail: cachedMetadata?.thumbnailUrl ?? (ingest.thumbnail as string | null),
+        videoTitle: cachedMetadata?.title ?? (ingest.video_title as string | undefined),
+        videoDescription:
+          cachedMetadata?.description ?? (ingest.video_description as string | undefined),
+        videoDescriptionSource:
+          cachedMetadata?.descriptionSource ??
+          (ingest.video_description_source as string | undefined),
+        videoCreator: cachedMetadata?.creator ?? (ingest.video_creator as string | undefined),
       });
       try {
         await resolveIngestDrafts(admin, ingestRequestId, traceId);
@@ -333,7 +440,10 @@ export async function runProgressiveIngestPipeline(
 
   // ---- Stage 1: metadata + transcript ----
   let title = (ingest.video_title as string) || '';
-  let creator = '';
+  let creator = (ingest.video_creator as string) || '';
+  let description = (ingest.video_description as string) || '';
+  let descriptionSource =
+    (ingest.video_description_source as string) || (description ? 'ingest_record' : 'none');
   let thumbnailUrl: string | null = (ingest.thumbnail as string) || null;
   let transcript = '';
   let transcriptSources: string[] = [];
@@ -342,13 +452,33 @@ export async function runProgressiveIngestPipeline(
     const tMeta = performance.now();
     const pack = await gatherYoutubeContext(videoId, { ingestId: ingestRequestId, traceId });
     const metaMs = Math.round(performance.now() - tMeta);
+    if (pack.sourceBlock) {
+      return failIngestDueToSource(admin, {
+        ingestRequestId,
+        collectionId,
+        pipelineRunId,
+        stages,
+        startedAt: tAll,
+        errorCode: pack.sourceBlock.code,
+        errorMessage: pack.sourceBlock.message,
+        availability: pack.sourceBlock.availability,
+        title: pack.title || null,
+      });
+    }
     title = pack.title || title;
     creator = pack.authorName;
+    description = pack.description;
+    descriptionSource = pack.descriptionSource;
     thumbnailUrl = pack.thumbnailUrl ?? thumbnailUrl;
     transcript = pack.transcript;
     transcriptSources = pack.sources;
     stages.push('metadata', 'transcript');
-    emitPipelineEvent('metadata.complete', { ingestId: ingestRequestId, titleLen: title.length });
+    emitPipelineEvent('metadata.complete', {
+      ingestId: ingestRequestId,
+      titleLen: title.length,
+      descriptionLength: description.length,
+      descriptionSource,
+    });
     emitPipelineEvent('transcript.complete', {
       ingestId: ingestRequestId,
       transcriptLen: transcript.length,
@@ -366,9 +496,36 @@ export async function runProgressiveIngestPipeline(
           title: title.slice(0, 160),
           creator,
           thumbnail: !!thumbnailUrl,
+          descriptionLength: description.length,
+          descriptionSource,
+        },
+        normalizedMetadata: {
+          title,
+          description,
+          creator,
+          thumbnailUrl,
         },
       },
     });
+    const { error: metadataPersistError } = await admin
+      .from('ingest_requests')
+      .update({
+        video_title: title,
+        video_description: description,
+        video_description_source: descriptionSource,
+        video_creator: creator,
+        thumbnail: thumbnailUrl,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', ingestRequestId);
+    if (metadataPersistError) {
+      emitPipelineEvent('metadata.persist_failed', {
+        ingestId: ingestRequestId,
+        descriptionLength: description.length,
+        descriptionSource,
+        error: metadataPersistError.message,
+      });
+    }
     await recordStageArtifact(admin, {
       ingestId: ingestRequestId,
       pipelineRunId,
@@ -384,6 +541,78 @@ export async function runProgressiveIngestPipeline(
         },
       },
     });
+  } else if (platform === 'instagram') {
+    const tMeta = performance.now();
+    const pack = await gatherInstagramContext(sourceUrl, {
+      ingestId: ingestRequestId,
+      traceId,
+      probe: probeYtDlpJson,
+    });
+    const metaMs = Math.round(performance.now() - tMeta);
+    if (pack.availability !== 'available') {
+      return failIngestDueToSource(admin, {
+        ingestRequestId,
+        collectionId,
+        pipelineRunId,
+        stages,
+        startedAt: tAll,
+        errorCode: pack.errorCode ?? 'SOURCE_UNAVAILABLE',
+        errorMessage:
+          pack.errorMessage ??
+          'This Instagram Reel could not be loaded. It may be private or restricted.',
+        availability: pack.availability,
+        title: pack.title || null,
+      });
+    }
+    title = pack.title || title;
+    creator = pack.authorName || creator;
+    description = pack.description || description;
+    descriptionSource = pack.sources.includes('yt-dlp-json')
+      ? 'instagram_caption'
+      : pack.sources.includes('oembed')
+        ? 'instagram_oembed'
+        : descriptionSource;
+    thumbnailUrl = pack.thumbnailUrl ?? thumbnailUrl;
+    transcript = pack.description;
+    transcriptSources = pack.sources;
+    stages.push('metadata');
+    emitPipelineEvent('metadata.complete', {
+      ingestId: ingestRequestId,
+      titleLen: title.length,
+      descriptionLength: description.length,
+      descriptionSource,
+      platform: 'instagram',
+    });
+    await recordStageArtifact(admin, {
+      ingestId: ingestRequestId,
+      pipelineRunId,
+      stage: 'metadata',
+      provider: 'instagram-context',
+      durationMs: metaMs,
+      payload: {
+        inputSummary: { postId: pack.postId, sourceUrl: sourceUrl.slice(0, 200) },
+        outputSummary: {
+          title: title.slice(0, 160),
+          creator,
+          thumbnail: !!thumbnailUrl,
+          descriptionLength: description.length,
+          availability: pack.availability,
+          sources: pack.sources,
+        },
+        normalizedMetadata: { title, description, creator, thumbnailUrl },
+      },
+    });
+    await admin
+      .from('ingest_requests')
+      .update({
+        video_title: title,
+        video_description: description,
+        video_description_source: descriptionSource,
+        video_creator: creator,
+        thumbnail: thumbnailUrl,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', ingestRequestId);
   } else {
     stages.push('metadata');
     emitPipelineEvent('metadata.complete', { ingestId: ingestRequestId, nonYoutube: true });
@@ -406,11 +635,23 @@ export async function runProgressiveIngestPipeline(
     metadata: {
       title,
       creator,
-      description: '',
+      description,
       thumbnailUrl,
     },
     transcriptText: transcript,
     media: null,
+  });
+  emitPipelineEvent('reasoning.context.ready', {
+    ingestId: ingestRequestId,
+    stage: 1,
+    titleLength: title.length,
+    descriptionLength: description.length,
+    descriptionSource,
+    descriptionAvailable: description.length > 0,
+    descriptionPassedToReasoning: ctx.metadata.description === description,
+    transcriptLength: transcript.length,
+    creatorPresent: creator.length > 0,
+    thumbnailPresent: Boolean(thumbnailUrl),
   });
 
   let products = await reasonValidateRank(admin, ctx, ingestRequestId, traceId, pipelineRunId, 's1');
@@ -756,6 +997,7 @@ export async function runProgressiveIngestPipeline(
       transcriptAgent: transcript.length >= cfg.transcriptMinChars ? 'youtube_captions' : 'url_only',
       contextSources: [
         'metadata',
+        ...(description ? (['youtube_description'] as const) : []),
         ...(transcript ? (['transcript'] as const) : []),
         ...(media ? (['media_understanding'] as const) : []),
       ],
@@ -766,6 +1008,9 @@ export async function runProgressiveIngestPipeline(
     },
     thumbnail: thumbnailUrl,
     videoTitle: title || undefined,
+    videoDescription: description,
+    videoDescriptionSource: descriptionSource,
+    videoCreator: creator || undefined,
   });
 
   // Product Intelligence (post-extract; does not alter Stage 1–3).
@@ -784,6 +1029,40 @@ export async function runProgressiveIngestPipeline(
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', ingestRequestId);
 
+  try {
+    const { data: ingestMeta } = await admin
+      .from('ingest_requests')
+      .select('collection_id, video_title, thumbnail, video_creator')
+      .eq('id', ingestRequestId)
+      .maybeSingle();
+    const collectionId = ingestMeta?.collection_id as string | undefined;
+    if (collectionId) {
+      const { syncCollectionFromIngestDrafts, notifyMediaProcessingFinished } = await import(
+        '../collection/ingestBridge'
+      );
+      await syncCollectionFromIngestDrafts(admin, {
+        ingestId: ingestRequestId,
+        collectionId,
+        status,
+        title: (ingestMeta?.video_title as string) || title || null,
+        thumbnailUrl: (ingestMeta?.thumbnail as string) || thumbnailUrl || null,
+      });
+      await notifyMediaProcessingFinished(admin, {
+        collectionId,
+        jobId: pipelineRunId ?? ingestRequestId,
+        ok: true,
+        title: title || (ingestMeta?.video_title as string) || null,
+        thumbnailUrl: thumbnailUrl || (ingestMeta?.thumbnail as string) || null,
+        providerCreatorName: creator || (ingestMeta?.video_creator as string) || null,
+      });
+    }
+  } catch (e) {
+    ingestLog('warn', 'collection.sync_failed', {
+      ingestId: ingestRequestId,
+      error: (e as Error).message?.slice(0, 200),
+    });
+  }
+
   if (platform === 'youtube' && videoId) {
     await setVideoExtractionCache(admin, {
       platform,
@@ -791,6 +1070,13 @@ export async function runProgressiveIngestPipeline(
       products,
       finalStage,
       status,
+      youtubeMetadata: {
+        title,
+        description,
+        descriptionSource,
+        creator,
+        thumbnailUrl,
+      },
     });
   }
 

@@ -173,7 +173,8 @@ export default function BottomDock({
   const showProductDock = products.length > 0;
 
   const handleViewAll = () => {
-    router.push(`/product-list/${video.id}`);
+    if (!video.collection_id) return;
+    router.push(`/collection/${video.collection_id}`);
   };
 
   const titleAnimatedStyle = useAnimatedStyle(() => {

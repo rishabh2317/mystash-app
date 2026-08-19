@@ -30,8 +30,26 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files and secrets (never commit)
+.env
+.env.*
+!.env.example
+!.env*.example
 .env*.local
+
+# local datastores / dumps
+*.rdb
+
+# editor leftovers
+*.backup
+
+# accidental Expo prebuild inside backend/
+backend/android/
+backend/app.json
+backend/ios/
+
+# debug keystores (root /android is already ignored)
+*.keystore
 
 # typescript
 *.tsbuildinfo

@@ -13,7 +13,15 @@ function candidate(partial: Partial<SearchCandidate>): SearchCandidate {
     enrichmentSucceeded: true,
     pdpScore: 0.9,
     pdpVerdict: 'pdp',
-    shoppingEligible: true,
+    sourceType: 'RETAILER',
+    pageType: 'PRODUCT',
+    capabilities: {
+      metadata: true,
+      commerce: true,
+      specifications: true,
+      images: true,
+      evidence: true,
+    },
     enrichmentMeta: {
       specifications: { Color: 'Black' },
       availability: 'In stock',
@@ -24,25 +32,40 @@ function candidate(partial: Partial<SearchCandidate>): SearchCandidate {
 
 describe('CandidateScoring', () => {
   it('uses reusable page authority without merchant-specific rules', () => {
-    assert.equal(sourceAuthorityFor('official_product'), 100);
-    assert.equal(sourceAuthorityFor('retailer_pdp'), 85);
-    assert.equal(sourceAuthorityFor('review_site'), 40);
-    assert.equal(sourceAuthorityFor('official_brand_news'), 30);
+    assert.equal(sourceAuthorityFor('OFFICIAL'), 100);
+    assert.equal(sourceAuthorityFor('RETAILER'), 85);
+    assert.equal(sourceAuthorityFor('REVIEW'), 40);
+    assert.equal(sourceAuthorityFor('NEWS'), 30);
   });
 
   it('keeps metadata and shopping scores independent', () => {
     const editorial = scoreCandidateDecisions(
       candidate({
-        candidatePageType: 'review_site',
+        sourceType: 'REVIEW',
+        pageType: 'REVIEW',
+        capabilities: {
+          metadata: true,
+          commerce: false,
+          specifications: true,
+          images: true,
+          evidence: true,
+        },
         sourceTier: 'editorial',
-        shoppingEligible: false,
         description: 'Detailed editorial description of this exact product and its specifications.',
       }),
     );
     const official = scoreCandidateDecisions(
       candidate({
         merchantUrl: 'https://brand.example/product/1',
-        candidatePageType: 'official_product',
+        sourceType: 'OFFICIAL',
+        pageType: 'PRODUCT',
+        capabilities: {
+          metadata: true,
+          commerce: true,
+          specifications: true,
+          images: true,
+          evidence: true,
+        },
         sourceTier: 'official',
       }),
     );
@@ -51,5 +74,32 @@ describe('CandidateScoring', () => {
     assert.equal(editorial.shoppingScore, 0);
     assert.ok(official.metadataScore > editorial.metadataScore);
     assert.ok(official.shoppingScore > 0);
+  });
+
+  it('scores exact PDPs above official brand hubs', () => {
+    const hub = scoreCandidateDecisions(
+      candidate({
+        merchantUrl: 'https://www.apple.com/iphone/',
+        merchant: 'Apple',
+        sourceType: 'OFFICIAL',
+        pageType: 'PRODUCT',
+        pdpScore: 0.47,
+        sourceTier: 'official',
+      }),
+      { merchantPriority: 9 },
+    );
+    const exact = scoreCandidateDecisions(
+      candidate({
+        merchantUrl: 'https://www.amazon.in/dp/B0CHX3QBCH',
+        merchant: 'Amazon',
+        sourceType: 'MARKETPLACE',
+        pageType: 'PRODUCT',
+        pdpScore: 0.79,
+        sourceTier: 'marketplace',
+      }),
+      { merchantPriority: 10 },
+    );
+    assert.ok(exact.destinationSpecificity > hub.destinationSpecificity);
+    assert.ok(exact.shoppingScore > hub.shoppingScore);
   });
 });

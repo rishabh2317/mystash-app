@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getEnv } from '../env';
 import { tavilyExtractCanonicalUrl } from '../services/tavily';
+import {
+  detectPageLocale,
+  inspectPriceEvidence,
+  sourceContainsRawPrice,
+  type CurrencyEvidenceSource,
+} from './CommercePriceEvidence';
 import { ingestLog } from './ingestLog';
 import { createOpenAIClient } from './openaiClient';
 import { openaiCompletionWithRateLimit } from './openaiRateLimit';
@@ -9,6 +15,10 @@ import { openaiCompletionWithRateLimit } from './openaiRateLimit';
 const FETCH_TIMEOUT_MS = 18_000;
 const MAX_HTML_BYTES = 900_000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CURRENT_EXTRACTION_SOURCES = new Set([
+  'scrape_currency_v2',
+  'ai_currency_v2',
+]);
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
@@ -145,25 +155,31 @@ function extractImage(html: string, pageUrl: string): string | null {
 }
 
 function extractPriceString(html: string): string | null {
-  const keys = [
-    'product:price:amount',
-    'og:price:amount',
-    'og:price:standard_amount',
-    'twitter:data1',
+  const pairedMeta = [
+    ['product:price:amount', 'product:price:currency'],
+    ['og:price:amount', 'og:price:currency'],
   ];
-  for (const k of keys) {
-    const v = metaTag(html, k);
-    if (v && /\d/.test(v)) return v.trim();
+  for (const [amountKey, currencyKey] of pairedMeta) {
+    const amount = metaTag(html, amountKey!);
+    const currency = metaTag(html, currencyKey!);
+    if (amount && /\d/.test(amount)) {
+      return currency ? `${currency} ${amount}`.trim() : amount.trim();
+    }
   }
-  const currency = metaTag(html, 'product:price:currency') ?? metaTag(html, 'og:price:currency');
-  const amount = metaTag(html, 'product:price:amount');
-  if (amount && currency && /\d/.test(amount)) return `${currency} ${amount}`.trim();
+
+  for (const key of ['og:price:standard_amount', 'twitter:data1']) {
+    const value = metaTag(html, key);
+    if (value && /\d/.test(value)) return value.trim();
+  }
 
   const fromLd = tryJsonLdPrice(html);
   if (fromLd) return fromLd;
 
   const loose = html.slice(0, 120_000).match(/\$\s*([\d,]+\.?\d{0,2})/);
   if (loose?.[1]) return `$${loose[1].replace(/\s+/g, '')}`;
+
+  const inr = html.slice(0, 120_000).match(/₹\s*[\d,]+\.?\d{0,2}/);
+  if (inr) return inr[0].replace(/\s+/g, '');
 
   const eur = html.slice(0, 120_000).match(/€\s*[\d,]+\.?\d{0,2}/);
   if (eur) return eur[0].replace(/\s+/g, '');
@@ -238,7 +254,7 @@ function tryJsonLdPrice(html: string): string | null {
           if (typeof price === 'number' || typeof price === 'string') {
             const p = String(price);
             if (/\d/.test(p)) {
-              return typeof cur === 'string' && cur ? `${cur} ${p}` : p.startsWith('$') ? p : `$${p}`;
+              return typeof cur === 'string' && cur ? `${cur} ${p}` : p;
             }
           }
         }
@@ -267,6 +283,7 @@ export type ProductLinkPreview = {
   name: string;
   price: string;
   currency?: string;
+  priceSource?: 'scrape' | 'ai' | 'canonical_cache';
   image?: string;
   merchantUrl: string;
   /** Hostname or brand site label — derived from URL / page. */
@@ -280,7 +297,58 @@ export type ProductLinkPreview = {
 export type ProductLinkPreviewContext = {
   ingestId: string;
   traceId: string;
+  /**
+   * When false, a canonical_products row that only has name/price/image is not
+   * treated as complete evidence (manual / direct-URL path).
+   */
+  acceptPartialCache?: boolean;
 };
+
+const livePreviewMemo = new Map<string, ProductLinkPreview>();
+
+export function isRichProductPreview(preview: {
+  brand?: string | null;
+  description?: string | null;
+  specifications?: Record<string, string> | null;
+}): boolean {
+  const description = preview.description?.trim() ?? '';
+  const brand = preview.brand?.trim() ?? '';
+  const specCount = preview.specifications ? Object.keys(preview.specifications).length : 0;
+  return description.length >= 20 || brand.length >= 2 || specCount > 0;
+}
+
+export function shouldUseCanonicalCacheHit(
+  cached: {
+    brand?: string | null;
+    description?: string | null;
+    specifications?: Record<string, string> | null;
+  },
+  acceptPartialCache?: boolean,
+): boolean {
+  return acceptPartialCache !== false || isRichProductPreview(cached);
+}
+
+export function rememberLiveProductPreview(
+  canonicalUrl: string,
+  preview: ProductLinkPreview,
+): void {
+  if (isRichProductPreview(preview)) {
+    livePreviewMemo.set(canonicalUrl, preview);
+  }
+}
+
+export function getLiveProductPreview(canonicalUrl: string): ProductLinkPreview | undefined {
+  return livePreviewMemo.get(canonicalUrl);
+}
+
+export function clearLiveProductPreviewMemoForTests(): void {
+  livePreviewMemo.clear();
+}
+
+function rememberAndReturn(canonicalUrl: string, preview: ProductLinkPreview): ProductLinkPreview {
+  rememberLiveProductPreview(canonicalUrl, preview);
+  return preview;
+}
 
 function isFreshCache(iso: string | null | undefined): boolean {
   if (!iso) return false;
@@ -301,9 +369,13 @@ function isValidHttpImageUrl(s: string | undefined): boolean {
   }
 }
 
-function scrapeSuccess(price: string, image: string | undefined): boolean {
+function scrapeSuccess(
+  price: string,
+  currency: string | undefined,
+  image: string | undefined,
+): boolean {
   if (!price || price === '—' || !/\d/.test(price)) return false;
-  return isValidHttpImageUrl(image);
+  return !!currency && isValidHttpImageUrl(image);
 }
 
 type CanonicalRow = {
@@ -312,26 +384,41 @@ type CanonicalRow = {
   price: string;
   currency: string | null;
   image: string | null;
+  extraction_source: string | null;
   last_extracted_at: string;
 };
 
 async function loadFreshCanonical(
   admin: SupabaseClient,
   canonicalUrl: string,
+  ctx: ProductLinkPreviewContext,
 ): Promise<ProductLinkPreview | null> {
   const { data, error } = await admin
     .from('canonical_products')
-    .select('canonical_url, name, price, currency, image, last_extracted_at')
+    .select('canonical_url, name, price, currency, image, extraction_source, last_extracted_at')
     .eq('canonical_url', canonicalUrl)
     .maybeSingle();
 
   if (error || !data) return null;
   const row = data as CanonicalRow;
   if (!isFreshCache(row.last_extracted_at)) return null;
+  if (!CURRENT_EXTRACTION_SOURCES.has(row.extraction_source ?? '')) return null;
 
   ingestLog('info', 'product_link_preview.cache_hit', {
     canonicalUrl: canonicalUrl.slice(0, 120),
     source: 'canonical_products',
+  });
+  const priceEvidence = inspectPriceEvidence(row.price, row.currency);
+  ingestLog('info', 'offer.extraction.raw', {
+    ...ctx,
+    extractionSource: 'canonical_cache',
+    rawPriceText: row.price,
+    parsedAmount: priceEvidence.parsedAmount,
+    parsedCurrency: priceEvidence.parsedCurrency,
+    detectedCurrencySource: priceEvidence.detectedCurrencySource,
+    merchantDomain: merchantFromUrl(canonicalUrl),
+    pageLocale: null,
+    priceBackedBySource: null,
   });
 
   return {
@@ -339,6 +426,7 @@ async function loadFreshCanonical(
     name: row.name,
     price: row.price,
     currency: row.currency ?? undefined,
+    priceSource: row.extraction_source === 'ai_currency_v2' ? 'ai' : 'canonical_cache',
     image: row.image ?? undefined,
     merchantUrl: canonicalUrl,
     merchant: merchantFromUrl(canonicalUrl),
@@ -353,7 +441,7 @@ async function upsertCanonicalProduct(
     price: string;
     currency: string | null;
     image: string | null;
-    extractionSource: 'scrape' | 'ai';
+    extractionSource: 'scrape_currency_v2' | 'ai_currency_v2';
   },
 ): Promise<void> {
   const { error } = await admin.from('canonical_products').upsert(
@@ -386,6 +474,9 @@ async function manualScrapeProductPage(merchantUrl: string): Promise<{
   parsed: URL;
   fetchOk: boolean;
   status?: number;
+  parsedAmount?: number | null;
+  detectedCurrencySource?: CurrencyEvidenceSource;
+  pageLocale?: string | null;
 }> {
   let parsed: URL;
   try {
@@ -436,6 +527,7 @@ async function manualScrapeProductPage(merchantUrl: string): Promise<{
   let price = extractPriceString(html);
   if (price && !/\d/.test(price)) price = null;
   if (!price) price = '—';
+  const priceEvidence = inspectPriceEvidence(price === '—' ? null : price);
 
   let name = extractTitle(html);
   if (!name || name.length < 2) {
@@ -450,9 +542,12 @@ async function manualScrapeProductPage(merchantUrl: string): Promise<{
     html,
     name,
     price,
-    currency: 'USD',
+    currency: priceEvidence.parsedCurrency ?? undefined,
     image,
     parsed,
+    parsedAmount: priceEvidence.parsedAmount,
+    detectedCurrencySource: priceEvidence.detectedCurrencySource,
+    pageLocale: detectPageLocale(html),
   };
 }
 
@@ -504,9 +599,11 @@ async function extractCommerceFromTavilyWithGpt(
     '\n\nI also have these discovered image URLs:\n' +
     tavilyImagesBlock +
     '\n\nYour Task:\n' +
-    'Identify the current sale price (look for ₹ or INR).\n' +
+    'Identify the current sale price and its native currency from the page content.\n' +
+    'Copy the price text verbatim, including its symbol or currency code. Do not convert currencies or infer currency from user locale, country, or domain.\n' +
     "Select the absolute best high-resolution 'hero' image URL from the list that represents the product.\n" +
-    'Return only valid JSON: { "name": string, "price": string, "imageUrl": string, "currency": "INR", "brand": string|null, "description": string|null, "specifications": object|null }.\n' +
+    'Return only valid JSON: { "name": string, "price": string|null, "imageUrl": string, "currency": string|null, "brand": string|null, "description": string|null, "specifications": object|null }.\n' +
+    'If currency is not explicit in the page content, return null for both price and currency.\n' +
     'specifications should be a flat string map of product attributes when present (e.g. Color, Storage, RAM) — omit or null if unknown.\n\n' +
     'Product name hint (from prior scrape or URL): ' +
     productNameHint;
@@ -520,7 +617,7 @@ async function extractCommerceFromTavilyWithGpt(
           {
             role: 'system',
             content:
-              'You output only compact JSON objects. Prefer INR when prices use ₹ or INR; otherwise set currency to a sensible ISO code.',
+              'You output only compact JSON objects. Preserve explicit merchant currency exactly and never guess, convert, or localize a price.',
           },
           { role: 'user', content: userPrompt },
         ],
@@ -569,6 +666,7 @@ function toPreview(
     description?: string;
     merchant?: string;
     specifications?: Record<string, string>;
+    priceSource?: ProductLinkPreview['priceSource'];
   },
 ): ProductLinkPreview {
   return {
@@ -576,6 +674,7 @@ function toPreview(
     name,
     price,
     currency,
+    priceSource: extras?.priceSource,
     image,
     merchantUrl: canonicalUrl,
     merchant: extras?.merchant ?? merchantFromUrl(canonicalUrl),
@@ -609,14 +708,32 @@ async function runTavilyCommerceFallback(
     productNameHint,
   );
 
+  const rawPriceText =
+    typeof ai?.price === 'string' && ai.price !== '—' && /\d/.test(ai.price)
+      ? ai.price.trim()
+      : null;
+  const priceEvidence = inspectPriceEvidence(rawPriceText, ai?.currency);
+  const priceBackedBySource = sourceContainsRawPrice(page.rawContent, rawPriceText);
+  ingestLog(priceBackedBySource || !rawPriceText ? 'info' : 'warn', 'offer.extraction.raw', {
+    ...ctx,
+    extractionSource: 'tavily_gpt',
+    rawPriceText,
+    parsedAmount: priceEvidence.parsedAmount,
+    parsedCurrency: priceEvidence.parsedCurrency,
+    detectedCurrencySource: priceEvidence.detectedCurrencySource,
+    merchantDomain: merchantFromUrl(canonicalUrl),
+    pageLocale: detectPageLocale(page.rawContent),
+    priceBackedBySource,
+  });
   const aiPrice =
-    typeof ai?.price === 'string' && ai.price !== '—' && /\d/.test(ai.price) ? ai.price.trim() : null;
+    rawPriceText && priceEvidence.parsedAmount !== null && priceBackedBySource
+      ? rawPriceText
+      : null;
   const aiImage =
     typeof ai?.imageUrl === 'string' && isValidHttpImageUrl(ai.imageUrl) ? ai.imageUrl.trim() : null;
   const aiName =
     typeof ai?.name === 'string' && ai.name.trim().length >= 2 ? ai.name.trim() : productNameHint;
-  const aiCurrency =
-    typeof ai?.currency === 'string' && ai.currency.trim() ? ai.currency.trim() : 'INR';
+  const aiCurrency = priceEvidence.parsedCurrency;
 
   if (!aiPrice || !aiImage) {
     return null;
@@ -629,7 +746,7 @@ async function runTavilyCommerceFallback(
     price: aiPrice,
     currency: aiCurrency,
     image: aiImage,
-    extractionSource: 'ai',
+    extractionSource: 'ai_currency_v2',
   });
   const aiBrand =
     typeof ai?.brand === 'string' && ai.brand.trim().length >= 2 ? ai.brand.trim() : undefined;
@@ -645,10 +762,11 @@ async function runTavilyCommerceFallback(
             .map(([k, v]) => [String(k).slice(0, 64), String(v).trim().slice(0, 120)]),
         )
       : undefined;
-  return toPreview(canonicalUrl, aiName, aiPrice, aiCurrency, aiImage, {
+  return toPreview(canonicalUrl, aiName, aiPrice, aiCurrency ?? undefined, aiImage, {
     brand: aiBrand,
     description: aiDesc,
     specifications: aiSpecs,
+    priceSource: 'ai',
   });
 }
 
@@ -672,8 +790,18 @@ export async function previewProductLink(
     throw new Error('Product URL must be http(s)');
   }
 
-  const cached = await loadFreshCanonical(admin, canonicalUrl);
-  if (cached) return cached;
+  const memo = getLiveProductPreview(canonicalUrl);
+  if (memo && isRichProductPreview(memo)) return memo;
+
+  const cached = await loadFreshCanonical(admin, canonicalUrl, ctx);
+  if (cached) {
+    if (shouldUseCanonicalCacheHit(cached, ctx.acceptPartialCache)) {
+      return cached;
+    }
+    ingestLog('info', 'product_link_preview.cache_partial_skipped', {
+      canonicalUrl: canonicalUrl.slice(0, 120),
+    });
+  }
 
   let scrape: Awaited<ReturnType<typeof manualScrapeProductPage>>;
   try {
@@ -690,27 +818,46 @@ export async function previewProductLink(
       message: (e as Error).message?.slice(0, 160),
     });
     const tavilyAfterThrow = await runTavilyCommerceFallback(admin, ctx, canonicalUrl, hostShort);
-    if (tavilyAfterThrow) return tavilyAfterThrow;
-    return toPreview(canonicalUrl, hostShort, '—', undefined, undefined);
+    if (tavilyAfterThrow) return rememberAndReturn(canonicalUrl, tavilyAfterThrow);
+    return rememberAndReturn(
+      canonicalUrl,
+      toPreview(canonicalUrl, hostShort, '—', undefined, undefined),
+    );
   }
 
-  if (scrapeSuccess(scrape.price, scrape.image)) {
+  ingestLog('info', 'offer.extraction.raw', {
+    ...ctx,
+    extractionSource: 'merchant_html',
+    rawPriceText: scrape.price === '—' ? null : scrape.price,
+    parsedAmount: scrape.parsedAmount ?? null,
+    parsedCurrency: scrape.currency ?? null,
+    detectedCurrencySource: scrape.detectedCurrencySource ?? 'none',
+    merchantDomain: scrape.parsed.hostname.replace(/^www\./i, ''),
+    pageLocale: scrape.pageLocale ?? null,
+    priceBackedBySource: scrape.price !== '—',
+  });
+
+  if (scrapeSuccess(scrape.price, scrape.currency, scrape.image)) {
     await upsertCanonicalProduct(admin, {
       canonicalUrl,
       name: scrape.name,
       price: scrape.price,
-      currency: scrape.currency ?? 'USD',
+      currency: scrape.currency ?? null,
       image: scrape.image ?? null,
-      extractionSource: 'scrape',
+      extractionSource: 'scrape_currency_v2',
     });
-    return toPreview(canonicalUrl, scrape.name, scrape.price, scrape.currency, scrape.image, {
-      description: metaDescription(scrape.html),
-    });
+    return rememberAndReturn(
+      canonicalUrl,
+      toPreview(canonicalUrl, scrape.name, scrape.price, scrape.currency, scrape.image, {
+        description: metaDescription(scrape.html),
+        priceSource: 'scrape',
+      }),
+    );
   }
 
   const tavilyOut = await runTavilyCommerceFallback(admin, ctx, canonicalUrl, scrape.name);
   if (tavilyOut) {
-    return tavilyOut;
+    return rememberAndReturn(canonicalUrl, tavilyOut);
   }
 
   ingestLog('info', 'product_link_preview.graceful_degraded', {
@@ -719,12 +866,18 @@ export async function previewProductLink(
     triedTavily: !!getEnv('TAVILY_API_KEY'),
   });
 
-  return toPreview(
+  return rememberAndReturn(
     canonicalUrl,
-    scrape.name,
-    scrape.price === '—' ? '—' : scrape.price,
-    scrape.currency,
-    scrape.image,
-    { description: metaDescription(scrape.html) },
+    toPreview(
+      canonicalUrl,
+      scrape.name,
+      scrape.price === '—' ? '—' : scrape.price,
+      scrape.currency,
+      scrape.image,
+      {
+        description: metaDescription(scrape.html),
+        priceSource: scrape.price === '—' ? undefined : 'scrape',
+      },
+    ),
   );
 }

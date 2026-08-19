@@ -1,4 +1,5 @@
 import type { SearchCandidate } from '../domain/types';
+import { classifyCandidatePage } from './CandidatePageClassifier';
 import { classifyPdp } from './PdpClassifier';
 
 export type PdpRankHints = {
@@ -131,19 +132,42 @@ export function rankPdpCandidates(
         snippet: c.snippet,
         expectedBrand: hints.brand,
       });
+      const pageClassification = classifyCandidatePage({
+        url: c.merchantUrl,
+        title: c.title,
+        expectedBrand: hints.brand,
+      });
       return {
         ...c,
         pdpScore: scorePdpCandidate(c, hints),
         pdpVerdict: classification.verdict,
         pdpReasons: classification.reasons,
         sourceTier: classification.sourceTier,
+        sourceType: pageClassification.sourceType,
+        pageType: pageClassification.pageType,
+        capabilities: pageClassification.capabilities,
+        candidatePageType: pageClassification.candidatePageType,
+        shoppingEligible: pageClassification.capabilities.commerce,
       };
     })
     .filter((c) => Number.isFinite(c.pdpScore))
     .sort((a, b) => {
-      const tierOrder = { official: 3, marketplace: 2, retailer: 1, editorial: 0 };
+      const tierOrder = {
+        OFFICIAL: 3,
+        MARKETPLACE: 2,
+        RETAILER: 1,
+        SPECIFICATION: 0,
+        REVIEW: 0,
+        EDITORIAL: 0,
+        NEWS: 0,
+        FORUM: 0,
+        SOCIAL: 0,
+        VIDEO: 0,
+        WIKI: 0,
+        UNKNOWN: 0,
+      };
       const tierDelta =
-        tierOrder[b.sourceTier ?? 'retailer'] - tierOrder[a.sourceTier ?? 'retailer'];
+        tierOrder[b.sourceType ?? 'UNKNOWN'] - tierOrder[a.sourceType ?? 'UNKNOWN'];
       return tierDelta || b.pdpScore - a.pdpScore;
     });
 }

@@ -61,4 +61,31 @@ describe('ProductSearchQueryBuilder', () => {
     assert.doesNotMatch(result.query, /\b(titled|rating|product|review|video|best|official)\b/i);
     assert.ok(result.terms.length <= 6);
   });
+
+  it('preserves Samsung product identity while removing video descriptors', () => {
+    const draft: AiDraftInput = {
+      draftId: 'samsung-fold',
+      externalId: 'youtube-vjiXY7e0rsU',
+      name: 'Galaxy Z Fold 8',
+      brand: 'Samsung',
+      model: 'Galaxy Z Fold 8',
+      category: 'unknown',
+      confidence: 1,
+      reasoning:
+        'The video is an unboxing of the Samsung Galaxy Z Fold 8 smartphone.',
+      evidence: {
+        summary: 'The product is explicitly mentioned in the title and description.',
+      },
+      videoTitle:
+        "Samsung Galaxy Z Fold 8 Unboxing | First Look at Samsung's New Foldable | ASMR",
+    };
+
+    const result = buildProductSearchQuery(
+      draft,
+      new ProductNormalizer().normalize(draft),
+    );
+
+    assert.equal(result.query, 'Samsung Galaxy Z Fold 8');
+    assert.doesNotMatch(result.query, /\b(asmr|unboxing|first look)\b/i);
+  });
 });

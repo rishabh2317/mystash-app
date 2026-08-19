@@ -1,3 +1,5 @@
+import { EXACT_PRODUCT_PATH, isMarketplaceHost } from '../../shopping/productUrlIdentity';
+
 export type PdpVerdict = 'pdp' | 'not_pdp' | 'uncertain';
 
 export type PdpClassification = {
@@ -32,10 +34,7 @@ const NEGATIVE_PATH =
 const NEGATIVE_HOST =
   /(^|\.)(youtube\.com|youtu\.be|reddit\.com|wikipedia\.org|facebook\.com|instagram\.com|x\.com|twitter\.com|pinterest\.com|medium\.com|quora\.com|support\.apple\.com)$/i;
 const NEGATIVE_TITLE = /\b(blog|buying guide|how to|support|help center|search results|collection|category|careers)\b/i;
-const PRODUCT_PATH = /\/(dp|gp\/product|product|products|p|pd|item|buy)\/[^/?#]+/i;
 const SKU_HTML_PATH = /\/[a-z0-9][a-z0-9-]{4,}\.html$/i;
-const MARKETPLACE_HOST =
-  /(^|\.)(amazon\.|flipkart\.|myntra\.|ajio\.|nykaa\.|walmart\.|bestbuy\.|target\.|ebay\.)/i;
 const EDITORIAL_HOST =
   /(^|\.)(believeintherun\.com|rtings\.com|wirecutter\.com|reviewed\.com|tomsguide\.com|cnet\.com|techradar\.com|theverge\.com)$/i;
 
@@ -70,7 +69,7 @@ export function classifyPdp(input: PdpClassifierInput): PdpClassification {
     brandSlug.length >= 2 && host.replace(/[^a-z0-9]/g, '').includes(brandSlug);
   const sourceTier = official
     ? 'official'
-    : MARKETPLACE_HOST.test(host)
+    : isMarketplaceHost(host)
       ? 'marketplace'
       : EDITORIAL_HOST.test(host)
         ? 'editorial'
@@ -108,7 +107,7 @@ export function classifyPdp(input: PdpClassifierInput): PdpClassification {
   add(Boolean(m.productImage), 0.06, 'product_image');
   add(Boolean(m.specifications && Object.keys(m.specifications).length), 0.06, 'specifications');
   add(Boolean(m.merchantProductMetadata), 0.15, 'merchant_product_metadata');
-  add(PRODUCT_PATH.test(path), 0.2, 'product_url_pattern');
+  add(EXACT_PRODUCT_PATH.test(path), 0.2, 'product_url_pattern');
   add(SKU_HTML_PATH.test(path), 0.2, 'sku_url_pattern');
   add(official, 0.2, 'official_brand_domain');
   add(Boolean(input.title?.trim() && input.title.trim().length >= 4), 0.06, 'product_title');

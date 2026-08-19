@@ -122,6 +122,11 @@ export async function runUnifiedYoutubeExtraction(
 Video title: ${pack.title}
 Channel: ${pack.authorName}
 
+Description:
+"""
+${pack.description.slice(0, 10000)}
+"""
+
 Transcript (may be partial):
 """
 ${pack.transcript.slice(0, 14000)}
@@ -145,6 +150,20 @@ Rules:
 - merchantUrl must be https on a plausible retailer domain.
 - Skip scenery-only shots with no product.
 If nothing is identifiable return [].`;
+
+  ingestLog('info', 'reasoning.context.ready', {
+    ingestId: ctx.ingestId,
+    traceId: ctx.traceId,
+    stage: 1,
+    titleLength: pack.title.length,
+    descriptionLength: pack.description.length,
+    descriptionSource: pack.descriptionSource,
+    descriptionAvailable: pack.description.length > 0,
+    descriptionPassedToReasoning: true,
+    transcriptLength: pack.transcript.length,
+    creatorPresent: pack.authorName.length > 0,
+    thumbnailPresent: Boolean(pack.thumbnailUrl),
+  });
 
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`;

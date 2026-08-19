@@ -179,6 +179,11 @@ export async function runUnifiedYoutubeExtraction(
   const userText = `Video title: ${pack.title}
 Channel: ${pack.authorName}
 
+Description:
+"""
+${pack.description.slice(0, 10000)}
+"""
+
 Transcript (may be partial):
 """
 ${pack.transcript.slice(0, 14000)}

@@ -6,6 +6,7 @@ export type VerificationStatus = 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED';
 
 export type SearchFailureKind = 'quota' | 'timeout' | 'network' | 'auth' | 'unknown';
 
+/** @deprecated Use independent SourceType, PageType, and PageCapabilities. */
 export type CandidatePageType =
   | 'official_product'
   | 'official_brand_news'
@@ -13,6 +14,56 @@ export type CandidatePageType =
   | 'retailer_pdp'
   | 'review_site'
   | 'comparison_site';
+
+export type SourceType =
+  | 'OFFICIAL'
+  | 'MARKETPLACE'
+  | 'RETAILER'
+  | 'SPECIFICATION'
+  | 'REVIEW'
+  | 'EDITORIAL'
+  | 'NEWS'
+  | 'FORUM'
+  | 'SOCIAL'
+  | 'VIDEO'
+  | 'WIKI'
+  | 'UNKNOWN';
+
+export type PageType =
+  | 'PRODUCT'
+  | 'SPECIFICATIONS'
+  | 'SEARCH'
+  | 'CATEGORY'
+  | 'NEWS'
+  | 'EDITORIAL'
+  | 'REVIEW'
+  | 'COMPARISON'
+  | 'BUYING_GUIDE'
+  | 'CAMPAIGN'
+  | 'SUPPORT'
+  | 'MANUAL'
+  | 'DOWNLOAD'
+  | 'FAQ'
+  | 'FORUM_THREAD'
+  | 'VIDEO'
+  | 'PROFILE'
+  | 'HOMEPAGE'
+  | 'SEARCH_RESULTS'
+  | 'UNKNOWN';
+
+export type PageCapabilities = {
+  metadata: boolean;
+  commerce: boolean;
+  specifications: boolean;
+  images: boolean;
+  evidence: boolean;
+};
+
+export type CandidateClassification = {
+  sourceType: SourceType;
+  pageType: PageType;
+  capabilities: PageCapabilities;
+};
 
 export type NormalizedProduct = {
   name: string;
@@ -41,9 +92,14 @@ export type SearchCandidate = {
   pdpScore?: number;
   pdpVerdict?: 'pdp' | 'not_pdp' | 'uncertain';
   pdpReasons?: string[];
+  /** @deprecated Compatibility field from PDP ranking; use sourceType. */
   sourceTier?: 'official' | 'marketplace' | 'retailer' | 'editorial';
+  sourceType?: SourceType;
+  pageType?: PageType;
+  capabilities?: PageCapabilities;
+  /** @deprecated Compatibility field; internal routing uses pageType/capabilities. */
   candidatePageType?: CandidatePageType;
-  /** Commerce eligibility is independent from metadata usefulness. */
+  /** @deprecated Compatibility field; use capabilities.commerce. */
   shoppingEligible?: boolean;
   sourceAuthority?: number;
   metadataScore?: number;
@@ -53,9 +109,13 @@ export type SearchCandidate = {
   enrichmentSucceeded?: boolean;
   /** Optional enrichment (e.g. MerchantEnrichmentService / Tavily) — ignored by discovery-only providers. */
   brand?: string | null;
+  model?: string | null;
+  category?: string | null;
   description?: string | null;
   price?: string | null;
   currency?: string | null;
+  affiliateUrl?: string | null;
+  offerId?: string | null;
   /** Extra catalog metadata (specs, completeness) — merged into catalog.metadata without schema change. */
   enrichmentMeta?: Record<string, unknown>;
 };
@@ -110,6 +170,13 @@ export type MatchScoreResult = {
   score: number;
   reason: string;
   matchConfidence: number;
+  /** Component scores used by MatchScorer (title/brand/model/candidate). */
+  components: {
+    title: number;
+    brand: number;
+    model: number;
+    candidate: number;
+  };
 };
 
 export type CreateCatalogInput = {
@@ -155,6 +222,8 @@ export type UpdateCatalogInput = {
   currency?: string | null;
   price?: string | null;
   availability?: string | null;
+  status?: CatalogStatus;
+  mergedIntoId?: string | null;
   verificationStatus?: VerificationStatus;
   verificationProvider?: string | null;
   verificationSource?: string | null;
@@ -184,6 +253,11 @@ export type AiDraftInput = {
   evidence?: Record<string, unknown> | null;
   reasoning?: string | null;
   videoTitle?: string | null;
+  /**
+   * Manual ingest: merchantUrl is the creator's product identity.
+   * Resolver must not replace it with a higher-scoring Serper candidate.
+   */
+  creatorSuppliedUrl?: boolean;
 };
 
 export type ResolveDraftResult = {

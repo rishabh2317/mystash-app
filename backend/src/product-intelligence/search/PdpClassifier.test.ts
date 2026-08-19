@@ -72,4 +72,20 @@ describe('PdpClassifier', () => {
     });
     assert.equal(result.sourceTier, 'editorial');
   });
+
+  it('treats Amazon short URLs as marketplace product URL patterns', () => {
+    const result = classifyPdp({
+      url: 'https://amzn.in/d/01fhRXW8',
+      title: 'Xbox Series S',
+      metadata: {
+        hasOffer: true,
+        price: '66999',
+        productImage: 'https://img.example/xbox.jpg',
+        merchantProductMetadata: true,
+      },
+    });
+    assert.equal(result.sourceTier, 'marketplace');
+    assert.ok(result.reasons.includes('product_url_pattern'));
+    assert.ok(result.score >= 0.45);
+  });
 });

@@ -9,6 +9,7 @@ import {
 import { ContextBuilder } from '../context/ContextBuilder';
 import { ProductRanker } from '../products/ProductRanker';
 import { ProductValidator } from '../products/ProductValidator';
+import { buildReasonerUserPayload } from '../prompts/productReasoner';
 import { stagePass } from '../stages/gate';
 import type { MultimodalContext, ProductCandidate } from '../domain/types';
 
@@ -43,7 +44,7 @@ describe('uniformTimestampsMs', () => {
 describe('buildCacheKey', () => {
   it('includes pipeline and provider versions', () => {
     const key = buildCacheKey({ platform: 'youtube', externalVideoId: 'abc123' });
-    assert.equal(key, 'youtube:abc123:v5-test:prov-test');
+    assert.equal(key, 'youtube:abc123:v5-test:prov-test:youtube-metadata-v2');
   });
 });
 
@@ -133,11 +134,23 @@ describe('ContextBuilder', () => {
       platform: 'youtube',
       externalVideoId: 'v',
       sourceUrl: 'https://youtu.be/v',
-      metadata: { title: 't' },
+      metadata: {
+        title: 'iPhone 17 Pro',
+        description: 'A complete video description',
+        creator: 'Tech Channel',
+        thumbnailUrl: 'https://img.example/video.jpg',
+      },
       transcriptText: 'hi',
       media: null,
     });
     assert.equal(short.transcript.available, false);
+    assert.equal(short.metadata.description, 'A complete video description');
+    const payload = buildReasonerUserPayload(JSON.stringify(short));
+    assert.match(payload, /iPhone 17 Pro/);
+    assert.match(payload, /A complete video description/);
+    assert.match(payload, /Tech Channel/);
+    assert.match(payload, /https:\/\/img\.example\/video\.jpg/);
+    assert.match(payload, /"text":"hi"/);
     const long = b.build({
       platform: 'youtube',
       externalVideoId: 'v',

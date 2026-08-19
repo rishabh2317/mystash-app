@@ -1,4 +1,7 @@
 import { getEnv } from '../env';
+import type { SourceType } from '../product-intelligence/domain/types';
+import { loadShoppingConfiguration } from './ShoppingConfiguration';
+import { isAmazonMarketplaceHost } from './productUrlIdentity';
 
 /** Default commerce priority — independent of metadata quality ranking. */
 export const DEFAULT_SHOPPING_PROVIDER_PRIORITY = [
@@ -13,19 +16,25 @@ export const DEFAULT_SHOPPING_PROVIDER_PRIORITY = [
 
 export type ShoppingProviderId = (typeof DEFAULT_SHOPPING_PROVIDER_PRIORITY)[number] | string;
 
+/**
+ * Merchant priority from ShoppingConfiguration (V1: config/shopping.json).
+ * Env SHOPPING_PROVIDER_PRIORITY remains an emergency override.
+ */
 export function getShoppingProviderPriority(): string[] {
   const raw = getEnv('SHOPPING_PROVIDER_PRIORITY')?.trim();
-  if (!raw) return [...DEFAULT_SHOPPING_PROVIDER_PRIORITY];
-  const parsed = raw
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  return parsed.length ? parsed : [...DEFAULT_SHOPPING_PROVIDER_PRIORITY];
+  if (raw) {
+    const parsed = raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (parsed.length) return parsed;
+  }
+  return loadShoppingConfiguration().merchantPriority;
 }
 
 export function classifyShoppingProvider(
   url: string,
-  sourceTier?: 'official' | 'marketplace' | 'retailer' | 'editorial' | null,
+  sourceType?: SourceType | 'official' | 'marketplace' | 'retailer' | 'editorial' | null,
 ): ShoppingProviderId {
   let host = '';
   try {
@@ -34,7 +43,7 @@ export function classifyShoppingProvider(
     return 'merchant';
   }
 
-  if (/(^|\.)amazon\./i.test(host)) return 'amazon';
+  if (isAmazonMarketplaceHost(host)) return 'amazon';
   if (/(^|\.)flipkart\./i.test(host)) return 'flipkart';
   if (/(^|\.)myntra\./i.test(host)) return 'myntra';
   if (/(^|\.)ajio\./i.test(host)) return 'ajio';
@@ -44,6 +53,6 @@ export function classifyShoppingProvider(
   if (/(^|\.)target\./i.test(host)) return 'target';
   if (/(^|\.)decathlon\./i.test(host)) return 'decathlon';
   if (/(^|\.)rei\./i.test(host)) return 'rei';
-  if (sourceTier === 'official') return 'official';
+  if (sourceType === 'OFFICIAL' || sourceType === 'official') return 'official';
   return 'merchant';
 }

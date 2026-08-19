@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
 import { AffiliateService } from './AffiliateService';
 import { ShoppingResolver } from './ShoppingResolver';
+import {
+  resetShoppingConfigurationCache,
+  setShoppingConfigurationForTests,
+} from './ShoppingConfiguration';
+
+afterEach(() => {
+  resetShoppingConfigurationCache();
+});
 
 function product(overrides: Partial<CatalogProduct> = {}): CatalogProduct {
   return {
@@ -71,5 +79,49 @@ describe('ShoppingResolver', () => {
     );
 
     assert.equal(result, null);
+  });
+
+  it('configured buying URL beats preferred and merchant discovery fields', () => {
+    const resolver = new ShoppingResolver(
+      new AffiliateService({ enabled: false, provider: 'none' }),
+    );
+
+    const result = resolver.resolve(
+      product({
+        preferredShoppingUrl: 'https://www.apple.com/iphone/',
+        merchantUrl: 'https://merchant.example/products/1',
+        metadata: {
+          shoppingSelection: {
+            configuredBuyingUrl: 'https://campaign.example/buy/iphone-16e',
+          },
+        },
+      }),
+    );
+
+    assert.equal(result?.url, 'https://campaign.example/buy/iphone-16e');
+    assert.equal(result?.destinationType, 'configured');
+  });
+
+  it('file productOverrides configuredBuyingUrl beats discovered preferred URL', () => {
+    setShoppingConfigurationForTests({
+      preferredMerchant: null,
+      merchantPriority: ['amazon', 'official', 'merchant'],
+      productOverrides: {
+        'product-1': {
+          configuredBuyingUrl: 'https://campaign.example/file-override',
+        },
+      },
+    });
+    const resolver = new ShoppingResolver(
+      new AffiliateService({ enabled: false, provider: 'none' }),
+    );
+    const result = resolver.resolve(
+      product({
+        preferredShoppingUrl: 'https://www.amazon.in/dp/B0CHX3QBCH',
+        metadata: {},
+      }),
+    );
+    assert.equal(result?.url, 'https://campaign.example/file-override');
+    assert.equal(result?.destinationType, 'configured');
   });
 });

@@ -1,8 +1,10 @@
 import type { Request, Response } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 import { logger } from '../logger';
 import { createSupabaseUserClient } from '../supabase';
-import { SupabaseCatalogRepository } from '../product-intelligence/catalog/SupabaseCatalogRepository';
+import { createCatalogService } from '../catalog/factory';
+import { createEngagementService } from '../engagement/factory';
 import { AffiliateService } from './AffiliateService';
 import { getAffiliateConfig } from './affiliateConfig';
 import { ShoppingResolver } from './ShoppingResolver';
@@ -29,13 +31,14 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
 }
 
 export function createProductRedirectHandler(admin: SupabaseClient) {
-  const catalog = new SupabaseCatalogRepository(admin);
+  const catalog = createCatalogService(admin);
+  const engagement = createEngagementService(admin);
   const resolver = new ShoppingResolver(new AffiliateService(getAffiliateConfig()));
 
   return async (req: Request, res: Response): Promise<void> => {
     const productId = req.params.id;
-    const product = await catalog.findById(productId);
-    if (!product) {
+    const product = await catalog.resolveActiveProduct(productId);
+    if (!product || product.status === 'HIDDEN') {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
@@ -47,6 +50,8 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
     }
 
     const videoId = queryString(req.query.videoId);
+    const collectionId = queryString(req.query.collectionId);
+    const collectionProductTagId = queryString(req.query.tagId);
     let creatorId = queryString(req.query.creatorId);
     if (!creatorId && videoId) {
       const { data: video } = await admin
@@ -66,10 +71,14 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
       null;
     const userId = await authenticatedUserId(req);
     const timestamp = new Date().toISOString();
+    const eventId = queryString(req.query.eventId) ?? randomUUID();
     const analytics = {
-      productId,
+      productId: product.id,
+      requestedProductId: productId,
       creatorId,
       videoId,
+      collectionId,
+      collectionProductTagId,
       userId,
       destinationUrl: destination.url,
       shoppingProvider: destination.shoppingProvider,
@@ -77,11 +86,14 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
       timestamp,
       platform,
       country,
+      eventId,
     };
 
     logger.info(analytics, 'shopping.redirect.started');
+
+    // Dual-write: legacy product_clicks + Engagement MerchantClicked fact (spec §16.16).
     const { error } = await admin.from('product_clicks').insert({
-      catalog_product_id: productId,
+      catalog_product_id: product.id,
       video_id: videoId,
       creator_id: creatorId,
       user_id: userId,
@@ -94,8 +106,33 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
       created_at: timestamp,
     });
     if (error) {
-      // Preserve the shopping journey while retaining the analytics event in structured logs.
       logger.error({ ...analytics, error: error.message }, 'shopping.redirect.analytics_failed');
+    }
+
+    try {
+      await engagement.recordMerchantClicked({
+        eventId,
+        actorUserId: userId,
+        catalogProductId: product.id,
+        collectionId,
+        collectionProductTagId,
+        creatorId,
+        destinationUrl: destination.url,
+        destinationType: destination.destinationType,
+        shoppingProvider: destination.shoppingProvider,
+        affiliateProvider: destination.affiliateProvider,
+        platform,
+        country,
+        occurredAt: timestamp,
+      });
+    } catch (e) {
+      logger.error(
+        {
+          ...analytics,
+          error: e instanceof Error ? e.message : String(e),
+        },
+        'shopping.redirect.engagement_failed',
+      );
     }
 
     logger.info(analytics, 'shopping.redirect.completed');

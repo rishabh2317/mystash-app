@@ -1,10 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { detectPlatform, extractYouTubeVideoId } from './pipeline/detect';
+import { extractYouTubeVideoId } from './pipeline/detect';
 import { ingestLog } from './pipeline/ingestLog';
+import { parseSupportedVideoUrl, unsupportedVideoUrlMessage } from './pipeline/sourceIdentity';
 import { externalIdForProductUrl } from './pipeline/productLinkPreview';
 import { MerchantEnrichmentService } from './product-intelligence/enrichment/MerchantEnrichmentService';
 import { TavilyMerchantExtractor } from './product-intelligence/enrichment/TavilyMerchantExtractor';
 import { resolveIngestDrafts } from './product-intelligence';
+import { ingestDraftNeedsProductResolve } from './product-intelligence/ingestDraftResolveGate';
 
 const PIPELINE_VERSION = 'manual_v1';
 
@@ -54,7 +56,56 @@ export type ManualIngestApiProduct = {
   affiliateUrl: string;
   image?: string;
   confidence?: number;
+  merchantUrl?: string;
+  brand?: string | null;
+  catalogProductId?: string;
+  resolutionStatus?: 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED';
 };
+
+const TERMINAL_RESOLUTION = new Set(['VERIFIED', 'UNVERIFIED', 'UNRESOLVED']);
+
+export function mapDraftRowToManualApiProduct(r: {
+  external_id?: unknown;
+  name?: unknown;
+  price?: unknown;
+  currency?: unknown;
+  image?: unknown;
+  affiliate_url?: unknown;
+  provider?: unknown;
+  confidence?: unknown;
+  merchant_url?: unknown;
+  brand?: unknown;
+  catalog_product_id?: unknown;
+  resolution_status?: unknown;
+}): ManualIngestApiProduct {
+  const resolutionRaw = typeof r.resolution_status === 'string' ? r.resolution_status : null;
+  const resolutionStatus = resolutionRaw && TERMINAL_RESOLUTION.has(resolutionRaw)
+    ? (resolutionRaw as ManualIngestApiProduct['resolutionStatus'])
+    : undefined;
+  const catalogProductId =
+    typeof r.catalog_product_id === 'string' && r.catalog_product_id
+      ? r.catalog_product_id
+      : undefined;
+  const merchantUrl =
+    typeof r.merchant_url === 'string' && r.merchant_url.startsWith('http')
+      ? r.merchant_url
+      : undefined;
+  const brand = typeof r.brand === 'string' && r.brand.trim() ? r.brand : undefined;
+  return {
+    id: String(r.external_id ?? ''),
+    name: String(r.name ?? ''),
+    price: String(r.price ?? '—'),
+    currency: (r.currency as string) ?? undefined,
+    provider: String(r.provider ?? 'manual'),
+    affiliateUrl: String(r.affiliate_url ?? ''),
+    image: (r.image as string) ?? undefined,
+    confidence: Number(r.confidence) || 1,
+    merchantUrl,
+    brand: brand ?? null,
+    catalogProductId,
+    resolutionStatus,
+  };
+}
 
 export async function createManualIngest(
   admin: SupabaseClient,
@@ -82,15 +133,109 @@ export async function createManualIngest(
   extractionStatus: string;
   extractionError: null;
   pipelineMeta: Record<string, unknown> | null;
+  failedProductUrls?: string[];
 }> {
   const { userId, sourceUrl, productUrls, traceId, videoTitleFromClient } = params;
 
-  const platform = detectPlatform(sourceUrl);
-  if (platform === 'unknown') {
-    throw new Error('Only YouTube and Instagram video URLs are supported');
+  const identity = parseSupportedVideoUrl(sourceUrl);
+  if (!identity) {
+    throw new Error(unsupportedVideoUrlMessage());
+  }
+  const platform = identity.platform;
+  const canonicalUrl = identity.canonicalUrl;
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: existing } = await admin
+    .from('ingest_requests')
+    .select('id, status')
+    .eq('user_id', userId)
+    .in('source_url', [...new Set([canonicalUrl, sourceUrl])])
+    .in('status', ['draft', 'processing', 'ready_for_review', 'review_required'])
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing?.id && existing.status !== 'processing') {
+    ingestLog('info', 'manual.duplicate_reuse', { ingestId: existing.id, userId });
+    const { data: rows } = await admin
+      .from('ingest_draft_products')
+      .select('external_id, name, price, currency, image, affiliate_url, provider, confidence')
+      .eq('ingest_request_id', existing.id);
+    const { data: ir } = await admin
+      .from('ingest_requests')
+      .select('source_url, platform, video_title, thumbnail, stash_score, status')
+      .eq('id', existing.id)
+      .maybeSingle();
+    return {
+      ingestId: existing.id,
+      sourceUrl: (ir?.source_url as string) ?? canonicalUrl,
+      platform: (ir?.platform as string) ?? platform,
+      videoTitle: (ir?.video_title as string) ?? 'Draft',
+      thumbnail: (ir?.thumbnail as string) ?? undefined,
+      stashScore: Number(ir?.stash_score) || 4.5,
+      products: (rows ?? []).map((r) => ({
+        id: String(r.external_id),
+        name: String(r.name),
+        price: String(r.price),
+        currency: (r.currency as string) ?? undefined,
+        provider: String(r.provider ?? 'manual'),
+        affiliateUrl: String(r.affiliate_url ?? ''),
+        image: (r.image as string) ?? undefined,
+        confidence: Number(r.confidence) || 1,
+      })),
+      status: String(ir?.status ?? 'ready_for_review'),
+      extractionPending: false,
+      extractionSource: 'manual',
+      extractionDurationMs: 0,
+      traceId,
+      extractionStatus: 'ok',
+      extractionError: null,
+      pipelineMeta: { contextSources: ['manual_links'], reused: true },
+    };
   }
 
-  const ytId = platform === 'youtube' ? extractYouTubeVideoId(sourceUrl) : null;
+  const enrichment = new MerchantEnrichmentService(new TavilyMerchantExtractor(admin));
+  const enrichResults = await Promise.all(
+    productUrls.map((u) =>
+      enrichment.enrich({
+        merchantUrl: u,
+        ingestId: traceId,
+        traceId,
+        acceptPartialCache: false,
+      }),
+    ),
+  );
+  const failedProductUrls: string[] = [];
+  type OkMeta = {
+    merchantUrl: string;
+    title: string;
+    price?: string | null;
+    currency?: string | null;
+    image?: string | null;
+    merchant?: string | null;
+    brand?: string | null;
+  };
+  const okMeta: OkMeta[] = [];
+  for (let i = 0; i < enrichResults.length; i++) {
+    const result = enrichResults[i]!;
+    const url = productUrls[i]!;
+    if (result.kind === 'failed') {
+      ingestLog('warn', 'manual.enrichment_failed', {
+        message: result.message,
+        url: url.slice(0, 120),
+      });
+      failedProductUrls.push(url);
+      continue;
+    }
+    okMeta.push(result.metadata);
+  }
+  if (okMeta.length === 0) {
+    throw new Error(
+      `Could not extract product details from the provided link${productUrls.length > 1 ? 's' : ''}. Check that each URL is a public product page.`,
+    );
+  }
+
+  const ytId = platform === 'youtube' ? extractYouTubeVideoId(canonicalUrl) : null;
   const thumbnail =
     platform === 'youtube' && ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : null;
 
@@ -99,10 +244,10 @@ export async function createManualIngest(
   if (customTitle) {
     videoTitle = customTitle.slice(0, 200);
   } else if (platform === 'youtube') {
-    const t = await fetchYouTubeTitle(sourceUrl);
+    const t = await fetchYouTubeTitle(canonicalUrl);
     if (t) videoTitle = t;
   } else {
-    const t = await fetchInstagramTitle(sourceUrl);
+    const t = await fetchInstagramTitle(canonicalUrl);
     if (t) videoTitle = t;
   }
 
@@ -110,7 +255,7 @@ export async function createManualIngest(
     .from('ingest_requests')
     .insert({
       user_id: userId,
-      source_url: sourceUrl,
+      source_url: canonicalUrl,
       platform,
       status: 'draft',
       stash_score: 4.5,
@@ -126,32 +271,25 @@ export async function createManualIngest(
 
   const ingestId = ingestRow.id as string;
 
+  const { ensureCollectionForIngest, syncCollectionFromIngestDrafts } = await import(
+    './collection/ingestBridge'
+  );
+  const collectionId = await ensureCollectionForIngest(admin, {
+    user: { id: userId },
+    ingestId,
+    sourceUrl: canonicalUrl,
+    platform,
+    title: videoTitle,
+    thumbnailUrl: thumbnail,
+    originType: 'manual_curation',
+    qualityScore: 4.5,
+    startProcessing: false,
+  });
+
   const draftRows: ManualIngestProductRow[] = [];
   const apiProducts: ManualIngestApiProduct[] = [];
 
-  const enrichment = new MerchantEnrichmentService(new TavilyMerchantExtractor(admin));
-  const enrichResults = await Promise.all(
-    productUrls.map((u) =>
-      enrichment.enrich({
-        merchantUrl: u,
-        ingestId,
-        traceId,
-      }),
-    ),
-  );
-
-  for (let i = 0; i < enrichResults.length; i++) {
-    const result = enrichResults[i]!;
-    if (result.kind === 'failed') {
-      ingestLog('warn', 'manual.enrichment_failed', {
-        ingestId,
-        message: result.message,
-        url: productUrls[i]?.slice(0, 120),
-      });
-      continue;
-    }
-    const preview = result.metadata;
-
+  for (const preview of okMeta) {
     draftRows.push({
       ingest_request_id: ingestId,
       external_id: externalIdForProductUrl(preview.merchantUrl),
@@ -161,7 +299,7 @@ export async function createManualIngest(
       image: preview.image ?? null,
       merchant_url: preview.merchantUrl,
       affiliate_url: '',
-      provider: preview.merchant || 'manual',
+      provider: 'manual',
       confidence: 1,
       ai_confidence: 1,
       resolution_status: 'UNRESOLVED',
@@ -176,6 +314,8 @@ export async function createManualIngest(
       affiliateUrl: '',
       image: preview.image ?? undefined,
       confidence: 1,
+      merchantUrl: preview.merchantUrl,
+      brand: preview.brand ?? null,
     });
   }
 
@@ -192,24 +332,17 @@ export async function createManualIngest(
   }
 
   try {
-    await resolveIngestDrafts(admin, ingestId);
+    await resolveIngestDrafts(admin, ingestId, traceId, { creatorSuppliedUrl: true });
     const { data: resolved } = await admin
       .from('ingest_draft_products')
-      .select('external_id, name, price, currency, image, affiliate_url, provider, confidence')
+      .select(
+        'external_id, name, price, currency, image, affiliate_url, provider, confidence, merchant_url, brand, catalog_product_id, resolution_status',
+      )
       .eq('ingest_request_id', ingestId);
     if (resolved?.length) {
       apiProducts.length = 0;
       for (const r of resolved) {
-        apiProducts.push({
-          id: String(r.external_id),
-          name: String(r.name),
-          price: String(r.price),
-          currency: (r.currency as string) ?? undefined,
-          provider: String(r.provider ?? 'manual'),
-          affiliateUrl: String(r.affiliate_url ?? ''),
-          image: (r.image as string) ?? undefined,
-          confidence: Number(r.confidence) || 1,
-        });
+        apiProducts.push(mapDraftRowToManualApiProduct(r));
       }
     }
   } catch (e) {
@@ -238,15 +371,38 @@ export async function createManualIngest(
     },
   });
 
+  try {
+    await syncCollectionFromIngestDrafts(admin, {
+      ingestId,
+      collectionId,
+      status: draftRows.length > 0 ? 'ready_for_review' : 'review_required',
+      title: videoTitle,
+      thumbnailUrl: thumbnail,
+    });
+    await admin
+      .from('ingest_requests')
+      .update({
+        status: draftRows.length > 0 ? 'ready_for_review' : 'review_required',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', ingestId);
+  } catch (e) {
+    ingestLog('warn', 'manual.collection_sync_failed', {
+      ingestId,
+      collectionId,
+      message: (e as Error).message?.slice(0, 160),
+    });
+  }
+
   return {
     ingestId,
-    sourceUrl,
+    sourceUrl: canonicalUrl,
     platform,
     videoTitle,
     thumbnail: thumbnail ?? undefined,
     stashScore: 4.5,
     products: apiProducts,
-    status: 'draft',
+    status: draftRows.length > 0 ? 'ready_for_review' : 'review_required',
     extractionPending: false,
     extractionSource: 'manual',
     extractionDurationMs: 0,
@@ -257,6 +413,60 @@ export async function createManualIngest(
       transcriptAgent: 'not_applicable',
       contextSources: ['manual_links'],
       priceAgent: 'link_preview',
+      failedProductUrls,
     },
+    failedProductUrls,
   };
+}
+
+/** Hydration recovery: re-run PI only for drafts that are not already terminal. */
+export async function retryUnresolvedIngestDrafts(
+  admin: SupabaseClient,
+  ingestId: string,
+): Promise<{ ranResolver: boolean }> {
+  const { data: rows } = await admin
+    .from('ingest_draft_products')
+    .select('catalog_product_id, resolution_status, provider')
+    .eq('ingest_request_id', ingestId);
+  const needsResolve = (rows ?? []).some((r) =>
+    ingestDraftNeedsProductResolve({
+      catalogProductId: (r.catalog_product_id as string) ?? null,
+      resolutionStatus: (r.resolution_status as string) ?? null,
+    }),
+  );
+  if (!needsResolve) {
+    return { ranResolver: false };
+  }
+
+  const creatorSuppliedUrl = (rows ?? []).some((r) => (r.provider as string | null) === 'manual');
+  await resolveIngestDrafts(admin, ingestId, ingestId, {
+    creatorSuppliedUrl,
+    onlyUnresolved: true,
+  });
+
+  const { data: ingest } = await admin
+    .from('ingest_requests')
+    .select('collection_id, video_title, thumbnail')
+    .eq('id', ingestId)
+    .maybeSingle();
+  const collectionId = (ingest?.collection_id as string | null) ?? null;
+  if (collectionId) {
+    try {
+      const { syncCollectionFromIngestDrafts } = await import('./collection/ingestBridge');
+      await syncCollectionFromIngestDrafts(admin, {
+        ingestId,
+        collectionId,
+        status: 'ready_for_review',
+        title: (ingest?.video_title as string) ?? null,
+        thumbnailUrl: (ingest?.thumbnail as string) ?? null,
+      });
+    } catch (e) {
+      ingestLog('warn', 'manual.retry_collection_sync_failed', {
+        ingestId,
+        collectionId,
+        message: (e as Error).message?.slice(0, 160),
+      });
+    }
+  }
+  return { ranResolver: true };
 }

@@ -17,6 +17,7 @@ export class TavilyMerchantExtractor implements MerchantExtractor {
     const preview = await previewProductLink(this.admin, input.merchantUrl, {
       ingestId: input.ingestId,
       traceId: input.traceId,
+      acceptPartialCache: input.acceptPartialCache,
     });
 
     const merchant = preview.merchant ?? detectMerchantLabel(preview.merchantUrl);
@@ -38,7 +39,7 @@ export class TavilyMerchantExtractor implements MerchantExtractor {
       currency: price ? preview.currency ?? null : null,
       availability: null,
       specifications: preview.specifications ?? {},
-      priceSource: price ? 'merchant' : null,
+      priceSource: price ? (preview.priceSource === 'ai' ? 'ai' : 'merchant') : null,
       priceLastVerifiedAt: price ? new Date().toISOString() : null,
       extractedAt: new Date().toISOString(),
       provider: this.name,

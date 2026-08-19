@@ -4,7 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 import {
-  type AddToCartAuthIntent,
+  type AuthIntent,
   appendAuthIntentToRedirectUrl,
 } from '@/src/navigation/authIntent';
 import { supabase } from '@/src/services/supabase';
@@ -76,7 +76,7 @@ export type GoogleSignInOptions = {
    * Optional route-level auth intent to embed on OAuth redirectTo.
    * Survives cold Google callback → auth/callback → Profile resume.
    */
-  authIntent?: AddToCartAuthIntent | null;
+  authIntent?: AuthIntent | null;
 };
 
 type AuthContextValue = {

@@ -77,7 +77,11 @@ describe('PdpRanker', () => {
       { brand: 'Adidas', name: 'Hyperboost Edge Running Shoes', category: 'shoes' },
     );
     assert.equal(ranked[0]?.sourceTier, 'official');
+    assert.equal(ranked[0]?.sourceType, 'OFFICIAL');
+    assert.equal(ranked[0]?.pageType, 'PRODUCT');
     assert.match(ranked[0]?.merchantUrl ?? '', /adidas\.com/);
     assert.equal(ranked[1]?.sourceTier, 'editorial');
+    assert.equal(ranked[1]?.sourceType, 'REVIEW');
+    assert.equal(ranked[1]?.pageType, 'REVIEW');
   });
 });

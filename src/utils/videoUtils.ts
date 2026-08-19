@@ -80,12 +80,7 @@ export function extractInstagramPostId(url: string): string | null {
   if (!isValidUrl(url)) return null;
   
   const patterns = [
-    // Instagram posts: instagram.com/p/POST_ID
-    /(?:instagram\.com\/p\/)([A-Za-z0-9_-]+)/,
-    // Instagram reels: instagram.com/reels/POST_ID
-    /(?:instagram\.com\/reels\/)([A-Za-z0-9_-]+)/,
-    // Instagram reel (shortened): instagram.com/reel/POST_ID
-    /(?:instagram\.com\/reel\/)([A-Za-z0-9_-]+)/
+    /(?:instagram\.com\/(?:reel|reels|p|tv)\/)([A-Za-z0-9_-]+)/,
   ];
   
   for (const pattern of patterns) {

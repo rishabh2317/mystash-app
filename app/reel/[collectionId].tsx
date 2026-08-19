@@ -1,0 +1,260 @@
+import ReelItem from '@/components/ReelItem';
+import { SaveControl } from '@/components/engagement/SaveControl';
+import { ShareControl } from '@/components/engagement/ShareControl';
+import { useAuth } from '@/contexts/AuthContext';
+import { useThemeMode } from '@/contexts/ThemeContext';
+import {
+  mapCollectionDetailToReelViewModel,
+  mapReelViewModelToVideo,
+} from '@/src/mappers/reelMapper';
+import { CollectionApiError } from '@/src/services/collectionApi';
+import { useCollectionSaveHandler } from '@/src/services/collectionSaveOrchestration';
+import { loadCollectionDetail } from '@/src/services/collectionHydration';
+import { useRecordCollectionView } from '@/src/services/collectionViewTracking';
+import { isCollectionSaved } from '@/src/services/engagementApi';
+import { shareCollection } from '@/src/services/shareLinks';
+import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+/**
+ * Focused Reel host — loads Collection on demand, maps to ReelViewModel,
+ * and reuses the existing Reel stack (no Home/Creator/Search Reel forks).
+ * Save/Share use the same Engagement orchestration as Collection page.
+ */
+export default function FocusedReelHost() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const { mode } = useThemeMode();
+  const isLight = mode === 'titanium';
+  const params = useLocalSearchParams<{ collectionId?: string | string[] }>();
+  const collectionId = Array.isArray(params.collectionId)
+    ? params.collectionId[0]
+    : params.collectionId;
+
+  const [detail, setDetail] = useState<CollectionDetailViewModel | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [savePending, setSavePending] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!collectionId?.trim()) {
+      setNotFound(true);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setNotFound(false);
+    try {
+      const next = await loadCollectionDetail(collectionId.trim());
+      setDetail(next);
+      if (user) {
+        try {
+          setIsSaved(await isCollectionSaved(next.collectionId));
+        } catch {
+          setIsSaved(false);
+        }
+      } else {
+        setIsSaved(false);
+      }
+    } catch (e) {
+      setDetail(null);
+      if (e instanceof CollectionApiError && e.statusCode === 404) {
+        setNotFound(true);
+      } else {
+        setError(e instanceof Error ? e.message : 'Could not load collection');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [collectionId, user]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRecordCollectionView({
+    collectionId: detail?.collectionId,
+    creatorId: detail?.creator.id,
+    surface: 'focused_reel',
+    enabled: Boolean(detail),
+  });
+
+  const reelVideo = useMemo(() => {
+    if (!detail) return null;
+    return mapReelViewModelToVideo(mapCollectionDetailToReelViewModel(detail));
+  }, [detail]);
+
+  const saveHandler = useCollectionSaveHandler({
+    collectionId: detail?.collectionId ?? '',
+    creatorId: detail?.creator.id ?? null,
+    isSaved,
+    onOptimisticSave: (next) => {
+      setSavePending(true);
+      setIsSaved(next);
+    },
+    onRollback: (previous) => {
+      setIsSaved(previous);
+      setSavePending(false);
+    },
+  });
+
+  const onSavePress = useCallback(async () => {
+    if (!detail) return;
+    setSavePending(true);
+    try {
+      await saveHandler();
+    } finally {
+      setSavePending(false);
+    }
+  }, [detail, saveHandler]);
+
+  const onSharePress = useCallback(async () => {
+    if (!detail) return;
+    try {
+      await shareCollection({
+        collectionId: detail.collectionId,
+        title: detail.title,
+        creatorId: detail.creator.id,
+        surface: 'focused_reel',
+      });
+    } catch (e) {
+      Alert.alert('Share', e instanceof Error ? e.message : 'Could not share collection.');
+    }
+  }, [detail]);
+
+  const text = isLight ? '#1A1A1B' : '#F8FAFC';
+  const muted = isLight ? '#4E5257' : '#AEB8C5';
+
+  if (loading) {
+    return (
+      <View style={styles.root}>
+        <LinearGradient colors={['#05070A', '#0A0E14', '#05070A']} style={StyleSheet.absoluteFill} />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#F8FAFC" />
+        </View>
+      </View>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <View style={styles.root}>
+        <LinearGradient colors={['#05070A', '#0A0E14', '#05070A']} style={StyleSheet.absoluteFill} />
+        <View style={styles.centered}>
+          <Text style={[styles.message, { color: text }]}>Collection unavailable</Text>
+          <Pressable onPress={() => router.back()} style={styles.action}>
+            <Text style={{ color: muted, fontWeight: '700' }}>Go back</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  if (error || !detail || !reelVideo) {
+    return (
+      <View style={styles.root}>
+        <LinearGradient colors={['#05070A', '#0A0E14', '#05070A']} style={StyleSheet.absoluteFill} />
+        <View style={styles.centered}>
+          <Text style={[styles.message, { color: muted }]}>{error ?? 'Something went wrong'}</Text>
+          <Pressable onPress={() => void load()} style={styles.action}>
+            <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.root}>
+      <ReelItem video={reelVideo} isActive onBuyPress={() => {}} />
+      <View style={[styles.topActions, { paddingTop: insets.top + 8 }]}>
+        <Pressable
+          onPress={() => router.back()}
+          style={styles.backFab}
+          accessibilityRole="button"
+          accessibilityLabel="Close reel"
+        >
+          <Text style={styles.backFabText}>←</Text>
+        </Pressable>
+        <View style={styles.engagementRow}>
+          <SaveControl
+            isSaved={isSaved}
+            pending={savePending}
+            isLight={false}
+            onPress={() => void onSavePress()}
+          />
+          <ShareControl
+            isLight={false}
+            onPress={() => void onSharePress()}
+            accessibilityLabel="Share collection"
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#05070A',
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    gap: 12,
+  },
+  message: {
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  action: {
+    padding: 12,
+  },
+  topActions: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  backFab: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  backFabText: {
+    color: '#F8FAFC',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  engagementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+});

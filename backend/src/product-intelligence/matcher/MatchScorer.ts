@@ -19,11 +19,22 @@ export class MatchScorer {
     let modelScore = 0;
     if (ai.model && title.includes(ai.model.toLowerCase())) modelScore = 1;
 
+    const candidateScore = Math.min(1, Math.max(0, candidate.score));
     const score =
-      0.45 * titleScore + 0.25 * brandScore + 0.15 * modelScore + 0.15 * Math.min(1, candidate.score);
+      0.45 * titleScore + 0.25 * brandScore + 0.15 * modelScore + 0.15 * candidateScore;
 
     const reason = `title=${titleScore.toFixed(2)} brand=${brandScore.toFixed(2)} model=${modelScore.toFixed(2)}`;
-    return { score, reason, matchConfidence: score };
+    return {
+      score,
+      reason,
+      matchConfidence: score,
+      components: {
+        title: titleScore,
+        brand: brandScore,
+        model: modelScore,
+        candidate: candidateScore,
+      },
+    };
   }
 
   pickBest(

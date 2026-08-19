@@ -2,9 +2,10 @@ import { Buffer } from 'node:buffer';
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
-import { detectPlatform, extractYouTubeVideoId } from './pipeline/detect';
+import { detectPlatform } from './pipeline/detect';
 import { ingestLog } from './pipeline/ingestLog';
-import { createManualIngest } from './manualIngest';
+import { parseSupportedVideoUrl, unsupportedVideoUrlMessage } from './pipeline/sourceIdentity';
+import { createManualIngest, retryUnresolvedIngestDrafts } from './manualIngest';
 import { createSupabaseAdmin, createSupabaseUserClient } from './supabase';
 import { handlePublishIngest } from './publish';
 import { logger } from './logger';
@@ -14,6 +15,12 @@ import { startIngestPipelineWorker } from './workers/ingestPipelineWorker';
 import { startProductResolveWorker } from './product-intelligence';
 import { getEnv } from './env';
 import { createProductRedirectHandler } from './shopping/productRedirect';
+import { registerCollectionRoutes } from './collection/routes';
+import { registerUserRoutes } from './user/routes';
+import { registerEngagementRoutes } from './engagement/routes';
+import { logSearchRuntime } from './search/factory';
+import { registerSearchRoutes } from './search/routes';
+import { registerCartRoutes } from './cart/routes';
 
 if (typeof globalThis.btoa !== 'function') {
   Object.assign(globalThis, {
@@ -35,6 +42,14 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/products/:id/redirect', createProductRedirectHandler(createSupabaseAdmin()));
+
+registerCollectionRoutes(app);
+registerUserRoutes(app);
+registerEngagementRoutes(app);
+registerSearchRoutes(app);
+registerCartRoutes(app);
+
+logSearchRuntime();
 
 /**
  * Same contract as Edge `ingest-url`: Bearer user JWT; creates `ingest_requests` and returns immediately.
@@ -70,8 +85,8 @@ app.post('/ingest/manual', async (req, res) => {
     }
 
     const platform = detectPlatform(sourceUrl);
-    if (platform === 'unknown') {
-      res.status(400).json({ error: 'Only YouTube and Instagram URLs are supported for the reel' });
+    if (platform === 'unknown' || !parseSupportedVideoUrl(sourceUrl)) {
+      res.status(400).json({ error: 'Only YouTube Shorts and Instagram Reel / post URLs are supported for the reel' });
       return;
     }
 
@@ -129,6 +144,48 @@ app.post('/ingest/manual', async (req, res) => {
   }
 });
 
+app.post('/ingest/:ingestId/resolve-unresolved', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || typeof authHeader !== 'string') {
+      res.status(401).json({ error: 'Missing authorization' });
+      return;
+    }
+    const userClient = createSupabaseUserClient(authHeader);
+    const {
+      data: { user },
+      error: userErr,
+    } = await userClient.auth.getUser();
+    if (userErr || !user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const ingestId = String(req.params.ingestId ?? '').trim();
+    if (!ingestId) {
+      res.status(400).json({ error: 'ingestId required' });
+      return;
+    }
+
+    const admin = createSupabaseAdmin();
+    const { data: ingest } = await admin
+      .from('ingest_requests')
+      .select('id, user_id')
+      .eq('id', ingestId)
+      .maybeSingle();
+    if (!ingest || ingest.user_id !== user.id) {
+      res.status(404).json({ error: 'Ingest not found' });
+      return;
+    }
+
+    const out = await retryUnresolvedIngestDrafts(admin, ingestId);
+    res.json({ ok: true, ...out });
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: (e as Error).message ?? 'Server error' });
+  }
+});
+
 app.post('/publish', handlePublishIngest);
 
 app.post('/ingest', async (req, res) => {
@@ -167,31 +224,81 @@ app.post('/ingest', async (req, res) => {
       return;
     }
 
-    const platform = detectPlatform(parsed.href);
-    if (platform === 'unknown') {
+    const identity = parseSupportedVideoUrl(parsed.href);
+    if (!identity) {
       ingestLog('warn', 'ingest.unsupported_platform', { httpTraceId, sourceHost: parsed.hostname });
-      res.status(400).json({ error: 'Only YouTube and Instagram URLs are supported' });
+      res.status(400).json({ error: unsupportedVideoUrlMessage() });
       return;
     }
+    const platform = identity.platform;
+    const canonicalUrl = identity.canonicalUrl;
+    const ytId = platform === 'youtube' ? identity.externalId : null;
+    const thumbnail =
+      platform === 'youtube' && ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : null;
 
     ingestLog('info', 'ingest.accepted', {
       httpTraceId,
       userId: user.id,
       platform,
       sourceHost: parsed.hostname,
+      externalId: identity.externalId,
     });
 
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: existing } = await admin
       .from('ingest_requests')
-      .select('id, status')
+      .select('id, status, collection_id')
       .eq('user_id', user.id)
-      .eq('source_url', sourceUrl)
-      .in('status', ['draft', 'processing', 'ready_for_review'])
+      .in('source_url', [...new Set([canonicalUrl, sourceUrl])])
+      .in('status', ['draft', 'processing', 'ready_for_review', 'review_required', 'failed'])
       .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (existing?.id && existing.status === 'failed') {
+      const { resumeFailedIngestForRetry } = await import('./collection/ingestBridge');
+      await resumeFailedIngestForRetry(admin, {
+        ingestId: existing.id,
+        collectionId: (existing.collection_id as string) || null,
+      });
+      try {
+        await enqueueIngestPipeline({ ingestRequestId: existing.id, traceId: httpTraceId });
+        ingestLog('info', 'ingest.failed_retry_enqueued', {
+          httpTraceId,
+          ingestId: existing.id,
+        });
+      } catch (enqueueErr) {
+        ingestLog('warn', 'ingest.failed_retry_enqueue_fallback', {
+          httpTraceId,
+          ingestId: existing.id,
+          message: (enqueueErr as Error).message?.slice(0, 200),
+        });
+        setImmediate(() => {
+          void runProgressiveIngestPipeline(admin, existing.id, httpTraceId).catch((err) => {
+            logger.error({ err, ingestId: existing.id }, 'ingest.background_pipeline_failed');
+          });
+        });
+      }
+      res.json({
+        ingestId: existing.id,
+        sourceUrl: canonicalUrl,
+        platform,
+        videoTitle: platform === 'youtube' ? 'YouTube Short' : 'Instagram Reel',
+        thumbnail: thumbnail ?? undefined,
+        stashScore: 4.5,
+        products: [],
+        status: 'processing',
+        extractionPending: true,
+        extractionSource: 'queued',
+        extractionDurationMs: 0,
+        traceId: httpTraceId,
+        extractionStatus: undefined,
+        extractionError: null,
+        pipelineMeta: { reused: true, retriedFailed: true },
+      });
+      return;
+    }
 
     if (existing?.id) {
       const { data: extMeta } = await admin
@@ -316,9 +423,6 @@ app.post('/ingest', async (req, res) => {
       return;
     }
 
-    const ytId = platform === 'youtube' ? extractYouTubeVideoId(sourceUrl) : null;
-    const thumbnail =
-      platform === 'youtube' && ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : null;
     const customTitle = String(body.video_title ?? body.videoTitle ?? '').trim();
     const videoTitle =
       customTitle.slice(0, 200) || (platform === 'youtube' ? 'YouTube Short' : 'Instagram Reel');
@@ -327,7 +431,7 @@ app.post('/ingest', async (req, res) => {
       .from('ingest_requests')
       .insert({
         user_id: user.id,
-        source_url: sourceUrl,
+        source_url: canonicalUrl,
         platform,
         status: 'processing',
         stash_score: 4.5,
@@ -344,6 +448,37 @@ app.post('/ingest', async (req, res) => {
     }
 
     const ingestId = ingestRow.id as string;
+
+    try {
+      const { ensureCollectionForIngest } = await import('./collection/ingestBridge');
+      const collectionId = await ensureCollectionForIngest(admin, {
+        user: {
+          id: user.id,
+          email: user.email,
+          user_metadata: user.user_metadata as Record<string, unknown>,
+        },
+        ingestId,
+        sourceUrl: canonicalUrl,
+        platform,
+        title: videoTitle,
+        thumbnailUrl: thumbnail,
+        originType: platform === 'instagram' ? 'import_instagram' : 'url_ingest',
+        qualityScore: 4.5,
+        startProcessing: true,
+      });
+      ingestLog('info', 'ingest.collection_linked', {
+        httpTraceId,
+        ingestId,
+        collectionId,
+      });
+    } catch (collErr) {
+      logger.error({ err: collErr, ingestId }, 'ingest.collection_create_failed');
+      res.status(500).json({
+        error: 'Could not create collection',
+        detail: (collErr as Error).message,
+      });
+      return;
+    }
 
     ingestLog('info', 'ingest.created_row', {
       httpTraceId,
@@ -375,7 +510,7 @@ app.post('/ingest', async (req, res) => {
 
     res.json({
       ingestId,
-      sourceUrl,
+      sourceUrl: canonicalUrl,
       platform,
       videoTitle,
       thumbnail: thumbnail ?? undefined,

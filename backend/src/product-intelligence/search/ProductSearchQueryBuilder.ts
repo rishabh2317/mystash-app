@@ -1,4 +1,5 @@
 import type { AiDraftInput, NormalizedProduct } from '../domain/types';
+import { normalizeProductIdentityTokens } from '../normalizer/ProductIdentityCanonicalizer';
 import { normalizeQueryTokens } from './QueryNormalizer';
 
 export type ProductSearchQuery = {
@@ -15,6 +16,17 @@ function addTokens(target: string[], value: string | null | undefined): void {
   }
 }
 
+function addIdentityTokens(
+  target: string[],
+  value: string | null | undefined,
+): void {
+  for (const token of normalizeProductIdentityTokens(value)) {
+    if (!target.some((existing) => existing.toLowerCase() === token.toLowerCase())) {
+      target.push(token);
+    }
+  }
+}
+
 /** Builds a compact, deterministic product query from persisted extraction context. */
 export function buildProductSearchQuery(
   draft: AiDraftInput,
@@ -22,21 +34,21 @@ export function buildProductSearchQuery(
 ): ProductSearchQuery {
   const terms: string[] = [];
   const reasons: string[] = [];
-  addTokens(terms, product.brand);
+  addIdentityTokens(terms, product.brand);
   if (product.brand) reasons.push('brand');
 
-  addTokens(terms, product.name);
+  addIdentityTokens(terms, product.name);
   reasons.push('name');
 
   if (product.model) {
-    addTokens(terms, product.model);
+    addIdentityTokens(terms, product.model);
     reasons.push('model');
   }
 
   const logos = Array.isArray(draft.evidence?.logoHits)
     ? draft.evidence.logoHits.filter((v): v is string => typeof v === 'string')
     : [];
-  for (const logo of logos.slice(0, 2)) addTokens(terms, logo);
+  for (const logo of logos.slice(0, 2)) addIdentityTokens(terms, logo);
   if (logos.length) reasons.push('logo');
 
   const summary = typeof draft.evidence?.summary === 'string' ? draft.evidence.summary : null;
