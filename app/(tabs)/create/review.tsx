@@ -1,19 +1,26 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { useThemeMode } from '@/contexts/ThemeContext';
 import {
   ProductDetailsSheet,
   ReviewProductCard,
   type ProductDetailsActionConfig,
 } from '@/components/commerce';
+import { CreateInlineNotice } from '@/components/create/CreateInlineNotice';
+import { CreateScreenShell } from '@/components/create/CreateScreenShell';
+import { PublishConfirmSheet } from '@/components/create/PublishConfirmSheet';
+import { PublishSuccessScreen } from '@/components/create/PublishSuccessScreen';
+import { StatusBlock } from '@/components/status/StatusBlock';
 import { getCurationDraft, removeCurationDraft } from '@/src/state/curationDraftStore';
 import { curationLog } from '@/src/logging/curationLog';
 import {
+  INGEST_ASYNC_POLL_INTERVAL_MS,
+  appendManualProductsToIngest,
   loadOrResumeIngestDraft,
   normalizeIngestError,
   publishIngestSelection,
   rejectIngestRequest,
   retryUnresolvedIngestDrafts,
   submitIngestUrl,
+  updateIngestVideoTitle,
 } from '@/src/services/curation';
 import { draftProductToViewModel } from '@/src/services/catalogProductMapper';
 import {
@@ -22,11 +29,36 @@ import {
   reviewVerificationStatus,
   selectedProductsCanPublish,
 } from '@/src/services/reviewResolution';
+import { useThemeTokens } from '@/src/theme/useThemeTokens';
+import { CREATE_COPY } from '@/src/ui/createCopy';
+import {
+  createFieldColors,
+  createPrimaryButtonStyle,
+  createSecondaryButtonStyle,
+  createSurfaceStyle,
+} from '@/src/ui/createChrome';
+import {
+  buildEditorReadiness,
+  contentPlatformLabel,
+  productsSectionMetaLabel,
+  type EditorReadinessItem,
+} from '@/src/ui/createEditorReadiness';
+import { createPartialProductLinksMessage } from '@/src/ui/createFeedback';
+import { ingestAllowsManualProducts, ingestEditorShowsProcessing } from '@/src/ui/createHandoff';
+import {
+  buildPublishConfirmSummary,
+  publishProductCountLabel,
+  resolvePublishSuccessCollectionId,
+  type PublishRitualPhase,
+} from '@/src/ui/createPublishRitual';
+import { useAppToast } from '@/src/ui/useAppToast';
 import {
   abandonCreateFlow,
   completeCreateFlow,
   exitCreateFlowAfterAbandon,
   exitCreateFlowAfterSuccess,
+  exitCreateFlowToCollection,
+  exitCreateFlowToCreateAnother,
 } from '@/src/state/createFlowSession';
 import { requestFeedReload } from '@/src/services/feedRefresh';
 import { useProductBuyHandler } from '@/src/services/productActionOrchestration';
@@ -39,7 +71,6 @@ import {
   resolveYoutubeParentOrigin,
 } from '@/src/utils/youtubeWebViewEmbed';
 import { transformToReviewEmbedUrl } from '@/src/utils/videoUtils';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -48,24 +79,62 @@ import {
   FlatList,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
+const MAX_MANUAL_LINKS = 5;
+
+function readinessItemLabel(item: EditorReadinessItem): string {
+  if (item.id === 'content') {
+    return item.done ? CREATE_COPY.editorReadinessContentDone : CREATE_COPY.editorReadinessContentTodo;
+  }
+  if (item.id === 'products') {
+    return item.done ? CREATE_COPY.editorReadinessProductsDone : CREATE_COPY.editorReadinessProductsTodo;
+  }
+  if (item.done) return CREATE_COPY.editorReadinessResolvingDone;
+  const n = item.count ?? 0;
+  return `${n} ${CREATE_COPY.editorReadinessResolvingTodo}`;
+}
+
+function normalizeHttpUrl(value: string): string | null {
+  const t = value.trim();
+  if (!t) return null;
+  try {
+    const u = new URL(t);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    u.hash = '';
+    return u.href;
+  } catch {
+    return null;
+  }
+}
+
 export default function CreateReviewScreen() {
-  const params = useLocalSearchParams<{ ingestId?: string | string[] }>();
+  const params = useLocalSearchParams<{ ingestId?: string | string[]; mode?: string | string[] }>();
   const ingestIdParam =
     typeof params.ingestId === 'string'
       ? params.ingestId.trim()
       : Array.isArray(params.ingestId)
         ? params.ingestId[0]?.trim()
         : undefined;
+  const modeParam =
+    typeof params.mode === 'string'
+      ? params.mode.trim()
+      : Array.isArray(params.mode)
+        ? params.mode[0]?.trim()
+        : undefined;
+  const openManualOnLoad = modeParam === 'manual';
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const handleBuy = useProductBuyHandler();
-  const { mode } = useThemeMode();
-  const isLight = mode === 'titanium';
+  const tokens = useThemeTokens();
+  const { showToast } = useAppToast();
+  const field = createFieldColors(tokens);
+  const surface = createSurfaceStyle(tokens);
+  const secondaryChrome = createSecondaryButtonStyle(tokens);
 
   const memoryDraft = ingestIdParam ? getCurationDraft(ingestIdParam) : undefined;
   const [draft, setDraft] = useState<IngestDraftPayload | undefined>(memoryDraft);
@@ -76,7 +145,20 @@ export default function CreateReviewScreen() {
   const [pollingBusy, setPollingBusy] = useState(false);
   const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
   const [detailsVisible, setDetailsVisible] = useState(false);
-
+  const [manualRows, setManualRows] = useState<string[]>(['']);
+  const [manualBusy, setManualBusy] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualComposerOpen, setManualComposerOpen] = useState(openManualOnLoad);
+  const [storyTitle, setStoryTitle] = useState('');
+  const [storyCaption, setStoryCaption] = useState('');
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [editorNotice, setEditorNotice] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [storyTitleError, setStoryTitleError] = useState<string | null>(null);
+  const [publishPhase, setPublishPhase] = useState<PublishRitualPhase>('idle');
+  const [publishedCollectionId, setPublishedCollectionId] = useState<string | null>(null);
+  const [publishedTitle, setPublishedTitle] = useState('');
+  const [publishedProductCount, setPublishedProductCount] = useState(0);
   const youtubeParentOrigin = useMemo(() => resolveYoutubeParentOrigin(), []);
 
   const reviewVideoWebSource = useMemo(() => {
@@ -122,7 +204,7 @@ export default function CreateReviewScreen() {
         if (cancelled) return;
         if (!d) {
           if (!mem) {
-            setHydrateError('This draft was not found. It may have been published or removed.');
+            setHydrateError('This Collection was not found. It may have been published or removed.');
             setDraft(undefined);
           }
         } else {
@@ -143,6 +225,26 @@ export default function CreateReviewScreen() {
     };
   }, [ingestIdParam]);
 
+  useEffect(() => {
+    if (!ingestIdParam || !draft || !ingestEditorShowsProcessing(draft)) return;
+    let cancelled = false;
+    const tick = () => {
+      void loadOrResumeIngestDraft(ingestIdParam)
+        .then((d) => {
+          if (!cancelled && d) setDraft(d);
+        })
+        .catch(() => {
+          /* keep showing processing; Refresh remains available */
+        });
+    };
+    tick();
+    const interval = setInterval(tick, INGEST_ASYNC_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [ingestIdParam, draft?.ingestId, draft?.status, draft?.extractionPending, draft?.products.length]);
+
   const retryLoadDraft = () => {
     if (!ingestIdParam) return;
     setHydrateError(null);
@@ -150,7 +252,7 @@ export default function CreateReviewScreen() {
     loadOrResumeIngestDraft(ingestIdParam)
       .then((d) => {
         if (!d) {
-          setHydrateError('This draft was not found.');
+          setHydrateError('This Collection was not found.');
           setDraft(undefined);
         } else {
           setDraft(d);
@@ -189,196 +291,314 @@ export default function CreateReviewScreen() {
     });
   }, [draft?.ingestId, draft?.products?.length, draft?.extractionStatus]);
 
+  useEffect(() => {
+    if (!draft?.ingestId) return;
+    setStoryTitle(draft.videoTitle ?? '');
+  }, [draft?.ingestId, draft?.videoTitle]);
+
+  useEffect(() => {
+    if (!draft?.ingestId) return;
+    setStoryCaption('');
+  }, [draft?.ingestId]);
+
+  const uniqueManualUrls = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const row of manualRows) {
+      const normalized = normalizeHttpUrl(row);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+    }
+    return out;
+  }, [manualRows]);
+
+  const addManualRow = () => {
+    setManualRows((prev) => (prev.length < MAX_MANUAL_LINKS ? [...prev, ''] : prev));
+  };
+
+  const updateManualRow = (idx: number, value: string) => {
+    setManualRows((prev) => prev.map((row, i) => (i === idx ? value : row)));
+  };
+
+  const removeManualRow = (idx: number) => {
+    setManualRows((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      return next.length ? next : [''];
+    });
+  };
+
   if (authLoading) {
     return (
-      <View style={[styles.screen, styles.center]}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-        />
-        <ActivityIndicator size="large" color={isLight ? '#00AFC0' : '#A855F7'} />
-      </View>
+      <CreateScreenShell>
+        <StatusBlock kind="loading" message={CREATE_COPY.editorLoading} fill />
+      </CreateScreenShell>
     );
   }
 
   if (!user) {
     return (
-      <View style={[styles.screen, styles.center]}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
+      <CreateScreenShell>
+        <StatusBlock
+          kind="empty"
+          title={CREATE_COPY.signInTitle}
+          message={CREATE_COPY.editorSignInPublish}
+          actionLabel="Profile"
+          onAction={() => router.replace('/(tabs)/profile')}
+          fill
         />
-        <Text style={{ color: isLight ? '#1A1A1B' : '#F8FAFC', marginBottom: 12 }}>Sign in to publish.</Text>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.replace('/(tabs)/profile')}>
-          <Text style={styles.secondaryBtnText}>Profile</Text>
-        </TouchableOpacity>
-      </View>
+      </CreateScreenShell>
     );
   }
 
   if (!ingestIdParam) {
     return (
-      <View style={styles.screen}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
+      <CreateScreenShell>
+        <StatusBlock
+          kind="empty"
+          message={CREATE_COPY.editorMissingId}
+          actionLabel={CREATE_COPY.editorBackToStudio}
+          onAction={() => router.replace('/(tabs)/create')}
+          fill
         />
-        <View style={styles.center}>
-          <Text style={{ color: isLight ? '#1A1A1B' : '#F8FAFC' }}>Missing ingest id.</Text>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.replace('/(tabs)/create')}>
-            <Text style={styles.secondaryBtnText}>Back to Create</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      </CreateScreenShell>
     );
   }
 
   if (hydrating) {
     return (
-      <View style={[styles.screen, styles.center]}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-        />
-        <ActivityIndicator size="large" color={isLight ? '#00AFC0' : '#A855F7'} />
-        <Text style={{ marginTop: 16, color: isLight ? '#475569' : '#94A3B8' }}>Loading draft…</Text>
-      </View>
+      <CreateScreenShell>
+        <StatusBlock kind="loading" message={CREATE_COPY.editorLoading} fill />
+      </CreateScreenShell>
     );
   }
 
   if (hydrateError) {
     return (
-      <View style={styles.screen}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={[styles.center, { paddingHorizontal: 24 }]}>
-          <Text style={{ color: isLight ? '#1A1A1B' : '#F8FAFC', textAlign: 'center', marginBottom: 12 }}>
-            {hydrateError}
-          </Text>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={retryLoadDraft}>
-            <Text style={styles.secondaryBtnText}>Retry</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.secondaryBtn, { marginTop: 10 }]} onPress={() => router.replace('/(tabs)/create')}>
-            <Text style={styles.secondaryBtnText}>Back to Create</Text>
+      <CreateScreenShell>
+        <View style={[styles.center, { paddingHorizontal: tokens.space.lg }]}>
+          <StatusBlock
+            kind="error"
+            message={hydrateError}
+            actionLabel="Retry"
+            onAction={retryLoadDraft}
+          />
+          <TouchableOpacity
+            style={[
+              styles.secondaryBtn,
+              {
+                backgroundColor: tokens.color.borderStrong,
+                borderRadius: tokens.radius.sm + 2,
+                marginTop: tokens.space.sm,
+              },
+            ]}
+            onPress={() => router.replace('/(tabs)/create')}
+          >
+            <Text
+              style={{
+                color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
+                fontWeight: tokens.fontWeight.bold,
+              }}
+            >
+              {CREATE_COPY.editorBackToStudio}
+            </Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </CreateScreenShell>
     );
   }
 
   if (!draft) {
     return (
-      <View style={styles.screen}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
+      <CreateScreenShell>
+        <StatusBlock
+          kind="empty"
+          message={CREATE_COPY.editorNotFound}
+          actionLabel={CREATE_COPY.editorBackToStudio}
+          onAction={() => router.replace('/(tabs)/create')}
+          fill
         />
-        <View style={styles.center}>
-          <Text style={{ color: isLight ? '#1A1A1B' : '#F8FAFC' }}>
-            No draft found. Go back and submit a URL again.
-          </Text>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.replace('/(tabs)/create')}>
-            <Text style={styles.secondaryBtnText}>Back to Create</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      </CreateScreenShell>
     );
   }
 
-  if (draft.status === 'failed') {
+  if (draft.status === 'failed' && !manualComposerOpen) {
     const sourceBlocked = ['SOURCE_RESTRICTED', 'SOURCE_UNAVAILABLE', 'UNSUPPORTED_SOURCE'].includes(
       draft.extractionError?.code ?? '',
     );
     return (
-      <View style={styles.screen}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={[styles.center, { paddingHorizontal: 24 }]}>
-          <Text style={{ color: isLight ? '#1A1A1B' : '#F8FAFC', fontWeight: '800', fontSize: 18, textAlign: 'center' }}>
-            Ingestion failed
+      <CreateScreenShell>
+        <View style={[styles.center, { paddingHorizontal: tokens.space.lg }]}>
+          <Text
+            style={{
+              color: tokens.color.text,
+              fontWeight: tokens.fontWeight.extraBold,
+              fontSize: tokens.fontSize.title + 1,
+              textAlign: 'center',
+            }}
+          >
+            {CREATE_COPY.editorFailedTitle}
           </Text>
-          <Text style={{ color: isLight ? '#475569' : '#94A3B8', textAlign: 'center', marginTop: 8, lineHeight: 20 }}>
-            {draft.extractionError?.message ??
-              'This source could not be processed. No Collection was published.'}
+          <Text
+            style={{
+              color: tokens.color.textMuted,
+              textAlign: 'center',
+              marginTop: tokens.space.xs,
+              lineHeight: 20,
+            }}
+          >
+            {draft.extractionError?.message ?? CREATE_COPY.editorFailedBody}
           </Text>
           <TouchableOpacity
-            style={[styles.secondaryBtn, { marginTop: 20, opacity: busy ? 0.6 : 1 }]}
+            style={[
+              styles.secondaryBtn,
+              {
+                marginTop: tokens.space.lg - 4,
+                opacity: busy ? 0.6 : 1,
+                backgroundColor: tokens.color.borderStrong,
+                borderRadius: tokens.radius.sm + 2,
+              },
+            ]}
             disabled={busy}
             onPress={() => {
               setBusy(true);
+              setRetryError(null);
               void submitIngestUrl(draft.sourceUrl, { videoTitle: draft.videoTitle })
                 .then(async (res) => {
                   if (!res.ingestId) {
-                    Alert.alert('Retry failed', 'Could not restart ingestion.');
+                    setRetryError(CREATE_COPY.retryFailedInline);
                     return;
                   }
                   const next = await loadOrResumeIngestDraft(res.ingestId);
                   if (next) setDraft(next);
                 })
-                .catch((e) => Alert.alert('Retry failed', normalizeIngestError(e)))
+                .catch((e) => setRetryError(normalizeIngestError(e) || CREATE_COPY.retryFailedInline))
                 .finally(() => setBusy(false));
             }}
           >
             {busy ? (
-              <ActivityIndicator color={isLight ? '#1A1A1B' : '#F8FAFC'} />
+              <ActivityIndicator color={tokens.color.text} />
             ) : (
-              <Text style={styles.secondaryBtnText}>Retry extraction</Text>
+              <Text
+                style={{
+                  color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
+                  fontWeight: tokens.fontWeight.bold,
+                }}
+              >
+                {CREATE_COPY.editorRetryFind}
+              </Text>
             )}
           </TouchableOpacity>
+          {retryError ? (
+            <View style={{ marginTop: tokens.space.sm, width: '100%' }}>
+              <CreateInlineNotice
+                tone="error"
+                body={retryError}
+                actionLabel={CREATE_COPY.feedbackDismiss}
+                onAction={() => setRetryError(null)}
+              />
+            </View>
+          ) : null}
           {!sourceBlocked ? (
             <TouchableOpacity
-              style={[styles.secondaryBtn, { marginTop: 10 }]}
-              onPress={() => router.push('/(tabs)/create/manual')}
+              style={[
+                styles.secondaryBtn,
+                {
+                  marginTop: tokens.space.sm - 2,
+                  backgroundColor: tokens.color.borderStrong,
+                  borderRadius: tokens.radius.sm + 2,
+                },
+              ]}
+              onPress={() => setManualComposerOpen(true)}
             >
-              <Text style={styles.secondaryBtnText}>Add products manually</Text>
+              <Text
+                style={{
+                  color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
+                  fontWeight: tokens.fontWeight.bold,
+                }}
+              >
+                {CREATE_COPY.editorAddLinks}
+              </Text>
             </TouchableOpacity>
           ) : null}
           <TouchableOpacity
-            style={[styles.secondaryBtn, { marginTop: 10 }]}
+            style={[
+              styles.secondaryBtn,
+              {
+                marginTop: tokens.space.sm - 2,
+                backgroundColor: tokens.color.borderStrong,
+                borderRadius: tokens.radius.sm + 2,
+              },
+            ]}
             onPress={() => router.replace('/(tabs)/create')}
           >
-            <Text style={styles.secondaryBtnText}>Back to Create</Text>
+            <Text
+              style={{
+                color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
+                fontWeight: tokens.fontWeight.bold,
+              }}
+            >
+              {CREATE_COPY.editorBackToStudio}
+            </Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </CreateScreenShell>
     );
   }
 
-  if (draft.status === 'processing' && draft.products.length === 0) {
+  if (ingestEditorShowsProcessing(draft)) {
     return (
-      <View style={[styles.screen, styles.center]}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-        />
-        <ActivityIndicator size="large" color={isLight ? '#00AFC0' : '#A855F7'} />
-        <Text style={{ marginTop: 16, color: isLight ? '#475569' : '#94A3B8', textAlign: 'center', paddingHorizontal: 24 }}>
-          Extraction is still running on the server. Wait a moment and tap refresh.
-        </Text>
-        <TouchableOpacity
-          style={[styles.secondaryBtn, { marginTop: 20, opacity: pollingBusy ? 0.6 : 1 }]}
-          disabled={pollingBusy}
-          onPress={() => {
-            setPollingBusy(true);
-            loadOrResumeIngestDraft(ingestIdParam)
-              .then((d) => {
-                if (d) setDraft(d);
-              })
-              .catch((e) => setHydrateError(normalizeIngestError(e)))
-              .finally(() => setPollingBusy(false));
-          }}
-        >
-          {pollingBusy ? (
-            <ActivityIndicator color={isLight ? '#1A1A1B' : '#F8FAFC'} />
-          ) : (
-            <Text style={styles.secondaryBtnText}>Refresh status</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      <CreateScreenShell>
+        <View style={styles.center}>
+          <StatusBlock kind="loading" message={CREATE_COPY.editorProcessing} />
+          <Text
+            style={{
+              marginTop: tokens.space.xs,
+              color: tokens.color.textMuted,
+              textAlign: 'center',
+              paddingHorizontal: tokens.space.lg,
+              fontSize: 13,
+              lineHeight: 18,
+            }}
+          >
+            {CREATE_COPY.editorProcessingHint}
+          </Text>
+          <TouchableOpacity
+            style={[
+              styles.secondaryBtn,
+              {
+                marginTop: tokens.space.lg - 4,
+                opacity: pollingBusy ? 0.6 : 1,
+                backgroundColor: tokens.color.borderStrong,
+                borderRadius: tokens.radius.sm + 2,
+              },
+            ]}
+            disabled={pollingBusy}
+            onPress={() => {
+              setPollingBusy(true);
+              loadOrResumeIngestDraft(ingestIdParam)
+                .then((d) => {
+                  if (d) setDraft(d);
+                })
+                .catch((e) => setHydrateError(normalizeIngestError(e)))
+                .finally(() => setPollingBusy(false));
+            }}
+          >
+            {pollingBusy ? (
+              <ActivityIndicator color={tokens.color.text} />
+            ) : (
+              <Text
+                style={{
+                  color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
+                  fontWeight: tokens.fontWeight.bold,
+                }}
+              >
+                {CREATE_COPY.editorRefresh}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </CreateScreenShell>
     );
   }
 
@@ -394,10 +614,11 @@ export default function CreateReviewScreen() {
 
   const refreshDraftFromCatalog = async () => {
     if (!ingestIdParam) return;
+    setEditorNotice(null);
     try {
       let d = await loadOrResumeIngestDraft(ingestIdParam);
       if (!d) {
-        Alert.alert('Refresh failed', 'This draft was not found.');
+        setEditorNotice(CREATE_COPY.refreshNotFoundInline);
         return;
       }
       setDraft(d);
@@ -406,9 +627,56 @@ export default function CreateReviewScreen() {
         d = await loadOrResumeIngestDraft(ingestIdParam);
         if (d) setDraft(d);
       }
-      Alert.alert('Refreshed', 'Product metadata reloaded from the catalog.');
+      showToast({ tone: 'success', title: CREATE_COPY.refreshSuccessToast });
     } catch (e) {
-      Alert.alert('Refresh failed', normalizeIngestError(e));
+      setEditorNotice(normalizeIngestError(e) || CREATE_COPY.refreshFailedInline);
+    }
+  };
+
+  const addManualLinksToCollection = async () => {
+    if (!draft) return;
+    if (!ingestAllowsManualProducts(draft)) {
+      setManualError('Manual products are unavailable while automatic extraction is running.');
+      return;
+    }
+    if (uniqueManualUrls.length < 1 || uniqueManualUrls.length > MAX_MANUAL_LINKS) {
+      setManualError(`Add 1-${MAX_MANUAL_LINKS} valid product URLs.`);
+      return;
+    }
+    setManualBusy(true);
+    setManualError(null);
+    try {
+      const res = await appendManualProductsToIngest(draft.ingestId, uniqueManualUrls);
+      if (!res.ingestId || !res.draft) {
+        setManualError(CREATE_COPY.manualSaveFailedInline);
+        return;
+      }
+      if (res.ingestId !== draft.ingestId) {
+        setManualError('Product add returned a different Collection. No changes applied.');
+        return;
+      }
+      setDraft({
+        ...res.draft,
+        // Append never rewrites video extraction provenance — keep prior if absent.
+        extractionSource: res.draft.extractionSource ?? draft.extractionSource,
+        extractionStatus: res.draft.extractionStatus ?? draft.extractionStatus,
+        extractionError: res.draft.extractionError ?? draft.extractionError,
+        pipelineMeta: res.draft.pipelineMeta ?? draft.pipelineMeta,
+      });
+      if (!res.noop) {
+        setManualRows(['']);
+        setManualComposerOpen(false);
+      }
+      const partial = createPartialProductLinksMessage(res.failedProductUrls ?? []);
+      if (partial) {
+        setManualError(partial);
+      } else if (!res.noop) {
+        showToast({ tone: 'success', title: CREATE_COPY.manualAddSuccessToast });
+      }
+    } catch (e) {
+      setManualError(normalizeIngestError(e));
+    } finally {
+      setManualBusy(false);
     }
   };
 
@@ -416,7 +684,9 @@ export default function CreateReviewScreen() {
     enabled: ['replace', 'refresh', 'remove'],
     onReplace: () => {
       closeDetails();
-      router.push('/(tabs)/create/manual');
+      if (ingestAllowsManualProducts(draft)) {
+        setManualComposerOpen(true);
+      }
     },
     onRefresh: () => {
       void refreshDraftFromCatalog();
@@ -434,41 +704,84 @@ export default function CreateReviewScreen() {
 
   const selectedIds = draft.products.filter((p) => p.id && selected[p.id]).map((p) => p.id);
   const canPublish = selectedProductsCanPublish(draft.products, selected);
+  const readiness = buildEditorReadiness({
+    hasContent: Boolean(draft.sourceUrl?.trim()),
+    products: draft.products,
+    selected,
+  });
+  const productsMeta = productsSectionMetaLabel(readiness.includedCount, readiness.attentionCount);
 
-  const onPublish = async () => {
+  const persistStoryTitle = async () => {
+    const next = storyTitle.trim();
+    const prev = (draft.videoTitle ?? '').trim();
+    if (next === prev) return;
+    setStoryTitleError(null);
+    try {
+      await updateIngestVideoTitle(draft.ingestId, next);
+      setDraft({ ...draft, videoTitle: next || undefined });
+    } catch {
+      setStoryTitleError(CREATE_COPY.storyTitleSaveFailed);
+    }
+  };
+
+  const publishSummary = buildPublishConfirmSummary({
+    title: storyTitle || draft.videoTitle,
+    productCount: selectedIds.length,
+    thumbnailUrl: draft.thumbnail,
+    previewLine: CREATE_COPY.publishConfirmPreview,
+  });
+
+  const openPublishConfirm = () => {
+    if (!readiness.ready || !canPublish) {
+      return;
+    }
     if (selectedIds.length < 1) {
-      Alert.alert('Select products', 'Keep at least one product selected to publish.');
+      setPublishError(CREATE_COPY.editorPublishSelectBody);
       return;
     }
-    if (!canPublish) {
-      Alert.alert(
-        'Still resolving',
-        'Wait until every selected product has catalog metadata before publishing.',
-      );
+    setPublishError(null);
+    setPublishPhase('confirm');
+  };
+
+  const closePublishConfirm = () => {
+    if (publishPhase === 'publishing') return;
+    setPublishPhase('idle');
+  };
+
+  const confirmPublish = async () => {
+    if (!readiness.ready || !canPublish || selectedIds.length < 1) {
+      setPublishPhase('idle');
+      setPublishError(CREATE_COPY.editorPublishSelectBody);
       return;
     }
+    setPublishPhase('publishing');
     setBusy(true);
+    setPublishError(null);
     try {
       const res = await publishIngestSelection(draft.ingestId, selectedIds, draft);
       if (!res.ok) {
-        Alert.alert('Publish failed', res.error ?? 'Unknown error');
+        setPublishPhase('idle');
+        setPublishError(res.error ?? CREATE_COPY.publishFailedInline);
         return;
       }
+      const collectionId = resolvePublishSuccessCollectionId(res.collectionId);
       removeCurationDraft(draft.ingestId);
       completeCreateFlow();
       requestFeedReload();
-      exitCreateFlowAfterSuccess(router);
-      Alert.alert('Published', 'Your reel is live in the feed.');
+      setPublishedCollectionId(collectionId);
+      setPublishedTitle(publishSummary.title);
+      setPublishedProductCount(selectedIds.length);
+      setPublishPhase('success');
     } finally {
       setBusy(false);
     }
   };
 
   const onRejectAll = async () => {
-    Alert.alert('Reject all?', 'This ingest will be marked rejected.', [
+    Alert.alert(CREATE_COPY.editorDiscardConfirmTitle, CREATE_COPY.editorDiscardConfirmBody, [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Reject',
+        text: 'Discard',
         style: 'destructive',
         onPress: async () => {
           setBusy(true);
@@ -491,12 +804,11 @@ export default function CreateReviewScreen() {
     return (
       <ReviewProductCard
         product={vm}
-        isLight={isLight}
         included={!!selected[item.id]}
         onToggleInclude={(v) => setSelected((s) => ({ ...s, [item.id]: v }))}
         onOpenDetails={openDetails}
         confidence={item.confidence}
-        extractionHint={displayStatus === 'RESOLVING' ? 'Resolving metadata…' : null}
+        extractionHint={displayStatus === 'RESOLVING' ? CREATE_COPY.editorResolvingHint : null}
       />
     );
   };
@@ -508,17 +820,34 @@ export default function CreateReviewScreen() {
     draft.status === 'review_required' ||
     (draft.products.length === 0 && draft.status !== 'processing');
 
+  const sectionTitleColor = tokens.color.text;
+  const sectionMetaColor = tokens.color.textMuted;
+  const mutedColor = tokens.color.textMuted;
+  const publishBtn = createPrimaryButtonStyle(tokens, {
+    disabled: !readiness.ready || !canPublish || busy || publishPhase !== 'idle',
+    pending: busy,
+  });
+
   const headerNote = (
-    <View style={{ marginBottom: 10, gap: 8 }}>
-      {reviewVideoWebSource ? (
-        <View style={{ gap: 6 }}>
-          <Text style={[styles.embedLabel, { color: isLight ? '#475569' : '#94A3B8' }]}>Video preview</Text>
+    <View style={{ marginBottom: 10, gap: 16 }}>
+      {/* CONTENT */}
+      <View style={styles.editorSection}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
+            {CREATE_COPY.editorSectionContent}
+          </Text>
+          <Text style={[styles.sectionMeta, { color: sectionMetaColor }]}>
+            {contentPlatformLabel(draft.platform)}
+          </Text>
+        </View>
+        {reviewVideoWebSource ? (
           <View
             style={[
               styles.embedWrap,
               {
-                borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)',
+                borderColor: tokens.color.border,
                 backgroundColor: '#000',
+                borderRadius: tokens.radius.lg,
               },
             ]}
           >
@@ -545,127 +874,443 @@ export default function CreateReviewScreen() {
               }}
             />
           </View>
+        ) : (
+          <Text style={[styles.headerNote, { color: mutedColor }]}>
+            {draft.sourceUrl || CREATE_COPY.editorReadinessContentTodo}
+          </Text>
+        )}
+      </View>
+
+      {/* PRODUCTS */}
+      <View style={styles.editorSection}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
+            {CREATE_COPY.editorSectionProducts}
+          </Text>
+          <Text style={[styles.sectionMeta, { color: sectionMetaColor }]}>{productsMeta}</Text>
         </View>
-      ) : null}
-      {showExtractionError ? (
-        <View
-          style={[
-            styles.errorBanner,
-            {
-              borderColor: isLight ? 'rgba(234,179,8,0.55)' : 'rgba(251,191,36,0.45)',
-              backgroundColor: isLight ? 'rgba(254,243,199,0.95)' : 'rgba(120,53,15,0.35)',
-            },
-          ]}
-        >
-          <Text style={[styles.errorBannerTitle, { color: isLight ? '#92400E' : '#FDE68A' }]}>
-            Extraction notice
-          </Text>
-          <Text style={[styles.errorBannerBody, { color: isLight ? '#78350F' : '#FEF3C7' }]}>
-            {draft.extractionError?.message ?? 'These rows are previews only. Fix the issue and try again.'}
-          </Text>
-          {draft.extractionError?.detail ? (
-            <Text style={[styles.errorBannerDetail, { color: isLight ? '#A16207' : '#FCD34D' }]} selectable>
-              {draft.extractionError.detail}
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
-      {needsManualProducts ? (
-        <View
-          style={[
-            styles.errorBanner,
-            {
-              borderColor: isLight ? 'rgba(14,165,233,0.45)' : 'rgba(56,189,248,0.4)',
-              backgroundColor: isLight ? 'rgba(224,242,254,0.95)' : 'rgba(12,74,110,0.35)',
-            },
-          ]}
-        >
-          <Text style={[styles.errorBannerTitle, { color: isLight ? '#0369A1' : '#E0F2FE' }]}>
-            No products extracted
-          </Text>
-          <Text style={[styles.errorBannerBody, { color: isLight ? '#0C4A6E' : '#BAE6FD' }]}>
-            {draft.extractionError?.message ??
-              'We could not confidently identify shoppable products. Add product links manually to continue.'}
-          </Text>
-          <TouchableOpacity
-            style={{ marginTop: 8 }}
-            onPress={() =>
-              router.push({
-                pathname: '/(tabs)/create/manual',
-              })
-            }
+
+        {editorNotice ? (
+          <CreateInlineNotice
+            tone="error"
+            body={editorNotice}
+            actionLabel={CREATE_COPY.feedbackRetry}
+            onAction={() => void refreshDraftFromCatalog()}
+          />
+        ) : null}
+
+        {showExtractionError ? (
+          <View
+            style={[
+              styles.errorBanner,
+              {
+                borderColor: tokens.color.warning,
+                backgroundColor:
+                  tokens.mode === 'titanium' ? 'rgba(180,83,9,0.12)' : 'rgba(251,191,36,0.18)',
+                borderRadius: tokens.radius.md,
+              },
+            ]}
           >
-            <Text style={{ color: isLight ? '#0284C7' : '#38BDF8', fontWeight: '800' }}>
-              Add products manually
+            <Text style={[styles.errorBannerTitle, { color: tokens.color.warning }]}>
+              {CREATE_COPY.editorExtractionNotice}
+            </Text>
+            <Text style={[styles.errorBannerBody, { color: tokens.color.text }]}>
+              {draft.extractionError?.message ?? 'These rows are previews only. Fix the issue and try again.'}
+            </Text>
+            {draft.extractionError?.detail ? (
+              <Text style={[styles.errorBannerDetail, { color: tokens.color.textMuted }]} selectable>
+                {draft.extractionError.detail}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+        {needsManualProducts ? (
+          <View
+            style={[
+              styles.errorBanner,
+              {
+                borderColor: tokens.color.accent,
+                backgroundColor:
+                  tokens.mode === 'titanium' ? 'rgba(0,175,192,0.12)' : 'rgba(168,85,247,0.18)',
+                borderRadius: tokens.radius.md,
+              },
+            ]}
+          >
+            <Text style={[styles.errorBannerTitle, { color: tokens.color.accent }]}>
+              {CREATE_COPY.editorNoProductsTitle}
+            </Text>
+            <Text style={[styles.errorBannerBody, { color: tokens.color.text }]}>
+              {draft.extractionError?.message ?? CREATE_COPY.editorNoProductsBody}
+            </Text>
+            <TouchableOpacity
+              style={{ marginTop: tokens.space.xs }}
+              onPress={() => setManualComposerOpen(true)}
+            >
+              <Text style={{ color: tokens.color.accent, fontWeight: tokens.fontWeight.extraBold }}>
+                {CREATE_COPY.editorAddLinksAction}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        {ingestAllowsManualProducts(draft) && manualComposerOpen ? (
+          <View
+            style={[
+              styles.manualComposer,
+              {
+                borderColor: tokens.color.border,
+                backgroundColor: surface.backgroundColor,
+                borderRadius: tokens.radius.md,
+                padding: tokens.space.sm,
+                gap: tokens.space.xs,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: tokens.color.text,
+                fontSize: tokens.fontSize.body,
+                fontWeight: tokens.fontWeight.extraBold,
+              }}
+            >
+              {CREATE_COPY.editorAddLinks}
+            </Text>
+            <Text
+              style={{
+                color: tokens.color.textMuted,
+                fontSize: 13,
+                lineHeight: 18,
+              }}
+            >
+              Add up to {MAX_MANUAL_LINKS} product URLs for this Collection.
+            </Text>
+            {manualRows.map((row, idx) => (
+              <View key={`manual-row-${idx}`} style={styles.manualRowWrap}>
+                <TextInput
+                  value={row}
+                  onChangeText={(value) => updateManualRow(idx, value)}
+                  placeholder={`Product URL ${idx + 1}`}
+                  placeholderTextColor={field.placeholderTextColor}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  style={[
+                    styles.manualInput,
+                    {
+                      color: field.color,
+                      borderColor: field.borderColor,
+                      backgroundColor: field.backgroundColor,
+                      borderRadius: tokens.radius.sm + 2,
+                    },
+                  ]}
+                />
+                {manualRows.length > 1 ? (
+                  <TouchableOpacity
+                    onPress={() => removeManualRow(idx)}
+                    style={[
+                      styles.manualRemoveBtn,
+                      {
+                        backgroundColor:
+                          tokens.mode === 'titanium' ? 'rgba(185,28,28,0.14)' : 'rgba(252,165,165,0.2)',
+                        borderRadius: tokens.radius.sm + 2,
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: tokens.color.danger, fontSize: 16, fontWeight: tokens.fontWeight.bold }}>
+                      ✕
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ))}
+            {manualRows.length < MAX_MANUAL_LINKS ? (
+              <TouchableOpacity onPress={addManualRow} style={styles.manualAddRowBtn}>
+                <Text style={{ color: tokens.color.accent, fontWeight: tokens.fontWeight.bold }}>
+                  + Add another link
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {manualError ? (
+              <Text style={{ color: tokens.color.danger, fontSize: tokens.fontSize.caption }}>
+                {manualError}
+              </Text>
+            ) : null}
+            <View style={styles.manualActions}>
+              <TouchableOpacity
+                style={[
+                  styles.manualCancelBtn,
+                  secondaryChrome,
+                  { borderWidth: tokens.stroke.thin },
+                ]}
+                onPress={() => {
+                  setManualComposerOpen(false);
+                  setManualError(null);
+                  setManualRows(['']);
+                }}
+                disabled={manualBusy}
+              >
+                <Text style={{ color: tokens.color.text, fontWeight: tokens.fontWeight.bold }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.manualSaveBtn,
+                  {
+                    backgroundColor: tokens.color.cta,
+                    borderRadius: tokens.radius.sm + 2,
+                    opacity: manualBusy ? 0.7 : 1,
+                  },
+                ]}
+                onPress={() => void addManualLinksToCollection()}
+                disabled={manualBusy}
+              >
+                {manualBusy ? (
+                  <ActivityIndicator color={tokens.color.successOn} />
+                ) : (
+                  <Text style={{ color: tokens.color.successOn, fontWeight: tokens.fontWeight.extraBold }}>
+                    Add products
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : ingestAllowsManualProducts(draft) ? (
+          <TouchableOpacity
+            style={styles.manualOpenBtn}
+            onPress={() => setManualComposerOpen(true)}
+          >
+            <Text style={{ color: tokens.color.accent, fontWeight: tokens.fontWeight.extraBold }}>
+              {CREATE_COPY.editorAddLinks}
             </Text>
           </TouchableOpacity>
-        </View>
+        ) : null}
+        <Text style={[styles.headerNote, { color: mutedColor }]}>
+          {needsManualProducts
+            ? CREATE_COPY.editorNoteManual
+            : draft.extractionStatus === 'ok'
+              ? CREATE_COPY.editorNoteOk
+              : CREATE_COPY.editorNotePreview}
+        </Text>
+      </View>
+    </View>
+  );
+
+  const storyFooter = (
+    <View style={[styles.editorSection, { marginTop: tokens.space.xs, marginBottom: tokens.space.lg }]}>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
+          {CREATE_COPY.editorSectionStory}
+        </Text>
+        <Text style={[styles.sectionMeta, { color: sectionMetaColor }]}>
+          {CREATE_COPY.editorSectionStoryOptional}
+        </Text>
+      </View>
+      <Text style={[styles.fieldLabel, { color: mutedColor }]}>{CREATE_COPY.editorStoryTitleLabel}</Text>
+      <TextInput
+        value={storyTitle}
+        onChangeText={setStoryTitle}
+        onEndEditing={() => void persistStoryTitle()}
+        placeholder={CREATE_COPY.editorStoryTitlePlaceholder}
+        placeholderTextColor={field.placeholderTextColor}
+        style={[
+          styles.storyInput,
+          {
+            color: field.color,
+            borderColor: field.borderColor,
+            backgroundColor: field.backgroundColor,
+            borderRadius: tokens.radius.sm + 2,
+          },
+        ]}
+      />
+      {storyTitleError ? (
+        <CreateInlineNotice
+          tone="error"
+          body={storyTitleError}
+          actionLabel={CREATE_COPY.feedbackDismiss}
+          onAction={() => setStoryTitleError(null)}
+        />
       ) : null}
-      <Text style={[styles.headerNote, { color: isLight ? '#475569' : '#94A3B8' }]}>
-        {needsManualProducts
-          ? 'Use manual product links for this reel, then publish from that flow.'
-          : draft.extractionStatus === 'ok'
-            ? 'Tap a product for details. Use Include to choose what publishes to the feed.'
-            : 'Preview rows are unchecked by default. Tap a card for details; only include what you want to publish.'}
+      <Text style={[styles.fieldLabel, { color: mutedColor, marginTop: tokens.space.xs }]}>
+        {CREATE_COPY.editorStoryCaptionLabel}
+      </Text>
+      <TextInput
+        value={storyCaption}
+        onChangeText={setStoryCaption}
+        placeholder={CREATE_COPY.editorStoryCaptionPlaceholder}
+        placeholderTextColor={field.placeholderTextColor}
+        multiline
+        style={[
+          styles.storyInput,
+          styles.storyCaptionInput,
+          {
+            color: field.color,
+            borderColor: field.borderColor,
+            backgroundColor: field.backgroundColor,
+            borderRadius: tokens.radius.sm + 2,
+          },
+        ]}
+      />
+      <Text style={[styles.captionHint, { color: sectionMetaColor }]}>
+        {CREATE_COPY.editorStoryCaptionHint}
       </Text>
     </View>
   );
 
   return (
-    <View style={styles.screen}>
-      <LinearGradient
-        colors={isLight ? ['#FDFDFD', '#E8E8E8', '#D1D1D1'] : ['#0D111F', '#020408']}
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
+    <CreateScreenShell>
       <FlatList
         data={draft.products}
         keyExtractor={(p) => p.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
         ListHeaderComponent={headerNote}
+        ListFooterComponent={storyFooter}
       />
-      <View style={[styles.footer, { borderTopColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)' }]}>
-        <TouchableOpacity style={styles.rejectBtn} onPress={onRejectAll} disabled={busy}>
-          <Text style={styles.rejectBtnText}>Reject all</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.publishBtn, { opacity: canPublish && !busy ? 1 : 0.45 }]}
-          onPress={onPublish}
-          disabled={!canPublish || busy}
-        >
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.publishBtnText}>Publish</Text>}
-        </TouchableOpacity>
+      <View
+        style={[
+          styles.footer,
+          {
+            borderTopColor: tokens.color.border,
+            backgroundColor: tokens.color.surface,
+            gap: tokens.space.sm - 2,
+            padding: tokens.space.md,
+            paddingBottom: tokens.space.lg + 4,
+          },
+        ]}
+      >
+        <View style={styles.readinessBlock}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
+            {CREATE_COPY.editorSectionReadiness}
+          </Text>
+          {readiness.items.map((item) => (
+            <View key={item.id} style={styles.readinessRow}>
+              <Text
+                style={{
+                  color: item.done ? tokens.color.success : mutedColor,
+                  fontSize: 13,
+                }}
+              >
+                {item.done ? '✓' : '○'} {readinessItemLabel(item)}
+              </Text>
+            </View>
+          ))}
+          {!readiness.ready ? (
+            <Text style={[styles.captionHint, { color: sectionMetaColor, marginTop: 4 }]}>
+              {CREATE_COPY.editorReadinessExpandHint}
+            </Text>
+          ) : null}
+          {publishError ? (
+            <CreateInlineNotice
+              tone="error"
+              body={publishError}
+              actionLabel={CREATE_COPY.feedbackRetry}
+              onAction={() => {
+                setPublishError(null);
+                openPublishConfirm();
+              }}
+            />
+          ) : null}
+        </View>
+        <View style={[styles.footerActions, { gap: tokens.space.sm - 2 }]}>
+          <TouchableOpacity
+            style={[
+              styles.rejectBtn,
+              {
+                borderColor: tokens.color.danger,
+                borderRadius: tokens.radius.md,
+              },
+            ]}
+            onPress={onRejectAll}
+            disabled={busy || publishPhase !== 'idle'}
+          >
+            <Text style={{ color: tokens.color.danger, fontWeight: tokens.fontWeight.bold }}>
+              {CREATE_COPY.editorDiscard}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.publishBtn, publishBtn, { paddingVertical: 14 }]}
+            onPress={openPublishConfirm}
+            disabled={!readiness.ready || !canPublish || busy || publishPhase !== 'idle'}
+          >
+            {busy ? (
+              <ActivityIndicator color={tokens.color.successOn} />
+            ) : (
+              <Text
+                style={{
+                  color: tokens.color.successOn,
+                  fontWeight: tokens.fontWeight.extraBold,
+                }}
+              >
+                {CREATE_COPY.editorPublish}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
+      <PublishConfirmSheet
+        visible={publishPhase === 'confirm' || publishPhase === 'publishing'}
+        summary={publishSummary}
+        publishing={publishPhase === 'publishing'}
+        onConfirm={() => void confirmPublish()}
+        onCancel={closePublishConfirm}
+      />
+      <PublishSuccessScreen
+        visible={publishPhase === 'success'}
+        title={publishedTitle || publishSummary.title}
+        productCountLabel={publishProductCountLabel(publishedProductCount || selectedIds.length)}
+        canViewCollection={Boolean(publishedCollectionId)}
+        onViewFeed={() => exitCreateFlowAfterSuccess(router)}
+        onViewCollection={() => {
+          if (publishedCollectionId) {
+            exitCreateFlowToCollection(router, publishedCollectionId);
+          } else {
+            exitCreateFlowAfterSuccess(router);
+          }
+        }}
+        onCreateAnother={() => exitCreateFlowToCreateAnother(router)}
+      />
       <ProductDetailsSheet
         visible={detailsVisible}
         product={detailsProduct}
-        isLight={isLight}
         onClose={closeDetails}
         actions={detailsActions}
         onBuy={handleBuy}
       />
-    </View>
+    </CreateScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 16 },
-  list: { padding: 16, paddingBottom: 120, gap: 12 },
-  embedLabel: { fontSize: 13, fontWeight: '700' },
+  list: { padding: 16, paddingBottom: 220, gap: 12 },
+  editorSection: { gap: 8 },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  sectionTitle: { fontSize: 15, fontWeight: '800' },
+  sectionMeta: { fontSize: 12, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
+  fieldLabel: { fontSize: 12, fontWeight: '700' },
+  storyInput: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  storyCaptionInput: {
+    minHeight: 72,
+    textAlignVertical: 'top',
+  },
+  captionHint: { fontSize: 12, lineHeight: 16 },
   embedWrap: {
     width: '100%',
     height: 220,
-    borderRadius: 14,
     borderWidth: 1,
     overflow: 'hidden',
   },
   embedWeb: { flex: 1, backgroundColor: '#000' },
   headerNote: { fontSize: 14, lineHeight: 20 },
   errorBanner: {
-    borderRadius: 12,
     borderWidth: 1,
     padding: 12,
     gap: 6,
@@ -673,41 +1318,77 @@ const styles = StyleSheet.create({
   errorBannerTitle: { fontSize: 14, fontWeight: '800' },
   errorBannerBody: { fontSize: 13, lineHeight: 18 },
   errorBannerDetail: { fontSize: 11, lineHeight: 16, marginTop: 2 },
+  manualOpenBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  manualComposer: {
+    borderWidth: 1,
+  },
+  manualRowWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  manualInput: {
+    flex: 1,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  manualRemoveBtn: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manualAddRowBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  manualActions: {
+    marginTop: 4,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  manualCancelBtn: {
+    flex: 1,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manualSaveBtn: {
+    flex: 1,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   footer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    gap: 10,
-    padding: 16,
-    paddingBottom: 28,
     borderTopWidth: 1,
-    backgroundColor: 'rgba(15,23,42,0.35)',
+  },
+  readinessBlock: { gap: 4 },
+  readinessRow: { paddingVertical: 1 },
+  footerActions: {
+    flexDirection: 'row',
   },
   rejectBtn: {
     flex: 1,
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(248,113,113,0.6)',
     paddingVertical: 14,
     alignItems: 'center',
   },
-  rejectBtnText: { color: '#FCA5A5', fontWeight: '700' },
   publishBtn: {
     flex: 1,
-    borderRadius: 12,
-    backgroundColor: '#0EA5E9',
-    paddingVertical: 14,
     alignItems: 'center',
   },
-  publishBtnText: { color: '#fff', fontWeight: '800' },
   secondaryBtn: {
     marginTop: 8,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#111827',
   },
-  secondaryBtnText: { color: '#fff', fontWeight: '700' },
 });

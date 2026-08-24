@@ -1,4 +1,3 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -14,12 +13,12 @@ import { CollectionPageHeader } from '@/components/collection/CollectionPageHead
 import { CollectionScreen } from '@/components/collection/CollectionScreen';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { pageCanvasGradient } from '@/src/theme/tokens';
 import { CollectionApiError } from '@/src/services/collectionApi';
 import { useCollectionSaveHandler } from '@/src/services/collectionSaveOrchestration';
 import { loadCollectionDetail } from '@/src/services/collectionHydration';
 import { useRecordCollectionView } from '@/src/services/collectionViewTracking';
-import { isCollectionSaved } from '@/src/services/engagementApi';
+import { useCreatorFollowHandler } from '@/src/services/creatorFollowOrchestration';
+import { isCollectionSaved, isFollowingCreator } from '@/src/services/engagementApi';
 import { shareCollection } from '@/src/services/shareLinks';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
 
@@ -38,6 +37,8 @@ export default function CollectionPageRoute() {
   const [notFound, setNotFound] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [savePending, setSavePending] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
 
   const load = useCallback(async () => {
     if (!collectionId?.trim()) {
@@ -76,6 +77,24 @@ export default function CollectionPageRoute() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!user || !detail?.creator.id) {
+      setIsFollowing(false);
+      return;
+    }
+    let cancelled = false;
+    void isFollowingCreator(detail.creator.id)
+      .then((next) => {
+        if (!cancelled) setIsFollowing(next);
+      })
+      .catch(() => {
+        if (!cancelled) setIsFollowing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail?.creator.id, user]);
+
   useRecordCollectionView({
     collectionId: detail?.collectionId,
     creatorId: detail?.creator.id,
@@ -97,6 +116,23 @@ export default function CollectionPageRoute() {
     },
   });
 
+  const isSelf = Boolean(user && detail && user.id === detail.creator.id);
+
+  const followHandler = useCreatorFollowHandler({
+    creatorId: detail?.creator.id ?? '',
+    username: detail?.creator.username ?? '',
+    isSelf,
+    isFollowing,
+    onOptimisticFollow: (next) => {
+      setFollowPending(true);
+      setIsFollowing(next);
+    },
+    onRollback: (previous) => {
+      setIsFollowing(previous);
+      setFollowPending(false);
+    },
+  });
+
   const onSavePress = useCallback(async () => {
     if (!detail) return;
     setSavePending(true);
@@ -106,6 +142,14 @@ export default function CollectionPageRoute() {
       setSavePending(false);
     }
   }, [detail, saveHandler]);
+
+  const onFollowPress = useCallback(async () => {
+    try {
+      await followHandler();
+    } finally {
+      setFollowPending(false);
+    }
+  }, [followHandler]);
 
   const onSharePress = useCallback(async () => {
     if (!detail) return;
@@ -123,12 +167,11 @@ export default function CollectionPageRoute() {
 
   const text = tokens.color.text;
   const muted = tokens.color.textMuted;
-  const bg = pageCanvasGradient(tokens);
+  const canvas = { backgroundColor: tokens.color.canvas };
 
   if (loading) {
     return (
-      <View style={styles.root}>
-        <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
+      <View style={[styles.root, canvas]}>
         <CollectionPageHeader title="Collection" />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={text} />
@@ -139,8 +182,7 @@ export default function CollectionPageRoute() {
 
   if (notFound) {
     return (
-      <View style={styles.root}>
-        <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
+      <View style={[styles.root, canvas]}>
         <CollectionPageHeader title="Collection" />
         <View style={styles.centered}>
           <Text style={[styles.message, { color: text }]}>Collection not found</Text>
@@ -154,8 +196,7 @@ export default function CollectionPageRoute() {
 
   if (error || !detail) {
     return (
-      <View style={styles.root}>
-        <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
+      <View style={[styles.root, canvas]}>
         <CollectionPageHeader title="Collection" />
         <View style={styles.centered}>
           <Text style={[styles.message, { color: muted }]}>{error ?? 'Something went wrong'}</Text>
@@ -175,6 +216,10 @@ export default function CollectionPageRoute() {
       savePending={savePending}
       onSavePress={() => void onSavePress()}
       onSharePress={() => void onSharePress()}
+      isFollowing={isFollowing}
+      followPending={followPending}
+      isSelf={isSelf}
+      onFollowPress={() => void onFollowPress()}
     />
   );
 }

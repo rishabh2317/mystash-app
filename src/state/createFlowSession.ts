@@ -58,10 +58,14 @@ export function useCreateFlowReset(onReset: () => void): void {
   }, [sessionIdNow, onReset]);
 }
 
+export type CreateExitHref = '/' | '/(tabs)/create' | `/collection/${string}`;
+
 export type CreateStackRouter = {
   canDismiss: () => boolean;
   dismissAll: () => void;
-  replace: (href: '/' | '/(tabs)/create') => void;
+  replace: (href: CreateExitHref) => void;
+  /** Used when opening Collection after publish so Back lands on Home. */
+  push: (href: `/collection/${string}`) => void;
 };
 
 /** Pop Review/Manual off the Create stack, then leave the tab so Back cannot restore them. */
@@ -70,6 +74,32 @@ export function exitCreateFlowAfterSuccess(router: CreateStackRouter): void {
     router.dismissAll();
   }
   router.replace('/');
+}
+
+/** After publish: open the live Collection page with Home under it for Back. */
+export function exitCreateFlowToCollection(
+  router: CreateStackRouter,
+  collectionId: string,
+): void {
+  const id = collectionId.trim();
+  if (!id) {
+    exitCreateFlowAfterSuccess(router);
+    return;
+  }
+  if (router.canDismiss()) {
+    router.dismissAll();
+  }
+  // Replace Create with Home first so Collection is not a dead-end stack root.
+  router.replace('/');
+  router.push(`/collection/${id}`);
+}
+
+/** After publish: fresh Creator Studio (Create stack cleared). */
+export function exitCreateFlowToCreateAnother(router: CreateStackRouter): void {
+  if (router.canDismiss()) {
+    router.dismissAll();
+  }
+  router.replace('/(tabs)/create');
 }
 
 /** Pop Review/Manual and stay on a fresh Create root. */

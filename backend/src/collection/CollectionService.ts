@@ -548,6 +548,110 @@ export class CollectionService {
   }
 
   /** Apply ingest/pipeline terminal result: status + proposed tags. */
+  /**
+   * Upsert proposed tags without deleting others and without media lifecycle side effects.
+   * Emits ProductTagProposed only for genuinely new tags.
+   */
+  async upsertProposedTagsPreserveExisting(params: {
+    collectionId: string;
+    tags: CreateTagInput[];
+  }): Promise<{ created: number; updated: number }> {
+    const collection = await this.repo.getCollection(params.collectionId);
+    if (!collection) throw new CollectionServiceError('Collection not found', 404);
+    if (collection.status === 'deleted') {
+      throw new CollectionServiceError('Collection deleted', 400);
+    }
+    if (!params.tags.length) return { created: 0, updated: 0 };
+
+    const existing = await this.repo.listTags(collection.id);
+    let created = 0;
+    let updated = 0;
+    const used = new Set<string>();
+
+    for (let i = 0; i < params.tags.length; i++) {
+      const incoming = params.tags[i]!;
+      const selection =
+        incoming.selectionSource ??
+        (incoming.tagSource ? mapLegacyTagSource(incoming.tagSource) : 'CREATOR_MANUAL');
+      const match = existing.find((e) => {
+        if (used.has(e.id)) return false;
+        if (incoming.catalogProductId && e.catalogProductId === incoming.catalogProductId) {
+          return true;
+        }
+        if (
+          !incoming.catalogProductId &&
+          incoming.externalId &&
+          e.externalId === incoming.externalId
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      if (match) {
+        used.add(match.id);
+        await this.repo.updateTag(match.id, {
+          catalogProductId: incoming.catalogProductId ?? match.catalogProductId,
+          sortOrder: incoming.sortOrder ?? match.sortOrder,
+          tagSource: incoming.tagSource ?? match.tagSource,
+          selectionSource: selection,
+          confidence: incoming.confidence ?? match.confidence,
+          nameSnapshot: incoming.nameSnapshot ?? match.nameSnapshot,
+          imageSnapshot: incoming.imageSnapshot ?? match.imageSnapshot,
+          brandSnapshot: incoming.brandSnapshot ?? match.brandSnapshot,
+          categorySnapshot: incoming.categorySnapshot ?? match.categorySnapshot,
+          resolutionStatus: incoming.resolutionStatus ?? match.resolutionStatus,
+          externalId: incoming.externalId ?? match.externalId,
+          merchantUrl: incoming.merchantUrl ?? match.merchantUrl,
+        });
+        updated += 1;
+        continue;
+      }
+
+      const strength: RecommendationStrength =
+        incoming.recommendationStrength ??
+        (existing.filter(isPublishSurfaceTag).length === 0 && created === 0
+          ? 'PRIMARY'
+          : 'SECONDARY');
+      const tag = await this.repo.insertTag({
+        ...incoming,
+        collectionId: collection.id,
+        sortOrder: incoming.sortOrder ?? existing.length + created,
+        recommendationStrength: strength,
+        isPrimary: strength === 'PRIMARY',
+        selectionSource: selection,
+        tagSource: incoming.tagSource ?? (selection === 'CREATOR_MANUAL' ? 'manual' : 'ai'),
+        tagStatus: incoming.tagStatus ?? 'proposed',
+        visibility: incoming.visibility ?? 'visible',
+        includeInPublish: incoming.includeInPublish ?? true,
+      });
+      emitProductTagEvent(
+        'ProductTagProposed',
+        buildProductTagEventPayload({
+          collectionProductTagId: tag.id,
+          collectionId: collection.id,
+          catalogProductId: tag.catalogProductId,
+          tagStatus: tag.tagStatus,
+          selectionSource: tag.selectionSource,
+          recommendationStrength: tag.recommendationStrength,
+        }),
+      );
+      created += 1;
+    }
+
+    if (created > 0 || updated > 0) {
+      await this.refreshTagSummariesAndSearch(collection.id);
+      if (collection.status === 'draft' || collection.status === 'review_required') {
+        // Product readiness only — does not complete media processing.
+        await this.repo.updateCollection(collection.id, {
+          status: 'ready_for_review',
+        });
+      }
+    }
+
+    return { created, updated };
+  }
+
   async applyIngestResult(params: {
     collectionId: string;
     status: 'ready_for_review' | 'review_required';

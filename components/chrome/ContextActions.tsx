@@ -8,6 +8,7 @@ import { ShareControl } from '@/components/engagement/ShareControl';
 type SaveProps = {
   isSaved: boolean;
   pending?: boolean;
+  iconOnly?: boolean;
   onPress: () => void;
 };
 
@@ -36,7 +37,12 @@ export function ContextActions({ save, share, follow, children }: Props) {
   return (
     <View style={styles.row}>
       {save ? (
-        <SaveControl isSaved={save.isSaved} pending={save.pending} onPress={save.onPress} />
+        <SaveControl
+          isSaved={save.isSaved}
+          pending={save.pending}
+          iconOnly={save.iconOnly}
+          onPress={save.onPress}
+        />
       ) : null}
       {share ? (
         <ShareControl onPress={share.onPress} accessibilityLabel={share.accessibilityLabel} />

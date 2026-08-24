@@ -1,8 +1,28 @@
+export type InstagramEmbedCrop = 'feed' | 'inline' | 'fullWidth';
+
+type BuildInstagramEmbedHtmlOptions = {
+  crop?: InstagramEmbedCrop;
+};
+
+const CROP_PRESETS: Record<
+  InstagramEmbedCrop,
+  { scale: number; translateY: string; embedPct: number }
+> = {
+  feed: { scale: 1.1, translateY: '-50%', embedPct: 110 },
+  inline: { scale: 2.35, translateY: '-56%', embedPct: 240 },
+  fullWidth: { scale: 2.65, translateY: '-58%', embedPct: 270 },
+};
+
 /**
  * Full-page Instagram embed document used by the home feed WebView.
  * `embedUrl` should be an instagram.com URL containing `/p/{postId}/` (e.g. from transformToReviewEmbedUrl).
  */
-export function buildInstagramEmbedHtml(embedUrl: string): string {
+export function buildInstagramEmbedHtml(
+  embedUrl: string,
+  options: BuildInstagramEmbedHtmlOptions = {},
+): string {
+  const crop = options.crop ?? 'feed';
+  const preset = CROP_PRESETS[crop];
   const postId = embedUrl.match(/instagram\.com\/p\/([^/]+)/)?.[1];
   const originalUrl = postId ? `https://www.instagram.com/p/${postId}/` : embedUrl;
 
@@ -11,7 +31,7 @@ export function buildInstagramEmbedHtml(embedUrl: string): string {
       <html>
       <head>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <style>
           body, html {
             margin: 0;
@@ -34,12 +54,12 @@ export function buildInstagramEmbedHtml(embedUrl: string): string {
             position: absolute !important;
             top: 50% !important;
             left: 50% !important;
-            transform: translate(-50%, -50%) scale(1.10) !important;
+            transform: translate(-50%, ${preset.translateY}) scale(${preset.scale}) !important;
             transform-origin: center center !important;
-            min-width: 110% !important;
-            min-height: 110% !important;
-            width: 110% !important;
-            height: 110% !important;
+            min-width: ${preset.embedPct}% !important;
+            min-height: ${preset.embedPct}% !important;
+            width: ${preset.embedPct}% !important;
+            height: ${preset.embedPct}% !important;
             border: none !important;
             box-shadow: none !important;
             background: black !important;
@@ -100,9 +120,48 @@ export function buildInstagramEmbedHtml(embedUrl: string): string {
         </div>
         <script async src="//www.instagram.com/embed.js"></script>
         <script>
+          window.__mystashPendingMuted = true;
+
+          function mystashApplyInstagramMuted(muted) {
+            document.querySelectorAll('video').forEach(function(v) {
+              try {
+                v.muted = muted;
+                if (!muted) v.play().catch(function() {});
+              } catch (e) {}
+            });
+            document.querySelectorAll('iframe').forEach(function(frame) {
+              try {
+                var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+                if (!doc) return;
+                doc.querySelectorAll('video').forEach(function(v) {
+                  v.muted = muted;
+                  if (!muted) v.play().catch(function() {});
+                });
+              } catch (e) {}
+            });
+          }
+
+          window.__mystashSetMuted = function(muted) {
+            window.__mystashPendingMuted = muted;
+            mystashApplyInstagramMuted(muted);
+            if (!muted) {
+              var cx = Math.round(window.innerWidth / 2);
+              var cy = Math.round(window.innerHeight / 2);
+              var target = document.elementFromPoint(cx, cy);
+              if (target) {
+                ['mousedown', 'mouseup', 'click', 'touchstart', 'touchend'].forEach(function(type) {
+                  try {
+                    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+                  } catch (e) {}
+                });
+              }
+            }
+          };
+
           window.addEventListener('load', function() {
             setTimeout(function() {
-              window.ReactNativeWebView.postMessage('videoReady');
+              window.__mystashSetMuted(window.__mystashPendingMuted);
+              if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage('videoReady');
             }, 1500);
           });
           
@@ -113,17 +172,20 @@ export function buildInstagramEmbedHtml(embedUrl: string): string {
           });
           
           setTimeout(function() {
-            const hideUI = setInterval(function() {
-              const selectors = [
+            var embedPct = ${preset.embedPct};
+            var hideUI = setInterval(function() {
+              mystashApplyInstagramMuted(window.__mystashPendingMuted);
+
+              var selectors = [
                 '.EmbedHeader', '.EmbedFooter', '.Feedback', '.SocialProof', '.HoverCard', '.Caption',
                 '.Header', '.Footer', '.Comments', '.Likes', '.ShareButton', '.FollowButton', '.MoreButton',
                 '.Username', '.Timestamp', '.Location', '.Description', '.ActionBar',
                 'header', 'footer', 'nav', 'button', 'a[href*="instagram.com"]'
               ];
               
-              selectors.forEach(selector => {
-                const elements = document.querySelectorAll(selector);
-                elements.forEach(el => {
+              selectors.forEach(function(selector) {
+                var elements = document.querySelectorAll(selector);
+                elements.forEach(function(el) {
                   el.style.display = 'none !important';
                   el.style.visibility = 'hidden !important';
                   el.style.opacity = '0 !important';
@@ -131,20 +193,20 @@ export function buildInstagramEmbedHtml(embedUrl: string): string {
                 });
               });
               
-              const embeds = document.querySelectorAll('.instagram-media, .Embed');
-              embeds.forEach(el => {
+              var embeds = document.querySelectorAll('.instagram-media, .Embed');
+              embeds.forEach(function(el) {
                 el.style.padding = '0 !important';
                 el.style.border = 'none !important';
                 el.style.background = 'black !important';
                 el.style.margin = '0 !important';
-                el.style.minWidth = '120% !important';
-                el.style.minHeight = '120% !important';
-                el.style.width = '120% !important';
-                el.style.height = '120% !important';
+                el.style.minWidth = embedPct + '% !important';
+                el.style.minHeight = embedPct + '% !important';
+                el.style.width = embedPct + '% !important';
+                el.style.height = embedPct + '% !important';
               });
               
-              const textElements = document.querySelectorAll('span, p, h1, h2, h3, h4, h5, h6');
-              textElements.forEach(el => {
+              var textElements = document.querySelectorAll('span, p, h1, h2, h3, h4, h5, h6');
+              textElements.forEach(function(el) {
                 if (el.textContent.length < 100) {
                   el.style.display = 'none !important';
                 }

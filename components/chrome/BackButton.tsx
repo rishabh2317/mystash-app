@@ -23,7 +23,16 @@ export function BackButton({
 
   return (
     <Pressable
-      onPress={onPress ?? (() => router.back())}
+      onPress={
+        onPress ??
+        (() => {
+          if (router.canGoBack()) {
+            router.back();
+            return;
+          }
+          router.replace('/');
+        })
+      }
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       style={[

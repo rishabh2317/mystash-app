@@ -87,7 +87,8 @@ export function normalizeProductIdentityTokens(
   value: string | null | undefined,
 ): string[] {
   const tokens = canonicalizeProductIdentityText(value)
-    .replace(/[^a-zA-Z0-9+\- ]/g, ' ')
+    // Split hyphenated size/chip forms ("15-inch", "M4-chip") so M4 / 15 survive matching.
+    .replace(/[^a-zA-Z0-9+]+/g, ' ')
     .split(/\s+/)
     .map((token) => token.trim())
     .filter(Boolean);

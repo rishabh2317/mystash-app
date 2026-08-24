@@ -1,6 +1,8 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { useThemeMode } from '@/contexts/ThemeContext';
 import { CreatorOnboardingPanel } from '@/components/creator/CreatorOnboardingPanel';
+import { CreateInlineNotice } from '@/components/create/CreateInlineNotice';
+import { CreateScreenShell } from '@/components/create/CreateScreenShell';
+import { StatusBlock } from '@/components/status/StatusBlock';
 import { listUserDraftIngests, type UserDraftIngestSummary, submitIngestUrl } from '@/src/services/curation';
 import {
   activateCreatorAccount,
@@ -8,15 +10,29 @@ import {
   type UserSettingsViewModel,
   UserApiError,
 } from '@/src/services/userApi';
+import { useThemeTokens } from '@/src/theme/useThemeTokens';
+import { CREATE_COPY, draftResumeStatusLabel } from '@/src/ui/createCopy';
+import {
+  createFieldColors,
+  createPrimaryButtonStyle,
+  createSecondaryButtonStyle,
+  createSegmentBadgeColors,
+  createSurfaceStyle,
+} from '@/src/ui/createChrome';
+import {
+  segmentCreateDrafts,
+  type CreateDraftSegment,
+} from '@/src/ui/createDraftSegments';
+import { createUnsupportedUrlFieldError } from '@/src/ui/createFeedback';
+import { useAppToast } from '@/src/ui/useAppToast';
 import { isSupportedVideoUrl } from '@/src/utils/videoUtils';
 import { useCreateFlowReset } from '@/src/state/createFlowSession';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -28,14 +44,13 @@ import {
 export default function CreateSubmitScreen() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { mode } = useThemeMode();
-  const isLight = mode === 'titanium';
+  const tokens = useThemeTokens();
+  const { showToast } = useAppToast();
   const [url, setUrl] = useState('');
   const [videoTitle, setVideoTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [progressHint, setProgressHint] = useState<string | null>(null);
-  /** True while Edge queued extraction and we are polling for `draft` (after immediate `onProcessing`). */
-  const [processingExtraction, setProcessingExtraction] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [resumeDrafts, setResumeDrafts] = useState<UserDraftIngestSummary[]>([]);
   const [draftsLoading, setDraftsLoading] = useState(false);
 
@@ -46,6 +61,14 @@ export default function CreateSubmitScreen() {
 
   const valid = isSupportedVideoUrl(url.trim());
   const isActiveCreator = me?.creatorStatus === 'ACTIVE';
+  const field = createFieldColors(tokens, { invalid: Boolean(url.trim()) && !valid });
+  const titleField = createFieldColors(tokens);
+  const primary = createPrimaryButtonStyle(tokens, {
+    disabled: !valid || busy,
+    pending: busy,
+  });
+  const secondary = createSecondaryButtonStyle(tokens, { disabled: !valid || busy });
+  const surface = createSurfaceStyle(tokens);
 
   const refreshMe = useCallback(() => {
     if (!user) {
@@ -70,13 +93,97 @@ export default function CreateSubmitScreen() {
       .finally(() => setDraftsLoading(false));
   }, [user]);
 
+  const segmentedDrafts = useMemo(() => segmentCreateDrafts(resumeDrafts), [resumeDrafts]);
+
+  const openDraft = (id: string) => {
+    router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(id)}`);
+  };
+
+  const renderDraftRow = (row: UserDraftIngestSummary, segment: CreateDraftSegment) => {
+    const action =
+      segment === 'processing'
+        ? CREATE_COPY.processingAction
+        : segment === 'attention'
+          ? CREATE_COPY.attentionAction
+          : CREATE_COPY.continueAction;
+    const badge = createSegmentBadgeColors(tokens, segment);
+
+    return (
+      <TouchableOpacity
+        key={row.id}
+        style={[
+          styles.draftRow,
+          {
+            borderColor: surface.borderColor,
+            backgroundColor: tokens.color.surface,
+            borderRadius: tokens.radius.md,
+          },
+        ]}
+        onPress={() => openDraft(row.id)}
+        accessibilityRole="button"
+        accessibilityLabel={`${action} ${row.videoTitle || row.sourceUrl}`}
+      >
+        {row.thumbnail ? (
+          <Image source={{ uri: row.thumbnail }} style={styles.draftThumb} contentFit="cover" />
+        ) : (
+          <View
+            style={[
+              styles.draftThumb,
+              { backgroundColor: tokens.color.canvasEnd, borderRadius: tokens.radius.sm },
+            ]}
+          />
+        )}
+        <View style={{ flex: 1 }}>
+          <Text
+            style={{
+              color: tokens.color.text,
+              fontSize: tokens.fontSize.body,
+              fontWeight: tokens.fontWeight.bold,
+            }}
+            numberOfLines={1}
+          >
+            {row.videoTitle || row.sourceUrl}
+          </Text>
+          <Text
+            style={{ color: tokens.color.textMuted, fontSize: tokens.fontSize.caption, marginTop: 2 }}
+            numberOfLines={1}
+          >
+            {row.sourceUrl}
+          </Text>
+          <Text
+            style={{
+              color: tokens.color.accent,
+              fontSize: tokens.fontSize.caption,
+              fontWeight: tokens.fontWeight.bold,
+              marginTop: 4,
+            }}
+          >
+            {action}
+          </Text>
+        </View>
+        <View style={[styles.badge, { backgroundColor: badge.bg, borderRadius: tokens.radius.sm }]}>
+          <Text
+            style={{
+              color: badge.fg,
+              fontSize: 11,
+              fontWeight: tokens.fontWeight.extraBold,
+              textTransform: 'uppercase',
+            }}
+          >
+            {draftResumeStatusLabel(row.status)}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   useCreateFlowReset(
     useCallback(() => {
       setUrl('');
       setVideoTitle('');
       setBusy(false);
       setProgressHint(null);
-      setProcessingExtraction(false);
+      setFormError(null);
     }, []),
   );
 
@@ -87,13 +194,15 @@ export default function CreateSubmitScreen() {
     }, [refreshMe, refreshResumeList]),
   );
 
+  const urlFieldError = createUnsupportedUrlFieldError(url, valid);
+
   const onActivateCreator = async (displayName: string | null) => {
     setActivating(true);
     setMeError(null);
     try {
       const next = await activateCreatorAccount({ displayName });
       setMe(next);
-      Alert.alert('You are a creator', 'You can now ingest and publish Collections.');
+      showToast({ tone: 'success', title: CREATE_COPY.creatorActivatedToast });
     } catch (e) {
       const msg =
         e instanceof UserApiError
@@ -107,110 +216,88 @@ export default function CreateSubmitScreen() {
     }
   };
 
-  const onSubmit = async () => {
+  const onSubmit = async (productAcquisition: 'automatic' | 'manual' = 'automatic') => {
+    setFormError(null);
     if (!isActiveCreator) {
-      Alert.alert('Creator required', 'Become an ACTIVE creator before ingesting Collections.');
+      setFormError(CREATE_COPY.creatorRequiredBody);
       return;
     }
     const trimmed = url.trim();
     if (!isSupportedVideoUrl(trimmed)) {
-      Alert.alert(
-        'Unsupported URL',
-        'Paste a YouTube Shorts or Instagram Reel / post URL. Profile pages and other sites are not supported.',
-      );
+      setFormError(CREATE_COPY.unsupportedUrlBody);
       return;
     }
 
     setBusy(true);
-    setProcessingExtraction(false);
-    setProgressHint('Sending request…');
+    setProgressHint(
+      productAcquisition === 'manual' ? CREATE_COPY.progressManualMode : CREATE_COPY.progressSending,
+    );
     try {
       await new Promise<void>((resolve) => queueMicrotask(resolve));
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const res = await submitIngestUrl(trimmed, {
-            onProcessing: () => {
-              setProcessingExtraction(true);
-              setProgressHint('Processing extraction…');
-            },
             videoTitle: videoTitle.trim() || undefined,
+            productAcquisition,
           });
           if (!res.ingestId) {
-            Alert.alert('Ingest failed', 'Could not start curation.');
+            setFormError(CREATE_COPY.startFailedBody);
             return;
           }
-          setProgressHint('Opening review…');
+          setProgressHint(CREATE_COPY.progressOpeningEditor);
           refreshResumeList();
-          router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(res.ingestId)}`);
+          const modeQ = productAcquisition === 'manual' ? '&mode=manual' : '';
+          router.push(
+            `/(tabs)/create/review?ingestId=${encodeURIComponent(res.ingestId)}${modeQ}`,
+          );
           return;
         } catch (e) {
           const msg = (e as Error).message ?? 'Unknown error';
           if (/Creator status ACTIVE required/i.test(msg)) {
             refreshMe();
-            Alert.alert(
-              'Creator required',
-              'Your account is not an ACTIVE creator yet. Finish creator setup, then try again.',
-            );
+            setFormError(CREATE_COPY.creatorRequiredSetupBody);
             return;
           }
           if (attempt === 1) {
-            Alert.alert('Ingest failed', msg);
+            setFormError(msg || CREATE_COPY.startFailedBody);
           }
         }
       }
     } finally {
       setProgressHint(null);
-      setProcessingExtraction(false);
       setBusy(false);
     }
   };
 
   if (authLoading) {
     return (
-      <View style={[styles.screen, styles.centered]}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-        />
-        <ActivityIndicator size="large" color={isLight ? '#00AFC0' : '#A855F7'} />
-      </View>
+      <CreateScreenShell>
+        <StatusBlock kind="loading" message={CREATE_COPY.editorLoading} fill />
+      </CreateScreenShell>
     );
   }
 
   if (!user) {
     return (
-      <View style={styles.screen}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-        />
+      <CreateScreenShell>
         <View style={[styles.inner, styles.centered]}>
-          <Text style={[styles.title, { color: isLight ? '#1A1A1B' : '#F8FAFC', textAlign: 'center' }]}>
-            Sign in to create
-          </Text>
-          <Text style={[styles.sub, { color: isLight ? '#4E5257' : '#AEB8C5', textAlign: 'center' }]}>
-            Add a Short or Reel link after you sign in on the Profile tab.
-          </Text>
-          <TouchableOpacity style={styles.primary} onPress={() => router.replace('/(tabs)/profile')}>
-            <Text style={styles.primaryText}>Go to Profile</Text>
-          </TouchableOpacity>
+          <StatusBlock
+            kind="empty"
+            title={CREATE_COPY.signInTitle}
+            message={CREATE_COPY.signInBody}
+            actionLabel="Go to Profile"
+            onAction={() => router.replace('/(tabs)/profile')}
+          />
         </View>
-      </View>
+      </CreateScreenShell>
     );
   }
 
   if (!isActiveCreator) {
     return (
-      <View style={styles.screen}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8', '#D1D1D1'] : ['#0D111F', '#020408']}
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.8, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
+      <CreateScreenShell>
         <ScrollView style={styles.scroll} contentContainerStyle={styles.inner}>
           <CreatorOnboardingPanel
-            isLight={isLight}
             creatorStatus={me?.creatorStatus ?? null}
             username={me?.username ?? null}
             displayName={me?.displayName ?? null}
@@ -221,233 +308,278 @@ export default function CreateSubmitScreen() {
             onRetry={refreshMe}
           />
         </ScrollView>
-      </View>
+      </CreateScreenShell>
     );
   }
 
   return (
-    <View style={styles.screen}>
-      <LinearGradient
-        colors={isLight ? ['#FDFDFD', '#E8E8E8', '#D1D1D1'] : ['#0D111F', '#020408']}
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>
-          Add YT shorts or Insta Reel link and wait for the magic
+    <CreateScreenShell>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.inner,
+          { padding: tokens.space.md + 4, gap: tokens.space.sm, paddingBottom: tokens.space.xl },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text
+          style={{
+            color: tokens.color.text,
+            fontSize: tokens.fontSize.display,
+            fontWeight: tokens.fontWeight.extraBold,
+          }}
+        >
+          {CREATE_COPY.studioHeadline}
         </Text>
-        <Text style={[styles.sub, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>
-          We extract shoppable products from the video. Review picks, then publish to the feed.
+        <Text
+          style={{
+            color: tokens.color.textMuted,
+            fontSize: tokens.fontSize.bodyStrong,
+            lineHeight: 20,
+          }}
+        >
+          {CREATE_COPY.studioSubhead}
         </Text>
 
+        <Text
+          style={{
+            color: tokens.color.textMuted,
+            fontSize: 13,
+            fontWeight: tokens.fontWeight.semibold,
+          }}
+        >
+          {CREATE_COPY.contentUrlLabel}
+        </Text>
         <TextInput
           value={url}
-          onChangeText={setUrl}
-          placeholder="https://youtube.com/shorts/… or instagram.com/reel/…"
-          placeholderTextColor={isLight ? '#94A3B8' : '#64748B'}
+          onChangeText={(value) => {
+            setUrl(value);
+            setFormError(null);
+          }}
+          placeholder={CREATE_COPY.contentUrlPlaceholder}
+          placeholderTextColor={field.placeholderTextColor}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
           style={[
             styles.input,
             {
-              color: isLight ? '#111827' : '#F8FAFC',
-              borderColor: valid || !url.trim() ? 'rgba(148,163,184,0.45)' : '#EF4444',
-              backgroundColor: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.08)',
+              color: field.color,
+              borderColor: field.borderColor,
+              backgroundColor: field.backgroundColor,
+              borderRadius: tokens.radius.md,
+              fontSize: tokens.fontSize.body,
             },
           ]}
         />
+        {urlFieldError ? (
+          <CreateInlineNotice
+            tone="error"
+            title={CREATE_COPY.unsupportedUrlTitle}
+            body={`${urlFieldError} ${CREATE_COPY.urlExamplesHint}`}
+          />
+        ) : null}
 
-        <Text style={[styles.fieldLabel, { color: isLight ? '#64748B' : '#94A3B8' }]}>Video title (optional)</Text>
+        <Text
+          style={{
+            color: tokens.color.textMuted,
+            fontSize: 13,
+            fontWeight: tokens.fontWeight.semibold,
+          }}
+        >
+          {CREATE_COPY.collectionTitleLabel}
+        </Text>
         <TextInput
           value={videoTitle}
           onChangeText={setVideoTitle}
-          placeholder="Shown in drafts and feed after publish"
-          placeholderTextColor={isLight ? '#94A3B8' : '#64748B'}
+          placeholder={CREATE_COPY.collectionTitlePlaceholder}
+          placeholderTextColor={titleField.placeholderTextColor}
           autoCapitalize="sentences"
           maxLength={200}
           style={[
             styles.input,
             {
-              color: isLight ? '#111827' : '#F8FAFC',
-              borderColor: 'rgba(148,163,184,0.45)',
-              backgroundColor: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.08)',
+              color: titleField.color,
+              borderColor: titleField.borderColor,
+              backgroundColor: titleField.backgroundColor,
+              borderRadius: tokens.radius.md,
+              fontSize: tokens.fontSize.body,
             },
           ]}
         />
 
+        {formError ? (
+          <CreateInlineNotice
+            tone="error"
+            body={formError}
+            actionLabel={CREATE_COPY.feedbackDismiss}
+            onAction={() => setFormError(null)}
+          />
+        ) : null}
+
         <TouchableOpacity
-          style={[styles.primary, { opacity: valid && !busy ? 1 : 0.45 }]}
+          style={[styles.primary, primary, { marginTop: tokens.space.xs, paddingVertical: 14 }]}
           disabled={!valid || busy}
-          onPress={onSubmit}
+          onPress={() => void onSubmit('automatic')}
           accessibilityState={{ busy }}
         >
           {busy ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={tokens.color.successOn} />
           ) : (
-            <Text style={styles.primaryText}>Extract products</Text>
+            <Text
+              style={{
+                color: tokens.color.successOn,
+                fontWeight: tokens.fontWeight.extraBold,
+                fontSize: tokens.fontSize.body,
+              }}
+            >
+              {CREATE_COPY.primaryStart}
+            </Text>
           )}
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.secondaryOutline, { borderColor: isLight ? 'rgba(148,163,184,0.55)' : 'rgba(148,163,184,0.4)' }]}
-          onPress={() => router.push('/(tabs)/create/manual')}
-          disabled={busy}
+          style={[
+            styles.secondaryOutline,
+            secondary,
+            { borderWidth: tokens.stroke.thin, paddingVertical: 13 },
+          ]}
+          onPress={() => void onSubmit('manual')}
+          disabled={!valid || busy}
         >
-          <Text style={[styles.secondaryOutlineText, { color: isLight ? '#0F766E' : '#93C5FD' }]}>
-            Add products manually
+          <Text
+            style={{
+              color: tokens.color.accent,
+              fontWeight: tokens.fontWeight.extraBold,
+              fontSize: tokens.fontSize.body,
+            }}
+          >
+            {CREATE_COPY.secondaryManual}
           </Text>
         </TouchableOpacity>
-        {processingExtraction ? (
-          <View
-            style={[styles.processingBanner, { borderColor: isLight ? 'rgba(148,163,184,0.5)' : 'rgba(148,163,184,0.35)' }]}
-            accessibilityRole="progressbar"
-            accessibilityLabel="Processing extraction"
-          >
-            <ActivityIndicator size="small" color={isLight ? '#00AFC0' : '#A855F7'} />
-            <Text style={[styles.processingBannerText, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>
-              Processing extraction…
-            </Text>
-          </View>
-        ) : null}
         {progressHint ? (
-          <Text style={[styles.progress, { color: isLight ? '#475569' : '#94A3B8' }]} accessibilityLiveRegion="polite">
+          <Text
+            style={{
+              color: tokens.color.textMuted,
+              fontSize: 13,
+              lineHeight: 18,
+              textAlign: 'center',
+              marginTop: 4,
+            }}
+            accessibilityLiveRegion="polite"
+          >
             {progressHint}
           </Text>
         ) : null}
 
-        <Text style={[styles.sectionTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Your drafts</Text>
-        <Text style={[styles.sub, { color: isLight ? '#64748B' : '#94A3B8', marginTop: -4 }]}>
-          Server-side drafts survive closing the app. Tap to continue reviewing.
+        <Text
+          style={{
+            color: tokens.color.text,
+            fontSize: tokens.fontSize.title,
+            fontWeight: tokens.fontWeight.extraBold,
+            marginTop: tokens.space.md,
+          }}
+        >
+          {CREATE_COPY.draftsHubTitle}
         </Text>
+        <Text style={{ color: tokens.color.textMuted, fontSize: tokens.fontSize.bodyStrong, lineHeight: 20 }}>
+          {CREATE_COPY.draftsHubSub}
+        </Text>
+
         {draftsLoading ? (
-          <ActivityIndicator style={{ marginVertical: 8 }} color={isLight ? '#00AFC0' : '#A855F7'} />
-        ) : resumeDrafts.length === 0 ? (
-          <Text style={[styles.emptyDrafts, { color: isLight ? '#64748B' : '#64748B' }]}>No drafts yet.</Text>
+          <ActivityIndicator style={{ marginVertical: 8 }} color={tokens.color.accent} />
+        ) : segmentedDrafts.isEmpty ? (
+          <Text style={{ color: tokens.color.textMuted, fontSize: tokens.fontSize.bodyStrong, marginTop: 4 }}>
+            {CREATE_COPY.continueEmpty}
+          </Text>
         ) : (
-          resumeDrafts.map((row) => (
-            <TouchableOpacity
-              key={row.id}
-              style={[styles.draftRow, { borderColor: isLight ? 'rgba(148,163,184,0.45)' : 'rgba(148,163,184,0.35)' }]}
-              onPress={() =>
-                router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(row.id)}`)
-              }
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.draftTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]} numberOfLines={1}>
-                  {row.videoTitle || row.sourceUrl}
-                </Text>
-                <Text style={[styles.draftUrl, { color: isLight ? '#64748B' : '#94A3B8' }]} numberOfLines={1}>
-                  {row.sourceUrl}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.badge,
-                  {
-                    backgroundColor:
-                      row.status === 'failed'
-                        ? 'rgba(239,68,68,0.22)'
-                        : row.status === 'draft' ||
-                            row.status === 'ready_for_review' ||
-                            row.status === 'review_required'
-                          ? isLight
-                            ? 'rgba(16,185,129,0.2)'
-                            : 'rgba(16,185,129,0.25)'
-                          : 'rgba(251,191,36,0.25)',
-                  },
-                ]}
-              >
+          <View style={{ gap: tokens.space.md, marginTop: 4 }}>
+            {segmentedDrafts.continueCreating.length > 0 ? (
+              <View style={{ gap: 6 }}>
                 <Text
-                  style={[
-                    styles.badgeText,
-                    {
-                      color:
-                        row.status === 'failed'
-                          ? '#F87171'
-                          : isLight
-                            ? '#047857'
-                            : '#34D399',
-                    },
-                  ]}
+                  style={{
+                    color: tokens.color.text,
+                    fontSize: tokens.fontSize.body,
+                    fontWeight: tokens.fontWeight.extraBold,
+                  }}
                 >
-                  {row.status === 'failed'
-                    ? 'Failed'
-                    : row.status === 'review_required'
-                      ? 'Needs review'
-                      : row.status === 'draft' || row.status === 'ready_for_review'
-                        ? 'Ready'
-                        : 'Processing'}
+                  {CREATE_COPY.continueSectionTitle}
                 </Text>
+                <Text style={{ color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
+                  {CREATE_COPY.continueSectionSub}
+                </Text>
+                {segmentedDrafts.continueCreating.map((row) => renderDraftRow(row, 'continue'))}
               </View>
-            </TouchableOpacity>
-          ))
+            ) : null}
+
+            {segmentedDrafts.processing.length > 0 ? (
+              <View style={{ gap: 6 }}>
+                <Text
+                  style={{
+                    color: tokens.color.text,
+                    fontSize: tokens.fontSize.body,
+                    fontWeight: tokens.fontWeight.extraBold,
+                  }}
+                >
+                  {CREATE_COPY.processingSectionTitle}
+                </Text>
+                <Text style={{ color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
+                  {CREATE_COPY.processingSectionSub}
+                </Text>
+                {segmentedDrafts.processing.map((row) => renderDraftRow(row, 'processing'))}
+              </View>
+            ) : null}
+
+            {segmentedDrafts.needsAttention.length > 0 ? (
+              <View style={{ gap: 6 }}>
+                <Text
+                  style={{
+                    color: tokens.color.text,
+                    fontSize: tokens.fontSize.body,
+                    fontWeight: tokens.fontWeight.extraBold,
+                  }}
+                >
+                  {CREATE_COPY.attentionSectionTitle}
+                </Text>
+                <Text style={{ color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
+                  {CREATE_COPY.attentionSectionSub}
+                </Text>
+                {segmentedDrafts.needsAttention.map((row) => renderDraftRow(row, 'attention'))}
+              </View>
+            ) : null}
+          </View>
         )}
       </ScrollView>
-    </View>
+    </CreateScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
   scroll: { flex: 1 },
   centered: { justifyContent: 'center', alignItems: 'center' },
   inner: { flexGrow: 1, padding: 20, paddingTop: 12, gap: 12, paddingBottom: 32 },
-  title: { fontSize: 22, fontWeight: '800' },
-  sub: { fontSize: 14, lineHeight: 20 },
-  fieldLabel: { fontSize: 13, fontWeight: '600' },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    fontSize: 15,
   },
   primary: {
-    marginTop: 8,
-    backgroundColor: '#111827',
-    borderRadius: 12,
-    paddingVertical: 14,
     alignItems: 'center',
   },
-  primaryText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   secondaryOutline: {
     marginTop: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: 13,
     alignItems: 'center',
     backgroundColor: 'transparent',
   },
-  secondaryOutlineText: { fontWeight: '800', fontSize: 15 },
-  progress: { fontSize: 13, lineHeight: 18, textAlign: 'center', marginTop: 4 },
-  processingBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    backgroundColor: 'rgba(148,163,184,0.12)',
-  },
-  processingBannerText: { fontSize: 15, fontWeight: '700' },
-  sectionTitle: { fontSize: 17, fontWeight: '800', marginTop: 16 },
-  emptyDrafts: { fontSize: 14, marginTop: 4 },
   draftRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderWidth: 1,
-    marginTop: 8,
+    marginTop: 6,
   },
-  draftTitle: { fontSize: 15, fontWeight: '700' },
-  draftUrl: { fontSize: 12, marginTop: 2 },
-  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  badgeText: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+  draftThumb: { width: 48, height: 48, borderRadius: 10 },
+  badge: { paddingHorizontal: 10, paddingVertical: 4 },
 });

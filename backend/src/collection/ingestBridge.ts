@@ -155,6 +155,60 @@ export async function syncCollectionFromIngestDrafts(
 }
 
 /**
+ * Upsert CollectionProductTags for newly added manual drafts only.
+ * - Does not delete existing tags
+ * - Does not complete/fail media processing
+ * - Emits ProductTagProposed only for genuinely new tags
+ */
+export async function upsertManualProductTagsFromDrafts(
+  admin: SupabaseClient,
+  params: {
+    ingestId: string;
+    collectionId: string;
+    externalIds: string[];
+  },
+): Promise<{ created: number; updated: number }> {
+  if (!params.externalIds.length) return { created: 0, updated: 0 };
+
+  const { data: drafts } = await admin
+    .from('ingest_draft_products')
+    .select(
+      'external_id, name, image, brand, category, confidence, catalog_product_id, resolution_status, merchant_url, sort_order, provider',
+    )
+    .eq('ingest_request_id', params.ingestId)
+    .in('external_id', params.externalIds);
+
+  const svc = createCollectionService(admin);
+  const aggregate = await svc.getAggregate(params.collectionId);
+  const existingCount = aggregate?.tags.length ?? 0;
+
+  return svc.upsertProposedTagsPreserveExisting({
+    collectionId: params.collectionId,
+    tags: (drafts ?? []).map((d, i) => ({
+      collectionId: params.collectionId,
+      tagSource: 'manual' as const,
+      selectionSource: 'CREATOR_MANUAL' as const,
+      externalId: String(d.external_id),
+      nameSnapshot: String(d.name),
+      imageSnapshot: (d.image as string) ?? null,
+      brandSnapshot: (d.brand as string) ?? null,
+      categorySnapshot: (d.category as string) ?? null,
+      confidence: d.confidence == null ? null : Number(d.confidence),
+      catalogProductId: (d.catalog_product_id as string) ?? null,
+      resolutionStatus:
+        (d.resolution_status as 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED' | null) ?? 'UNRESOLVED',
+      merchantUrl: (d.merchant_url as string) ?? null,
+      sortOrder: d.sort_order == null ? existingCount + i : Number(d.sort_order),
+      recommendationStrength: existingCount + i === 0 ? ('PRIMARY' as const) : ('SECONDARY' as const),
+      isPrimary: existingCount + i === 0,
+      includeInPublish: true,
+      tagStatus: 'proposed' as const,
+      visibility: 'visible' as const,
+    })),
+  });
+}
+
+/**
  * Lazy-create Collection for legacy ingest rows missing collection_id (publish path).
  */
 export async function ensureCollectionLinkedToIngest(

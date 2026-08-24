@@ -61,6 +61,38 @@ export type YoutubeDescriptionSource =
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+/** Bound every YouTube HTTP call so UNPLAYABLE/dead videos cannot stall S1. */
+export const YOUTUBE_REQUEST_TIMEOUT_MS = 4_000;
+
+const TERMINAL_PLAYABILITY = new Set([
+  'UNPLAYABLE',
+  'ERROR',
+  'LOGIN_REQUIRED',
+  'CONTENT_CHECK_REQUIRED',
+]);
+
+export function isTerminalYoutubePlayability(status: string | null | undefined): boolean {
+  return TERMINAL_PLAYABILITY.has((status ?? '').toUpperCase());
+}
+
+/**
+ * After player+oEmbed, skip timedtext / next / caption fetches when YouTube
+ * already said the video cannot be loaded and there are no caption tracks.
+ */
+export function shouldSkipYoutubeSecondaryFetches(input: {
+  playabilityStatus: string | null;
+  captionTrackCount: number;
+}): boolean {
+  return isTerminalYoutubePlayability(input.playabilityStatus) && input.captionTrackCount < 1;
+}
+
+async function youtubeRequest(url: string, init?: RequestInit): Promise<Response> {
+  return fetch(url, {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(YOUTUBE_REQUEST_TIMEOUT_MS),
+  });
+}
+
 const INNERTUBE_CLIENT = {
   hl: 'en',
   gl: 'US',
@@ -76,7 +108,7 @@ async function fetchOEmbed(videoId: string): Promise<{ title: string; author_nam
   const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const url = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA } });
+    const res = await youtubeRequest(url, { headers: { 'User-Agent': UA } });
     if (!res.ok) return null;
     return (await res.json()) as { title: string; author_name: string; thumbnail_url: string };
   } catch {
@@ -109,7 +141,7 @@ async function fetchTimedtextDirect(videoId: string): Promise<string> {
   ];
   for (const u of bases) {
     try {
-      const res = await fetch(u, { headers: { 'User-Agent': UA } });
+      const res = await youtubeRequest(u, { headers: { 'User-Agent': UA } });
       if (!res.ok) continue;
       const text = await res.text();
       const parsed = parseJson3Captions(text);
@@ -269,7 +301,7 @@ function innertubeBody(videoId: string) {
 
 async function fetchInnertubePlayerContext(videoId: string): Promise<InnertubePlayerContext> {
   try {
-    const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+    const res = await youtubeRequest('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
       method: 'POST',
       headers: innertubeHeaders(),
       body: JSON.stringify(innertubeBody(videoId)),
@@ -285,7 +317,7 @@ async function fetchInnertubeStructuredDescription(
   videoId: string,
 ): Promise<StructuredDescriptionResult> {
   try {
-    const res = await fetch('https://www.youtube.com/youtubei/v1/next?prettyPrint=false', {
+    const res = await youtubeRequest('https://www.youtube.com/youtubei/v1/next?prettyPrint=false', {
       method: 'POST',
       headers: innertubeHeaders(),
       body: JSON.stringify(innertubeBody(videoId)),
@@ -302,7 +334,7 @@ async function fetchTranscriptFromTracks(tracks: CaptionTrack[]): Promise<string
   if (!track?.baseUrl) return '';
   const capUrl = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=json3`;
   try {
-    const capRes = await fetch(capUrl, { headers: { 'User-Agent': UA } });
+    const capRes = await youtubeRequest(capUrl, { headers: { 'User-Agent': UA } });
     if (!capRes.ok) return '';
     const raw = await capRes.text();
     return parseJson3Captions(raw);
@@ -327,10 +359,9 @@ export async function gatherYoutubeContext(
 
   ingestLog('info', 'pipeline.s1.youtube.start', { ...logCtx, videoId });
 
-  const [o, player, directTranscript] = await Promise.all([
+  const [o, player] = await Promise.all([
     fetchOEmbed(videoId),
     fetchInnertubePlayerContext(videoId),
-    fetchTimedtextDirect(videoId),
   ]);
   if (o) {
     title = o.title ?? '';
@@ -345,26 +376,41 @@ export async function gatherYoutubeContext(
   descriptionSource = player.descriptionSource;
   if (descriptionSource !== 'none') appendSource(sources, descriptionSource);
 
-  let emptyConfirmed = false;
-  if (!description) {
-    const structured = await fetchInnertubeStructuredDescription(videoId);
-    emptyConfirmed = structured.emptyConfirmed;
-    if (structured.description) {
-      description = structured.description;
-      descriptionSource = 'innertube_structured';
-      appendSource(sources, descriptionSource);
-    } else if (structured.emptyConfirmed) {
-      descriptionSource = 'empty_confirmed';
-      appendSource(sources, descriptionSource);
-    }
-  }
+  const skipSecondary = shouldSkipYoutubeSecondaryFetches({
+    playabilityStatus: player.playabilityStatus,
+    captionTrackCount: player.captionTracks.length,
+  });
 
-  let transcript = directTranscript;
-  if (transcript.length > 40) {
-    appendSource(sources, 'timedtext_direct');
+  let emptyConfirmed = false;
+  let transcript = '';
+  if (skipSecondary) {
+    ingestLog('info', 'pipeline.s1.youtube.fast_fail', {
+      ...logCtx,
+      videoId,
+      playabilityStatus: player.playabilityStatus,
+      reason: 'terminal_playability_without_captions',
+    });
   } else {
-    transcript = await fetchTranscriptFromTracks(player.captionTracks);
-    if (transcript.length > 40) appendSource(sources, 'innertube_captions');
+    if (!description) {
+      const structured = await fetchInnertubeStructuredDescription(videoId);
+      emptyConfirmed = structured.emptyConfirmed;
+      if (structured.description) {
+        description = structured.description;
+        descriptionSource = 'innertube_structured';
+        appendSource(sources, descriptionSource);
+      } else if (structured.emptyConfirmed) {
+        descriptionSource = 'empty_confirmed';
+        appendSource(sources, descriptionSource);
+      }
+    }
+
+    transcript = await fetchTimedtextDirect(videoId);
+    if (transcript.length > 40) {
+      appendSource(sources, 'timedtext_direct');
+    } else {
+      transcript = await fetchTranscriptFromTracks(player.captionTracks);
+      if (transcript.length > 40) appendSource(sources, 'innertube_captions');
+    }
   }
 
   if (!title) title = `YouTube video ${videoId}`;

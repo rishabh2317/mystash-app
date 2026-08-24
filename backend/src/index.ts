@@ -6,6 +6,10 @@ import { detectPlatform } from './pipeline/detect';
 import { ingestLog } from './pipeline/ingestLog';
 import { parseSupportedVideoUrl, unsupportedVideoUrlMessage } from './pipeline/sourceIdentity';
 import { createManualIngest, retryUnresolvedIngestDrafts } from './manualIngest';
+import {
+  appendManualProductsToIngest,
+  ManualAppendError,
+} from './manualProductAppend';
 import { createSupabaseAdmin, createSupabaseUserClient } from './supabase';
 import { handlePublishIngest } from './publish';
 import { logger } from './logger';
@@ -186,6 +190,64 @@ app.post('/ingest/:ingestId/resolve-unresolved', async (req, res) => {
   }
 });
 
+/**
+ * UX-CREATE-B.3 — append product URLs to an exact ingest.
+ * Ownership is by ingestId only (never source-URL heuristics).
+ */
+app.post('/ingest/:ingestId/products', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || typeof authHeader !== 'string') {
+      res.status(401).json({ error: 'Missing authorization' });
+      return;
+    }
+    const userClient = createSupabaseUserClient(authHeader);
+    const {
+      data: { user },
+      error: userErr,
+    } = await userClient.auth.getUser();
+    if (userErr || !user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const ingestId = String(req.params.ingestId ?? '').trim();
+    if (!ingestId) {
+      res.status(400).json({ error: 'ingestId required' });
+      return;
+    }
+
+    const body = req.body as { product_urls?: unknown };
+    const rawList = body.product_urls;
+    if (!Array.isArray(rawList)) {
+      res.status(400).json({ error: 'product_urls must be an array of URLs' });
+      return;
+    }
+    const productUrls = rawList.filter((u): u is string => typeof u === 'string');
+
+    const admin = createSupabaseAdmin();
+    const traceId = crypto.randomUUID();
+    try {
+      const out = await appendManualProductsToIngest(admin, {
+        userId: user.id,
+        ingestId,
+        productUrls,
+        traceId,
+      });
+      res.json(out);
+    } catch (e) {
+      if (e instanceof ManualAppendError) {
+        res.status(e.httpStatus).json({ error: e.message, code: e.code });
+        return;
+      }
+      throw e;
+    }
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: (e as Error).message ?? 'Server error' });
+  }
+});
+
 app.post('/publish', handlePublishIngest);
 
 app.post('/ingest', async (req, res) => {
@@ -209,12 +271,23 @@ app.post('/ingest', async (req, res) => {
     const httpTraceId = crypto.randomUUID();
     const admin = createSupabaseAdmin();
 
-    const body = req.body as { source_url?: string; video_title?: string; videoTitle?: string };
+    const body = req.body as {
+      source_url?: string;
+      video_title?: string;
+      videoTitle?: string;
+      /** `automatic` (default) runs video product extraction; `manual` skips it. */
+      product_acquisition?: string;
+      productAcquisition?: string;
+    };
     const sourceUrl = (body.source_url ?? '').trim();
     if (!sourceUrl) {
       res.status(400).json({ error: 'source_url required' });
       return;
     }
+    const acquisitionRaw = String(body.product_acquisition ?? body.productAcquisition ?? 'automatic')
+      .trim()
+      .toLowerCase();
+    const productAcquisition = acquisitionRaw === 'manual' ? 'manual' : 'automatic';
 
     let parsed: URL;
     try {
@@ -257,6 +330,30 @@ app.post('/ingest', async (req, res) => {
       .maybeSingle();
 
     if (existing?.id && existing.status === 'failed') {
+      if (productAcquisition === 'manual') {
+        await admin
+          .from('ingest_requests')
+          .update({ status: 'review_required', updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+        res.json({
+          ingestId: existing.id,
+          sourceUrl: canonicalUrl,
+          platform,
+          videoTitle: platform === 'youtube' ? 'YouTube Short' : 'Instagram Reel',
+          thumbnail: thumbnail ?? undefined,
+          stashScore: 4.5,
+          products: [],
+          status: 'review_required',
+          extractionPending: false,
+          extractionSource: 'manual_deferred',
+          extractionDurationMs: 0,
+          traceId: httpTraceId,
+          extractionStatus: undefined,
+          extractionError: null,
+          pipelineMeta: { reused: true, productAcquisition: 'manual', recoveredFromFailed: true },
+        });
+        return;
+      }
       const { resumeFailedIngestForRetry } = await import('./collection/ingestBridge');
       await resumeFailedIngestForRetry(admin, {
         ingestId: existing.id,
@@ -427,13 +524,15 @@ app.post('/ingest', async (req, res) => {
     const videoTitle =
       customTitle.slice(0, 200) || (platform === 'youtube' ? 'YouTube Short' : 'Instagram Reel');
 
+    const initialStatus = productAcquisition === 'manual' ? 'review_required' : 'processing';
+
     const { data: ingestRow, error: insErr } = await admin
       .from('ingest_requests')
       .insert({
         user_id: user.id,
         source_url: canonicalUrl,
         platform,
-        status: 'processing',
+        status: initialStatus,
         stash_score: 4.5,
         video_title: videoTitle,
         thumbnail,
@@ -464,12 +563,13 @@ app.post('/ingest', async (req, res) => {
         thumbnailUrl: thumbnail,
         originType: platform === 'instagram' ? 'import_instagram' : 'url_ingest',
         qualityScore: 4.5,
-        startProcessing: true,
+        startProcessing: productAcquisition !== 'manual',
       });
       ingestLog('info', 'ingest.collection_linked', {
         httpTraceId,
         ingestId,
         collectionId,
+        productAcquisition,
       });
     } catch (collErr) {
       logger.error({ err: collErr, ingestId }, 'ingest.collection_create_failed');
@@ -486,7 +586,29 @@ app.post('/ingest', async (req, res) => {
       userId: user.id,
       platform,
       sourceHost: parsed.hostname,
+      productAcquisition,
     });
+
+    if (productAcquisition === 'manual') {
+      res.json({
+        ingestId,
+        sourceUrl: canonicalUrl,
+        platform,
+        videoTitle,
+        thumbnail: thumbnail ?? undefined,
+        stashScore: 4.5,
+        products: [],
+        status: 'review_required',
+        extractionPending: false,
+        extractionSource: 'manual_deferred',
+        extractionDurationMs: 0,
+        traceId: httpTraceId,
+        extractionStatus: undefined,
+        extractionError: null,
+        pipelineMeta: { productAcquisition: 'manual' },
+      });
+      return;
+    }
 
     try {
       await enqueueIngestPipeline({ ingestRequestId: ingestId, traceId: httpTraceId });
@@ -523,7 +645,7 @@ app.post('/ingest', async (req, res) => {
       traceId: httpTraceId,
       extractionStatus: undefined,
       extractionError: null,
-      pipelineMeta: null,
+      pipelineMeta: { productAcquisition: 'automatic' },
     });
   } catch (e) {
     ingestLog('error', 'ingest.unhandled', {

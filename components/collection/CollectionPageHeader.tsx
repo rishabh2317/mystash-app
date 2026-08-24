@@ -26,7 +26,11 @@ export function CollectionPageHeader({
       showBack
       trailing={
         <ContextActions
-          save={onSavePress ? { isSaved, pending: savePending, onPress: onSavePress } : undefined}
+          save={
+            onSavePress
+              ? { isSaved, pending: savePending, iconOnly: true, onPress: onSavePress }
+              : undefined
+          }
           share={onSharePress ? { onPress: onSharePress, accessibilityLabel: 'Share collection' } : undefined}
         />
       }

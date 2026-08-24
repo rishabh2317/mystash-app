@@ -277,4 +277,64 @@ describe('CollectionProductTag domain', () => {
     assert.deepEqual(second.map((t) => t.id).sort(), firstIds);
     assert.equal(second.find((t) => t.catalogProductId === 'cat-1')?.nameSnapshot, 'Earbuds refreshed');
   });
+
+  it('UX-CREATE-B.3: upsertProposedTagsPreserveExisting does not delete AI tags or duplicate', async () => {
+    const { svc, repo, collection } = await draftWithTags();
+    const before = await repo.listTags(collection.id);
+    assert.equal(before.length, 2);
+
+    const empty = await svc.upsertProposedTagsPreserveExisting({
+      collectionId: collection.id,
+      tags: [],
+    });
+    assert.deepEqual(empty, { created: 0, updated: 0 });
+    assert.equal((await repo.listTags(collection.id)).length, 2);
+
+    const first = await svc.upsertProposedTagsPreserveExisting({
+      collectionId: collection.id,
+      tags: [
+        {
+          collectionId: collection.id,
+          selectionSource: 'CREATOR_MANUAL',
+          tagSource: 'manual',
+          externalId: 'm_new_1',
+          nameSnapshot: 'Manual Bag',
+          catalogProductId: 'cat-manual-1',
+          resolutionStatus: 'VERIFIED',
+          recommendationStrength: 'SECONDARY',
+          includeInPublish: true,
+          tagStatus: 'proposed',
+        },
+      ],
+    });
+    assert.equal(first.created, 1);
+    assert.equal(first.updated, 0);
+    const mid = await repo.listTags(collection.id);
+    assert.equal(mid.length, 3);
+    assert.ok(mid.some((t) => t.selectionSource === 'AI_DETECTED'));
+    assert.ok(mid.some((t) => t.selectionSource === 'CREATOR_MANUAL'));
+
+    const second = await svc.upsertProposedTagsPreserveExisting({
+      collectionId: collection.id,
+      tags: [
+        {
+          collectionId: collection.id,
+          selectionSource: 'CREATOR_MANUAL',
+          tagSource: 'manual',
+          externalId: 'm_new_1',
+          nameSnapshot: 'Manual Bag updated',
+          catalogProductId: 'cat-manual-1',
+          resolutionStatus: 'VERIFIED',
+          recommendationStrength: 'SECONDARY',
+          includeInPublish: true,
+          tagStatus: 'proposed',
+        },
+      ],
+    });
+    assert.equal(second.created, 0);
+    assert.equal(second.updated, 1);
+    const after = await repo.listTags(collection.id);
+    assert.equal(after.length, 3);
+    assert.equal(after.find((t) => t.externalId === 'm_new_1')?.nameSnapshot, 'Manual Bag updated');
+  });
 });

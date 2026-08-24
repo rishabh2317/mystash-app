@@ -1,11 +1,14 @@
 import React from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
+import { useThemeTokens } from '@/src/theme/useThemeTokens';
+import { CREATE_COPY } from '@/src/ui/createCopy';
 import { ProductCard } from '../ProductCard';
 
 type Props = {
   product: CatalogProductViewModel;
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. */
+  isLight?: boolean;
   included: boolean;
   onToggleInclude: (included: boolean) => void;
   onOpenDetails: (product: CatalogProductViewModel) => void;
@@ -20,29 +23,43 @@ type Props = {
  */
 export function ReviewProductCard({
   product,
-  isLight,
   included,
   onToggleInclude,
   onOpenDetails,
   confidence,
   extractionHint,
 }: Props) {
+  const tokens = useThemeTokens();
+
   return (
     <View style={styles.wrap}>
       <View style={styles.cardClip}>
-        <ProductCard product={product} isLight={isLight} onPress={onOpenDetails} />
+        <ProductCard product={product} onPress={onOpenDetails} />
       </View>
       <View
         style={[
           styles.footer,
           {
-            borderColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
-            backgroundColor: isLight ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.04)',
+            borderColor: tokens.color.border,
+            backgroundColor: tokens.color.surfaceRaised,
+            borderBottomLeftRadius: tokens.radius.lg,
+            borderBottomRightRadius: tokens.radius.lg,
+            paddingHorizontal: tokens.space.sm,
+            paddingVertical: tokens.space.xs,
+            gap: tokens.space.xs,
           },
         ]}
       >
         {(confidence != null && confidence > 0) || extractionHint ? (
-          <Text style={[styles.hint, { color: isLight ? '#64748B' : '#94A3B8' }]} numberOfLines={1}>
+          <Text
+            style={{
+              flex: 1,
+              fontSize: tokens.fontSize.caption,
+              fontWeight: '500',
+              color: tokens.color.textMuted,
+            }}
+            numberOfLines={1}
+          >
             {extractionHint
               ? extractionHint
               : confidence != null
@@ -53,8 +70,14 @@ export function ReviewProductCard({
           <View style={{ flex: 1 }} />
         )}
         <View style={styles.includeRow}>
-          <Text style={{ color: isLight ? '#334155' : '#CBD5E1', fontSize: 13, fontWeight: '600' }}>
-            Include
+          <Text
+            style={{
+              color: tokens.color.text,
+              fontSize: 13,
+              fontWeight: tokens.fontWeight.semibold,
+            }}
+          >
+            {CREATE_COPY.editorIncludeLabel}
           </Text>
           <Switch value={included} onValueChange={onToggleInclude} />
         </View>
@@ -73,14 +96,8 @@ const styles = StyleSheet.create({
     marginTop: -1,
     borderWidth: 1,
     borderTopWidth: 0,
-    borderBottomLeftRadius: 14,
-    borderBottomRightRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
-  hint: { flex: 1, fontSize: 12, fontWeight: '500' },
   includeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

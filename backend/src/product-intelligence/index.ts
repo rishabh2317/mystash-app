@@ -13,7 +13,17 @@ export async function resolveIngestDrafts(
   admin: import('@supabase/supabase-js').SupabaseClient,
   ingestId: string,
   traceId: string = ingestId,
-  opts?: { creatorSuppliedUrl?: boolean; onlyUnresolved?: boolean },
+  opts?: {
+    creatorSuppliedUrl?: boolean;
+    onlyUnresolved?: boolean;
+    /** When set, only these draft external_ids are resolved. */
+    externalIds?: string[];
+    /**
+     * Creator-supplied URL resolution applies only to these external_ids.
+     * Never broadcast `creatorSuppliedUrl` across the whole ingest.
+     */
+    creatorSuppliedUrlForExternalIds?: string[];
+  },
 ): Promise<void> {
   const { createProductIntelligence: create } = await import('./factory');
   const { enqueueProductResolve } = await import('./jobs/productResolveQueue');
@@ -49,7 +59,18 @@ export async function resolveIngestDrafts(
 
   if (!rows?.length) return;
 
+  const onlyExternal =
+    opts?.externalIds && opts.externalIds.length > 0
+      ? new Set(opts.externalIds.map(String))
+      : null;
+  const creatorSuppliedSet =
+    opts?.creatorSuppliedUrlForExternalIds && opts.creatorSuppliedUrlForExternalIds.length > 0
+      ? new Set(opts.creatorSuppliedUrlForExternalIds.map(String))
+      : null;
+
   for (const d of rows) {
+    const externalId = String(d.external_id);
+    if (onlyExternal && !onlyExternal.has(externalId)) continue;
     if (
       opts?.onlyUnresolved &&
       !ingestDraftNeedsProductResolve({
@@ -61,7 +82,7 @@ export async function resolveIngestDrafts(
     }
     const draft = {
       draftId: String(d.id),
-      externalId: String(d.external_id),
+      externalId,
       name: String(d.name),
       brand: (d.brand as string) ?? null,
       model: (d.model as string) ?? null,
@@ -79,7 +100,10 @@ export async function resolveIngestDrafts(
           : null,
       videoTitle: (ingest?.video_title as string) ?? null,
       creatorSuppliedUrl:
-        opts?.creatorSuppliedUrl === true || (d.provider as string | null) === 'manual',
+        (creatorSuppliedSet
+          ? creatorSuppliedSet.has(externalId)
+          : opts?.creatorSuppliedUrl === true) ||
+        (d.provider as string | null) === 'manual',
     };
     await pdpSearchHintsAls.run(
       { brand: draft.brand, name: draft.name, category: draft.category },

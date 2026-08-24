@@ -1,23 +1,37 @@
 import type { MatchScoreResult, NormalizedProduct, SearchCandidate } from '../domain/types';
+import { normalizeProductIdentityTokens } from '../normalizer/ProductIdentityCanonicalizer';
+
+function identityTokenSet(value: string | null | undefined): Set<string> {
+  return new Set(normalizeProductIdentityTokens(value).map((token) => token.toLowerCase()));
+}
+
+function tokenOverlapScore(needles: string[], haystack: Set<string>): number {
+  if (!needles.length) return 0;
+  let hits = 0;
+  for (const token of needles) {
+    if (haystack.has(token.toLowerCase())) hits += 1;
+  }
+  return hits / needles.length;
+}
 
 export class MatchScorer {
   score(ai: NormalizedProduct, candidate: SearchCandidate): MatchScoreResult {
     const title = candidate.title.toLowerCase();
-    const norm = ai.normalizedName;
-    const titleTokens = new Set(title.split(/\s+/).filter(Boolean));
-    const normTokens = norm.split(/\s+/).filter(Boolean);
-    let overlap = 0;
-    for (const t of normTokens) if (titleTokens.has(t)) overlap += 1;
-    const titleScore = normTokens.length ? overlap / normTokens.length : 0;
+    const titleTokens = identityTokenSet(candidate.title);
+    const normTokens = normalizeProductIdentityTokens(ai.normalizedName);
+    const titleScore = tokenOverlapScore(normTokens, titleTokens);
 
     let brandScore = 0;
-    if (ai.normalizedBrand && title.includes(ai.normalizedBrand)) brandScore = 1;
+    const brandTokens = normalizeProductIdentityTokens(ai.normalizedBrand ?? ai.brand);
+    if (brandTokens.length && tokenOverlapScore(brandTokens, titleTokens) === 1) brandScore = 1;
+    else if (ai.normalizedBrand && title.includes(ai.normalizedBrand)) brandScore = 1;
     else if (ai.brand && candidate.merchant?.toLowerCase().includes(ai.brand.toLowerCase())) {
       brandScore = 0.4;
     }
 
     let modelScore = 0;
-    if (ai.model && title.includes(ai.model.toLowerCase())) modelScore = 1;
+    const modelTokens = normalizeProductIdentityTokens(ai.model);
+    if (modelTokens.length) modelScore = tokenOverlapScore(modelTokens, titleTokens);
 
     const candidateScore = Math.min(1, Math.max(0, candidate.score));
     const score =

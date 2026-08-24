@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 
 import { TopBar } from '@/components/chrome/TopBar';
+import { CREATE_STACK_TITLES } from '@/src/ui/createCopy';
 
 export default function CreateStackLayout() {
   return (
@@ -16,9 +17,9 @@ export default function CreateStackLayout() {
         ),
       }}
     >
-      <Stack.Screen name="index" options={{ title: 'Create' }} />
-      <Stack.Screen name="manual" options={{ title: 'Manual products' }} />
-      <Stack.Screen name="review" options={{ title: 'Review picks' }} />
+      <Stack.Screen name="index" options={{ title: CREATE_STACK_TITLES.studio }} />
+      <Stack.Screen name="manual" options={{ title: CREATE_STACK_TITLES.manual }} />
+      <Stack.Screen name="review" options={{ title: CREATE_STACK_TITLES.editor }} />
     </Stack>
   );
 }

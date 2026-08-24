@@ -14,6 +14,8 @@ type Props = {
   isSaved: boolean;
   pending?: boolean;
   disabled?: boolean;
+  /** Icon-only control (matches ShareControl sizing). */
+  iconOnly?: boolean;
   /** @deprecated Colors come from ThemeMode tokens. Kept so call sites stay stable. */
   isLight?: boolean;
   onPress: () => void;
@@ -24,6 +26,7 @@ export function SaveControl({
   isSaved,
   pending = false,
   disabled = false,
+  iconOnly = false,
   onPress,
 }: Props) {
   const { tokens } = useThemeMode();
@@ -47,24 +50,26 @@ export function SaveControl({
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       style={[
-        styles.btn,
+        iconOnly ? styles.iconBtn : styles.btn,
         {
           backgroundColor: tokens.color.overlay,
-          borderRadius: tokens.radius.md,
+          borderRadius: iconOnly ? 20 : tokens.radius.md,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },
       ]}
     >
       {pending ? (
-        <ActivityIndicator color={color} />
+        <ActivityIndicator color={color} size={iconOnly ? 'small' : undefined} />
       ) : (
         <>
           <Ionicons
             name={isSaved ? 'bookmark' : 'bookmark-outline'}
-            size={18}
-            color={color}
+            size={iconOnly ? 20 : 18}
+            color={iconOnly ? tokens.color.icon : color}
           />
-          <Text style={[styles.label, { color, fontSize: tokens.fontSize.bodyStrong }]}>{label}</Text>
+          {iconOnly ? null : (
+            <Text style={[styles.label, { color, fontSize: tokens.fontSize.bodyStrong }]}>{label}</Text>
+          )}
         </>
       )}
     </Pressable>
@@ -79,6 +84,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   label: {
     fontWeight: '700',

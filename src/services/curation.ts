@@ -144,45 +144,10 @@ function mapEdgeToDraft(body: EdgeIngestBody): IngestDraftPayload {
 }
 
 /**
- * Async ingest polling: 3s interval.
- * Default wait **5 minutes** — Gemini + captions + optional 429 backoff often exceeds 60s.
+ * Snapshot poll interval for Collection Editor while product discovery is in progress.
+ * Discovery itself is not blocked on Studio home (UX-CREATE-B.2).
  */
 export const INGEST_ASYNC_POLL_INTERVAL_MS = 3000;
-export const INGEST_ASYNC_POLL_TIMEOUT_MS = 300_000;
-
-async function pollIngestUntilDraftReady(
-  ingestId: string,
-  opts?: { timeoutMs?: number; intervalMs?: number },
-): Promise<void> {
-  const timeoutMs = opts?.timeoutMs ?? INGEST_ASYNC_POLL_TIMEOUT_MS;
-  const intervalMs = opts?.intervalMs ?? INGEST_ASYNC_POLL_INTERVAL_MS;
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const { data, error } = await supabase.from('ingest_requests').select('status').eq('id', ingestId).maybeSingle();
-
-    if (error) {
-      throw new Error(normalizeIngestError(error));
-    }
-
-    const done =
-      data?.status === 'draft' ||
-      data?.status === 'ready_for_review' ||
-      data?.status === 'review_required' ||
-      data?.status === 'failed' ||
-      data?.status === 'rejected';
-    if (done) {
-      return;
-    }
-
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-
-  const sec = Math.round(timeoutMs / 1000);
-  throw new Error(
-    `Extraction is still in progress after ${sec}s (worker may be waiting on Gemini or rate limits). Open Create → Your drafts and tap this item when it shows Ready, or pull to refresh.`,
-  );
-}
 
 /** Load draft row + products + extraction payload from Supabase (RLS: owner only). */
 export async function loadIngestDraftPayload(ingestId: string): Promise<IngestDraftPayload | null> {
@@ -389,24 +354,27 @@ export async function listUserDraftIngests(): Promise<UserDraftIngestSummary[]> 
 }
 
 /**
- * Cold-start path: load draft from DB; if still extracting, poll until `draft` or timeout then reload.
- * Updates in-memory `curationDraftStore`.
+ * Load the current ingest snapshot from DB (no blocking poll).
+ * Product discovery continues in the Collection Editor (UX-CREATE-B.2).
  */
 export async function loadOrResumeIngestDraft(ingestId: string): Promise<IngestDraftPayload | null> {
-  let payload = await loadIngestDraftPayload(ingestId);
+  const payload = await loadIngestDraftPayload(ingestId);
   if (!payload) return null;
-
-  if (payload.status === 'processing' && payload.products.length === 0) {
-    try {
-      await pollIngestUntilDraftReady(ingestId);
-    } catch {
-      /* timeout / network — still return latest snapshot below */
-    }
-    payload = (await loadIngestDraftPayload(ingestId)) ?? payload;
-  }
-
   setCurationDraft(ingestId, payload);
   return payload;
+}
+
+/** Persist Collection Editor story title onto the ingest row (UX-CREATE-B.5). */
+export async function updateIngestVideoTitle(ingestId: string, videoTitle: string): Promise<void> {
+  const trimmed = videoTitle.trim();
+  const { error } = await supabase
+    .from('ingest_requests')
+    .update({
+      video_title: trimmed || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', ingestId);
+  if (error) throw error;
 }
 
 /** Recovery: ask the backend to re-run ProductResolver only for genuinely unresolved drafts. */
@@ -456,12 +424,17 @@ export async function retryUnresolvedIngestDrafts(
 
 export type SubmitIngestUrlOptions = {
   /**
-   * Called synchronously when Edge returns `extractionPending: true`, before polling `ingest_requests`.
-   * Use this to switch the UI to a Processing state immediately.
+   * Called when Edge queues async product discovery (`extractionPending`).
+   * Submit returns immediately after this; the Collection Editor owns further polling.
    */
   onProcessing?: () => void;
   /** Optional display title for the reel (stored on ingest and used when publishing to the feed). */
   videoTitle?: string;
+  /**
+   * UX-CREATE-B.3 — `automatic` (default) starts video product extraction;
+   * `manual` attaches content only and skips the video extraction pipeline.
+   */
+  productAcquisition?: 'automatic' | 'manual';
 };
 
 /** Manual flow: backend fetches OG / JSON-LD for each product link and writes draft rows. */
@@ -542,6 +515,80 @@ export async function submitManualProductLinks(
   return { ingestId: draft.ingestId, status: 'ok', draft, failedProductUrls };
 }
 
+/**
+ * UX-CREATE-B.3 — append product URLs to an exact ingest (never by source URL).
+ * POST /ingest/:ingestId/products
+ */
+export async function appendManualProductsToIngest(
+  ingestId: string,
+  productUrls: string[],
+): Promise<IngestUrlResponse & { noop?: boolean }> {
+  const id = ingestId.trim();
+  if (!id) {
+    throw new Error('ingestId required');
+  }
+  const ingestApiBase = getIngestApiBaseOrThrow();
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  const anon = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  if (!token) {
+    throw new Error('Sign in required.');
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${ingestApiBase}/ingest/${encodeURIComponent(id)}/products`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(anon ? { apikey: anon } : {}),
+      },
+      body: JSON.stringify({ product_urls: productUrls }),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (isLikelyClientFetchNetworkFailure(msg)) {
+      throw new Error(backendUnreachableMessage(ingestApiBase));
+    }
+    throw e instanceof Error ? e : new Error(msg);
+  }
+
+  const raw = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = raw.length ? JSON.parse(raw) : null;
+  } catch {
+    throw new Error(`Invalid JSON from append products (HTTP ${res.status}).`);
+  }
+  const json = parsed as EdgeIngestBody & {
+    error?: string;
+    code?: string;
+    failedProductUrls?: string[];
+    noop?: boolean;
+  };
+  if (!res.ok) {
+    throw new Error(normalizeIngestError(json.error ?? `HTTP ${res.status}`));
+  }
+  if (!json.ingestId || json.ingestId !== id) {
+    throw new Error('Append response ingestId mismatch.');
+  }
+
+  const draft = mapEdgeToDraft(json);
+  setCurationDraft(draft.ingestId, draft);
+  const failedProductUrls = Array.isArray(json.failedProductUrls)
+    ? json.failedProductUrls.filter((u): u is string => typeof u === 'string')
+    : undefined;
+  return {
+    ingestId: draft.ingestId,
+    status: 'ok',
+    draft,
+    failedProductUrls,
+    noop: json.noop === true,
+  };
+}
+
 export async function submitIngestUrl(
   sourceUrl: string,
   options?: SubmitIngestUrlOptions,
@@ -586,6 +633,9 @@ export async function submitIngestUrl(
           ...(options?.videoTitle?.trim()
             ? { video_title: options.videoTitle.trim().slice(0, 200) }
             : {}),
+          ...(options?.productAcquisition === 'manual'
+            ? { product_acquisition: 'manual' }
+            : { product_acquisition: 'automatic' }),
         }),
       });
       const raw = await res.text();
@@ -621,45 +671,9 @@ export async function submitIngestUrl(
   }
 
   if (!invokeErr && data?.ingestId) {
-    let draft = mapEdgeToDraft(data);
+    const draft = mapEdgeToDraft(data);
     if (data.extractionPending) {
       options?.onProcessing?.();
-      try {
-        await pollIngestUntilDraftReady(draft.ingestId);
-      } catch {
-        /** Race: poll ended just before worker wrote `draft`; one final read avoids a false failure. */
-        const late = await loadIngestDraftPayload(draft.ingestId);
-        if (
-          late?.status === 'draft' ||
-          late?.status === 'ready_for_review' ||
-          late?.status === 'review_required'
-        ) {
-          draft = late;
-          setCurationDraft(draft.ingestId, draft);
-          curationLogIngestResult({
-            ok: true,
-            ingestId: draft.ingestId,
-            status: 'ok',
-            extractionSource: draft.extractionSource,
-            extractionStatus: draft.extractionStatus,
-            extractionDurationMs: draft.extractionDurationMs,
-            traceId: draft.traceId,
-            extractionErrorCode: draft.extractionError?.code,
-          });
-          return { ingestId: draft.ingestId, status: 'ok', draft };
-        }
-        throw new Error(
-          `Extraction is still running on the server after ${INGEST_ASYNC_POLL_TIMEOUT_MS / 1000}s. Go to Create → Your drafts — tap the ingest when it shows Ready (the worker runs in the background).`,
-        );
-      }
-      const refreshed = await loadIngestDraftPayload(draft.ingestId);
-      if (!refreshed) {
-        throw new Error('Could not load draft products after extraction finished.');
-      }
-      if (refreshed.status === 'rejected') {
-        throw new Error('This video did not pass automated content review.');
-      }
-      draft = refreshed;
     }
     setCurationDraft(draft.ingestId, draft);
     curationLogIngestResult({
@@ -702,7 +716,7 @@ type PublishIngestBody = {
 
 async function invokePublishIngest(
   body: PublishIngestBody,
-): Promise<{ ok: boolean; videoId?: string; error?: string }> {
+): Promise<{ ok: boolean; videoId?: string; collectionId?: string; error?: string }> {
   let ingestApiBase: string;
   try {
     ingestApiBase = getIngestApiBaseOrThrow();
@@ -734,12 +748,22 @@ async function invokePublishIngest(
     } catch {
       return { ok: false, error: `Invalid JSON from publish (${res.status})` };
     }
-    const json = parsed as { ok?: boolean; videoId?: string; error?: string; detail?: string };
+    const json = parsed as {
+      ok?: boolean;
+      videoId?: string;
+      collectionId?: string;
+      error?: string;
+      detail?: string;
+    };
     if (!res.ok) {
       const parts = [json.error, json.detail].filter(Boolean);
       return { ok: false, error: parts.join(' ') || `HTTP ${res.status}` };
     }
-    return { ok: !!json.ok, videoId: json.videoId };
+    return {
+      ok: !!json.ok,
+      videoId: typeof json.videoId === 'string' ? json.videoId : undefined,
+      collectionId: typeof json.collectionId === 'string' ? json.collectionId : undefined,
+    };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (isLikelyClientFetchNetworkFailure(msg)) {
@@ -753,7 +777,7 @@ export async function publishIngestSelection(
   ingestId: string,
   selectedProductIds: string[],
   draft: IngestDraftPayload,
-): Promise<{ ok: boolean; error?: string; videoId?: string }> {
+): Promise<{ ok: boolean; error?: string; videoId?: string; collectionId?: string }> {
   if (ingestId.trim() !== draft.ingestId.trim()) {
     return {
       ok: false,
@@ -772,7 +796,7 @@ export async function publishIngestSelection(
     reject_all: false,
   });
   if (result.ok) {
-    return { ok: true, videoId: result.videoId };
+    return { ok: true, videoId: result.videoId, collectionId: result.collectionId };
   }
   return { ok: false, error: result.error ?? 'Publish failed' };
 }

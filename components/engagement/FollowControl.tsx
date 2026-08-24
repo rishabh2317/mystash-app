@@ -13,6 +13,8 @@ type Props = {
   isFollowing: boolean;
   pending?: boolean;
   disabled?: boolean;
+  /** Compact chip for inline placement beside a name. */
+  size?: 'default' | 'compact';
   /** @deprecated Colors come from ThemeMode tokens. */
   isLight?: boolean;
   labelOverride?: string;
@@ -23,6 +25,7 @@ export function FollowControl({
   isFollowing,
   pending = false,
   disabled = false,
+  size = 'default',
   labelOverride,
   onPress,
 }: Props) {
@@ -34,10 +37,12 @@ export function FollowControl({
     success: isFollowing,
     pressed,
   });
+  const compact = size === 'compact';
   const label = labelOverride ?? (isFollowing ? 'Following' : 'Follow');
   const onAccent = !isFollowing && !labelOverride;
   const spinnerColor = onAccent ? tokens.color.textOnAccent : tokens.color.text;
   const labelColor = onAccent ? tokens.color.textOnAccent : tokens.color.text;
+  const labelSize = compact ? tokens.fontSize.caption : tokens.fontSize.body;
 
   return (
     <Pressable
@@ -49,9 +54,9 @@ export function FollowControl({
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       style={[
-        styles.btn,
+        compact ? styles.compactBtn : styles.btn,
         {
-          borderRadius: tokens.radius.md,
+          borderRadius: compact ? tokens.radius.sm : tokens.radius.md,
           borderWidth: tokens.stroke.hairline,
           backgroundColor: onAccent ? tokens.color.text : tokens.color.overlay,
           borderColor: onAccent ? 'transparent' : tokens.color.border,
@@ -60,9 +65,9 @@ export function FollowControl({
       ]}
     >
       {pending ? (
-        <ActivityIndicator color={spinnerColor} />
+        <ActivityIndicator color={spinnerColor} size={compact ? 'small' : undefined} />
       ) : (
-        <Text style={[styles.label, { color: labelColor, fontSize: tokens.fontSize.body }]}>
+        <Text style={[styles.label, { color: labelColor, fontSize: labelSize }]}>
           {label}
         </Text>
       )}
@@ -77,6 +82,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
+  },
+  compactBtn: {
+    minWidth: 0,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
   },
   label: {
     fontWeight: '700',

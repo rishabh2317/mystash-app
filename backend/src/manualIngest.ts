@@ -438,10 +438,10 @@ export async function retryUnresolvedIngestDrafts(
     return { ranResolver: false };
   }
 
-  const creatorSuppliedUrl = (rows ?? []).some((r) => (r.provider as string | null) === 'manual');
   await resolveIngestDrafts(admin, ingestId, ingestId, {
-    creatorSuppliedUrl,
     onlyUnresolved: true,
+    // Per-row provider === 'manual' gates creator-supplied URL inside resolveIngestDrafts.
+    // Do not broadcast creatorSuppliedUrl:true across AI drafts.
   });
 
   const { data: ingest } = await admin

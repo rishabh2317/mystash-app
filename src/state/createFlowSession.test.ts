@@ -5,9 +5,21 @@ import {
   completeCreateFlow,
   exitCreateFlowAfterAbandon,
   exitCreateFlowAfterSuccess,
+  exitCreateFlowToCollection,
+  exitCreateFlowToCreateAnother,
   getCreateFlowSessionId,
   subscribeCreateFlowSession,
+  type CreateStackRouter,
 } from './createFlowSession';
+
+function mockRouter(calls: string[]): CreateStackRouter {
+  return {
+    canDismiss: () => true,
+    dismissAll: () => calls.push('dismissAll'),
+    replace: (href) => calls.push(`replace:${href}`),
+    push: (href) => calls.push(`push:${href}`),
+  };
+}
 
 describe('createFlowSession', () => {
   it('increments only on complete/abandon, not on subscribe', () => {
@@ -25,31 +37,46 @@ describe('createFlowSession', () => {
 
   it('dismisses the Create stack then goes home after publish', () => {
     const calls: string[] = [];
-    exitCreateFlowAfterSuccess({
-      canDismiss: () => true,
-      dismissAll: () => calls.push('dismissAll'),
-      replace: (href) => calls.push(`replace:${href}`),
-    });
+    exitCreateFlowAfterSuccess(mockRouter(calls));
     assert.deepEqual(calls, ['dismissAll', 'replace:/']);
   });
 
   it('still navigates home when there is nothing to dismiss', () => {
     const calls: string[] = [];
     exitCreateFlowAfterSuccess({
+      ...mockRouter(calls),
       canDismiss: () => false,
-      dismissAll: () => calls.push('dismissAll'),
-      replace: (href) => calls.push(`replace:${href}`),
     });
     assert.deepEqual(calls, ['replace:/']);
   });
 
+  it('opens Collection over Home so Back is not a dead end', () => {
+    const calls: string[] = [];
+    exitCreateFlowToCollection(mockRouter(calls), 'col-123');
+    assert.deepEqual(calls, ['dismissAll', 'replace:/', 'push:/collection/col-123']);
+  });
+
+  it('falls back to feed when Collection id is missing', () => {
+    const calls: string[] = [];
+    exitCreateFlowToCollection(
+      {
+        ...mockRouter(calls),
+        canDismiss: () => false,
+      },
+      '  ',
+    );
+    assert.deepEqual(calls, ['replace:/']);
+  });
+
+  it('returns to Creator Studio for Create another', () => {
+    const calls: string[] = [];
+    exitCreateFlowToCreateAnother(mockRouter(calls));
+    assert.deepEqual(calls, ['dismissAll', 'replace:/(tabs)/create']);
+  });
+
   it('abandons to Create root without going home', () => {
     const calls: string[] = [];
-    exitCreateFlowAfterAbandon({
-      canDismiss: () => true,
-      dismissAll: () => calls.push('dismissAll'),
-      replace: (href) => calls.push(`replace:${href}`),
-    });
+    exitCreateFlowAfterAbandon(mockRouter(calls));
     assert.deepEqual(calls, ['dismissAll']);
   });
 });

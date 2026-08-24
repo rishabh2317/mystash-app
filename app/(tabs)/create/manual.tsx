@@ -1,6 +1,8 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { useThemeMode } from '@/contexts/ThemeContext';
 import { CreatorOnboardingPanel } from '@/components/creator/CreatorOnboardingPanel';
+import { CreateInlineNotice } from '@/components/create/CreateInlineNotice';
+import { CreateScreenShell } from '@/components/create/CreateScreenShell';
+import { StatusBlock } from '@/components/status/StatusBlock';
 import { submitManualProductLinks } from '@/src/services/curation';
 import {
   activateCreatorAccount,
@@ -8,16 +10,23 @@ import {
   type UserSettingsViewModel,
   UserApiError,
 } from '@/src/services/userApi';
+import { useThemeTokens } from '@/src/theme/useThemeTokens';
+import { CREATE_COPY } from '@/src/ui/createCopy';
+import {
+  createFieldColors,
+  createPrimaryButtonStyle,
+  createSurfaceStyle,
+} from '@/src/ui/createChrome';
+import { createPartialProductLinksMessage, createUnsupportedUrlFieldError } from '@/src/ui/createFeedback';
+import { useAppToast } from '@/src/ui/useAppToast';
 import { isSupportedVideoUrl } from '@/src/utils/videoUtils';
 import { useCreateFlowReset } from '@/src/state/createFlowSession';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -44,18 +53,20 @@ function normalizeHttpUrl(s: string): string | null {
 export default function ManualProductsScreen() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { mode } = useThemeMode();
-  const isLight = mode === 'titanium';
+  const tokens = useThemeTokens();
+  const { showToast } = useAppToast();
 
   const [videoUrl, setVideoUrl] = useState('');
   const [videoTitle, setVideoTitle] = useState('');
   const [rows, setRows] = useState<string[]>(['']);
   const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [partialWarning, setPartialWarning] = useState<string | null>(null);
   const [preview, setPreview] = useState<
     | null
     | {
         ingestId: string;
-        products: Array<{ id: string; name: string; price: string; image?: string; affiliateUrl: string }>;
+        products: { id: string; name: string; price: string; image?: string; affiliateUrl: string }[];
       }
   >(null);
   const [me, setMe] = useState<UserSettingsViewModel | null>(null);
@@ -65,6 +76,10 @@ export default function ManualProductsScreen() {
 
   const isActiveCreator = me?.creatorStatus === 'ACTIVE';
   const videoOk = isSupportedVideoUrl(videoUrl.trim());
+  const field = createFieldColors(tokens, { invalid: Boolean(videoUrl.trim()) && !videoOk });
+  const titleField = createFieldColors(tokens);
+  const productField = createFieldColors(tokens);
+  const surface = createSurfaceStyle(tokens);
 
   const refreshMe = useCallback(() => {
     if (!user) {
@@ -94,6 +109,8 @@ export default function ManualProductsScreen() {
       setRows(['']);
       setBusy(false);
       setPreview(null);
+      setFormError(null);
+      setPartialWarning(null);
     }, []),
   );
 
@@ -102,7 +119,7 @@ export default function ManualProductsScreen() {
     setMeError(null);
     try {
       setMe(await activateCreatorAccount({ displayName }));
-      Alert.alert('You are a creator', 'You can now add Collections manually.');
+      showToast({ tone: 'success', title: CREATE_COPY.creatorActivatedManualToast });
     } catch (e) {
       setMeError(
         e instanceof UserApiError
@@ -130,6 +147,11 @@ export default function ManualProductsScreen() {
 
   const canSubmit =
     videoOk && uniqueProductUrls.length >= 1 && uniqueProductUrls.length <= MAX_PRODUCTS && !busy;
+  const primary = createPrimaryButtonStyle(tokens, {
+    disabled: !canSubmit,
+    pending: busy,
+  });
+  const urlFieldError = createUnsupportedUrlFieldError(videoUrl, videoOk);
 
   const addRow = () => {
     setRows((r) => (r.length < MAX_PRODUCTS ? [...r, ''] : r));
@@ -147,8 +169,10 @@ export default function ManualProductsScreen() {
   };
 
   const onFetchDetails = async () => {
+    setFormError(null);
+    setPartialWarning(null);
     if (!isActiveCreator) {
-      Alert.alert('Creator required', 'Become an ACTIVE creator before creating Collections.');
+      setFormError(CREATE_COPY.creatorRequiredBody);
       return;
     }
     if (!canSubmit) return;
@@ -159,7 +183,7 @@ export default function ManualProductsScreen() {
         videoTitle: videoTitle.trim() || undefined,
       });
       if (!res.ingestId || !res.draft) {
-        Alert.alert('Something went wrong', 'Could not save manual draft.');
+        setFormError(CREATE_COPY.manualSaveFailedInline);
         return;
       }
       setPreview({
@@ -172,23 +196,16 @@ export default function ManualProductsScreen() {
           affiliateUrl: p.affiliateUrl,
         })),
       });
-      if (res.failedProductUrls && res.failedProductUrls.length > 0) {
-        Alert.alert(
-          'Some links could not be read',
-          `Saved ${res.draft.products.length} product(s). Could not extract: ${res.failedProductUrls.join(', ')}`,
-        );
-      }
+      const partial = createPartialProductLinksMessage(res.failedProductUrls ?? []);
+      if (partial) setPartialWarning(partial);
     } catch (e) {
       const msg = (e as Error).message ?? 'Unknown error';
       if (/Creator status ACTIVE required/i.test(msg)) {
         refreshMe();
-        Alert.alert(
-          'Creator required',
-          'Your account is not an ACTIVE creator yet. Finish creator setup, then try again.',
-        );
+        setFormError(CREATE_COPY.creatorRequiredSetupBody);
         return;
       }
-      Alert.alert('Could not fetch products', msg);
+      setFormError(msg || CREATE_COPY.manualSaveFailedInline);
     } finally {
       setBusy(false);
     }
@@ -201,47 +218,33 @@ export default function ManualProductsScreen() {
 
   if (authLoading) {
     return (
-      <View style={[styles.screen, styles.centered]}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-        />
-        <ActivityIndicator size="large" color={isLight ? '#00AFC0' : '#A855F7'} />
-      </View>
+      <CreateScreenShell>
+        <StatusBlock kind="loading" message={CREATE_COPY.editorLoading} fill />
+      </CreateScreenShell>
     );
   }
 
   if (!user) {
     return (
-      <View style={styles.screen}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8'] : ['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-        />
+      <CreateScreenShell>
         <View style={[styles.inner, styles.centered]}>
-          <Text style={[styles.title, { color: isLight ? '#1A1A1B' : '#F8FAFC', textAlign: 'center' }]}>
-            Sign in to continue
-          </Text>
-          <TouchableOpacity style={styles.primary} onPress={() => router.replace('/(tabs)/profile')}>
-            <Text style={styles.primaryText}>Go to Profile</Text>
-          </TouchableOpacity>
+          <StatusBlock
+            kind="empty"
+            title={CREATE_COPY.signInTitle}
+            message={CREATE_COPY.signInBody}
+            actionLabel="Go to Profile"
+            onAction={() => router.replace('/(tabs)/profile')}
+          />
         </View>
-      </View>
+      </CreateScreenShell>
     );
   }
 
   if (!isActiveCreator) {
     return (
-      <View style={styles.screen}>
-        <LinearGradient
-          colors={isLight ? ['#FDFDFD', '#E8E8E8', '#D1D1D1'] : ['#0D111F', '#020408']}
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.8, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
+      <CreateScreenShell>
         <ScrollView style={styles.scroll} contentContainerStyle={styles.inner}>
           <CreatorOnboardingPanel
-            isLight={isLight}
             creatorStatus={me?.creatorStatus ?? null}
             username={me?.username ?? null}
             displayName={me?.displayName ?? null}
@@ -252,63 +255,114 @@ export default function ManualProductsScreen() {
             onRetry={refreshMe}
           />
         </ScrollView>
-      </View>
+      </CreateScreenShell>
     );
   }
 
   return (
-    <View style={styles.screen}>
-      <LinearGradient
-        colors={isLight ? ['#FDFDFD', '#E8E8E8', '#D1D1D1'] : ['#0D111F', '#020408']}
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Add products manually</Text>
-        <Text style={[styles.sub, { color: isLight ? '#4E5257' : '#AEB8C5' }]}>
-          Paste your reel or Short first, then up to five unique shop links. Product pages go through the same
-          Product Intelligence path (skipping video extraction). Profile URLs are not supported.
+    <CreateScreenShell>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.inner,
+          { padding: tokens.space.md + 4, gap: tokens.space.sm, paddingBottom: tokens.space.xl + 8 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text
+          style={{
+            color: tokens.color.text,
+            fontSize: tokens.fontSize.display,
+            fontWeight: tokens.fontWeight.extraBold,
+          }}
+        >
+          {CREATE_COPY.manualHeadline}
+        </Text>
+        <Text
+          style={{
+            color: tokens.color.textMuted,
+            fontSize: tokens.fontSize.bodyStrong,
+            lineHeight: 20,
+          }}
+        >
+          {CREATE_COPY.manualSubhead}
         </Text>
 
-        <Text style={[styles.fieldLabel, { color: isLight ? '#64748B' : '#94A3B8' }]}>Reel / Short URL</Text>
+        <Text
+          style={{
+            color: tokens.color.textMuted,
+            fontSize: 13,
+            fontWeight: tokens.fontWeight.semibold,
+          }}
+        >
+          {CREATE_COPY.contentUrlLabel}
+        </Text>
         <TextInput
           value={videoUrl}
-          onChangeText={setVideoUrl}
-          placeholder="https://youtube.com/shorts/… or instagram.com/reel/…"
-          placeholderTextColor={isLight ? '#94A3B8' : '#64748B'}
+          onChangeText={(value) => {
+            setVideoUrl(value);
+            setFormError(null);
+          }}
+          placeholder={CREATE_COPY.contentUrlPlaceholder}
+          placeholderTextColor={field.placeholderTextColor}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
           style={[
             styles.input,
             {
-              color: isLight ? '#111827' : '#F8FAFC',
-              borderColor: videoOk || !videoUrl.trim() ? 'rgba(148,163,184,0.45)' : '#EF4444',
-              backgroundColor: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.08)',
+              color: field.color,
+              borderColor: field.borderColor,
+              backgroundColor: field.backgroundColor,
+              borderRadius: tokens.radius.md,
+              fontSize: tokens.fontSize.body,
             },
           ]}
         />
+        {urlFieldError ? (
+          <CreateInlineNotice
+            tone="error"
+            title={CREATE_COPY.unsupportedUrlTitle}
+            body={`${urlFieldError} ${CREATE_COPY.urlExamplesHint}`}
+          />
+        ) : null}
 
-        <Text style={[styles.fieldLabel, { color: isLight ? '#64748B' : '#94A3B8' }]}>Video title (optional)</Text>
+        <Text
+          style={{
+            color: tokens.color.textMuted,
+            fontSize: 13,
+            fontWeight: tokens.fontWeight.semibold,
+          }}
+        >
+          {CREATE_COPY.collectionTitleLabel}
+        </Text>
         <TextInput
           value={videoTitle}
           onChangeText={setVideoTitle}
-          placeholder="Shown in drafts and feed after publish"
-          placeholderTextColor={isLight ? '#94A3B8' : '#64748B'}
+          placeholder={CREATE_COPY.collectionTitlePlaceholder}
+          placeholderTextColor={titleField.placeholderTextColor}
           autoCapitalize="sentences"
           maxLength={200}
           style={[
             styles.input,
             {
-              color: isLight ? '#111827' : '#F8FAFC',
-              borderColor: 'rgba(148,163,184,0.45)',
-              backgroundColor: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.08)',
+              color: titleField.color,
+              borderColor: titleField.borderColor,
+              backgroundColor: titleField.backgroundColor,
+              borderRadius: tokens.radius.md,
+              fontSize: tokens.fontSize.body,
             },
           ]}
         />
 
-        <Text style={[styles.fieldLabel, { color: isLight ? '#64748B' : '#94A3B8', marginTop: 8 }]}>
+        <Text
+          style={{
+            color: tokens.color.textMuted,
+            fontSize: 13,
+            fontWeight: tokens.fontWeight.semibold,
+            marginTop: tokens.space.xs,
+          }}
+        >
           Product links ({uniqueProductUrls.length}/{MAX_PRODUCTS} unique)
         </Text>
         {rows.map((line, index) => (
@@ -317,7 +371,7 @@ export default function ManualProductsScreen() {
               value={line}
               onChangeText={(t) => updateRow(index, t)}
               placeholder={`Product URL ${index + 1}`}
-              placeholderTextColor={isLight ? '#94A3B8' : '#64748B'}
+              placeholderTextColor={productField.placeholderTextColor}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
@@ -325,15 +379,29 @@ export default function ManualProductsScreen() {
                 styles.input,
                 styles.rowInput,
                 {
-                  color: isLight ? '#111827' : '#F8FAFC',
-                  borderColor: 'rgba(148,163,184,0.45)',
-                  backgroundColor: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.08)',
+                  color: productField.color,
+                  borderColor: productField.borderColor,
+                  backgroundColor: productField.backgroundColor,
+                  borderRadius: tokens.radius.md,
+                  fontSize: tokens.fontSize.body,
                 },
               ]}
             />
             {rows.length > 1 ? (
-              <TouchableOpacity onPress={() => removeRow(index)} style={styles.removeBtn}>
-                <Text style={styles.removeBtnText}>✕</Text>
+              <TouchableOpacity
+                onPress={() => removeRow(index)}
+                style={[
+                  styles.removeBtn,
+                  {
+                    backgroundColor:
+                      tokens.mode === 'titanium' ? 'rgba(185,28,28,0.14)' : 'rgba(252,165,165,0.2)',
+                    borderRadius: tokens.radius.sm + 2,
+                  },
+                ]}
+              >
+                <Text style={{ color: tokens.color.danger, fontSize: 16, fontWeight: tokens.fontWeight.bold }}>
+                  ✕
+                </Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -341,116 +409,164 @@ export default function ManualProductsScreen() {
 
         {rows.length < MAX_PRODUCTS ? (
           <TouchableOpacity style={styles.outlineBtn} onPress={addRow}>
-            <Text style={[styles.outlineBtnText, { color: isLight ? '#0E7490' : '#93C5FD' }]}>＋ Add another link</Text>
+            <Text
+              style={{
+                color: tokens.color.accent,
+                fontWeight: tokens.fontWeight.bold,
+                fontSize: tokens.fontSize.bodyStrong,
+              }}
+            >
+              ＋ Add another link
+            </Text>
           </TouchableOpacity>
         ) : null}
 
+        {formError ? (
+          <CreateInlineNotice
+            tone="error"
+            body={formError}
+            actionLabel={CREATE_COPY.feedbackDismiss}
+            onAction={() => setFormError(null)}
+          />
+        ) : null}
+        {partialWarning ? (
+          <CreateInlineNotice
+            tone="warning"
+            title={CREATE_COPY.partialLinksTitle}
+            body={partialWarning}
+          />
+        ) : null}
+
         <TouchableOpacity
-          style={[styles.primary, { opacity: canSubmit ? 1 : 0.45 }]}
+          style={[styles.primary, primary, { marginTop: tokens.space.sm, paddingVertical: 14 }]}
           disabled={!canSubmit}
           onPress={onFetchDetails}
+          accessibilityState={{ busy }}
         >
           {busy ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={tokens.color.successOn} />
           ) : (
-            <Text style={styles.primaryText}>Fetch product details</Text>
+            <Text
+              style={{
+                color: tokens.color.successOn,
+                fontWeight: tokens.fontWeight.extraBold,
+                fontSize: tokens.fontSize.body,
+              }}
+            >
+              {CREATE_COPY.manualFetch}
+            </Text>
           )}
         </TouchableOpacity>
 
         {preview ? (
-          <View style={{ marginTop: 20, gap: 12 }}>
-            <Text style={[styles.sectionTitle, { color: isLight ? '#1A1A1B' : '#F8FAFC' }]}>Preview</Text>
+          <View style={{ marginTop: tokens.space.lg - 4, gap: tokens.space.sm }}>
+            <Text
+              style={{
+                color: tokens.color.text,
+                fontSize: tokens.fontSize.title,
+                fontWeight: tokens.fontWeight.extraBold,
+              }}
+            >
+              {CREATE_COPY.manualPreview}
+            </Text>
             {preview.products.map((p) => (
               <View
                 key={p.id}
                 style={[
                   styles.previewCard,
                   {
-                    borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)',
-                    backgroundColor: isLight ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.06)',
+                    borderColor: surface.borderColor,
+                    backgroundColor: surface.backgroundColor,
+                    borderRadius: tokens.radius.lg,
                   },
                 ]}
               >
                 {p.image ? (
                   <Image source={{ uri: p.image }} style={styles.previewThumb} contentFit="cover" />
                 ) : (
-                  <View style={[styles.previewThumb, styles.thumbPh]} />
+                  <View
+                    style={[
+                      styles.previewThumb,
+                      { backgroundColor: tokens.color.canvasEnd, borderRadius: tokens.radius.sm + 2 },
+                    ]}
+                  />
                 )}
                 <View style={{ flex: 1, gap: 4 }}>
-                  <Text style={[styles.previewName, { color: isLight ? '#111827' : '#F8FAFC' }]} numberOfLines={2}>
+                  <Text
+                    style={{
+                      color: tokens.color.text,
+                      fontSize: tokens.fontSize.body,
+                      fontWeight: tokens.fontWeight.bold,
+                    }}
+                    numberOfLines={2}
+                  >
                     {p.name}
                   </Text>
-                  <Text style={[styles.previewMeta, { color: isLight ? '#64748B' : '#94A3B8' }]}>
+                  <Text style={{ color: tokens.color.textMuted, fontSize: tokens.fontSize.caption }}>
                     {p.price} · Shop link wrapped for tracking
                   </Text>
                 </View>
               </View>
             ))}
-            <TouchableOpacity style={styles.secondaryFull} onPress={goReview}>
-              <Text style={styles.secondaryFullText}>Continue to review</Text>
+            <TouchableOpacity
+              style={[
+                styles.secondaryFull,
+                {
+                  backgroundColor: tokens.color.cta,
+                  borderRadius: tokens.radius.md,
+                  marginTop: tokens.space.xxs,
+                },
+              ]}
+              onPress={goReview}
+            >
+              <Text
+                style={{
+                  color: tokens.color.successOn,
+                  fontWeight: tokens.fontWeight.extraBold,
+                  fontSize: tokens.fontSize.body,
+                }}
+              >
+                {CREATE_COPY.manualContinue}
+              </Text>
             </TouchableOpacity>
           </View>
         ) : null}
       </ScrollView>
-    </View>
+    </CreateScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
   scroll: { flex: 1 },
   centered: { justifyContent: 'center', alignItems: 'center' },
   inner: { flexGrow: 1, padding: 20, paddingTop: 12, gap: 10, paddingBottom: 40 },
-  title: { fontSize: 22, fontWeight: '800' },
-  sub: { fontSize: 14, lineHeight: 20 },
-  fieldLabel: { fontSize: 13, fontWeight: '600' },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    fontSize: 15,
   },
   rowWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   rowInput: { flex: 1 },
   removeBtn: {
     width: 36,
     height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(248,113,113,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  removeBtnText: { color: '#F87171', fontSize: 16, fontWeight: '700' },
   primary: {
-    marginTop: 12,
-    backgroundColor: '#111827',
-    borderRadius: 12,
-    paddingVertical: 14,
     alignItems: 'center',
   },
-  primaryText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   outlineBtn: { alignSelf: 'flex-start', paddingVertical: 8 },
-  outlineBtnText: { fontWeight: '700', fontSize: 14 },
-  sectionTitle: { fontSize: 17, fontWeight: '800' },
   previewCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     padding: 10,
-    borderRadius: 14,
     borderWidth: 1,
   },
   previewThumb: { width: 64, height: 64, borderRadius: 10 },
-  thumbPh: { backgroundColor: '#334155' },
-  previewName: { fontSize: 15, fontWeight: '700' },
-  previewMeta: { fontSize: 12 },
   secondaryFull: {
-    marginTop: 4,
-    borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
-    backgroundColor: '#0EA5E9',
   },
-  secondaryFullText: { color: '#fff', fontWeight: '800', fontSize: 15 },
 });

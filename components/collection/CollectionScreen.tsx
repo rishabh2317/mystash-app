@@ -1,16 +1,12 @@
-import InstagramReelItem from '@/components/InstagramReelItem';
-import YouTubeReelItem from '@/components/YouTubeReelItem';
 import { ProductCard, ProductDetailsSheet } from '@/components/commerce';
-import type { Video } from '@/src/mocks/videos';
-import {
-  useProductAddToCartHandler,
-} from '@/src/services/productActionOrchestration';
-import { openProductShopping } from '@/src/services/shoppingClick';
+import { FollowControl } from '@/components/engagement/FollowControl';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
-import { getVideoUrlInfo } from '@/src/utils/videoUtils';
+import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
+import { openProductShopping } from '@/src/services/shoppingClick';
+import { useIsFocused } from '@react-navigation/native';
 import { Image } from 'expo-image';
-import { useRouter, type Href } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
@@ -21,8 +17,14 @@ import {
   View,
 } from 'react-native';
 
+import { CollectionMediaReference } from './CollectionMediaReference';
 import { CollectionPageHeader } from './CollectionPageHeader';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import {
+  collectionMediaReference,
+  COLLECTION_SCROLL_HORIZONTAL_PADDING,
+  splitCollectionProducts,
+} from '@/src/ui/collectionLayout';
 
 type Props = {
   collection: CollectionDetailViewModel;
@@ -31,27 +33,11 @@ type Props = {
   savePending?: boolean;
   onSavePress?: () => void;
   onSharePress?: () => void;
+  isFollowing?: boolean;
+  followPending?: boolean;
+  isSelf?: boolean;
+  onFollowPress?: () => void;
 };
-
-function mediaPreviewVideo(
-  collection: CollectionDetailViewModel,
-): Video | null {
-  const media = collection.primaryMedia;
-  if (!media?.sourceUrl && !media?.embedUrl) return null;
-  const url = media.sourceUrl ?? media.embedUrl ?? '';
-  return {
-    id: `collection-preview:${collection.collectionId}`,
-    url,
-    thumbnail: media.thumbnailUrl ?? collection.heroThumbnailUrl ?? '',
-    creator_name: collection.creator.displayName ?? collection.creator.username ?? 'Creator',
-    stash_score: collection.qualityScore ?? 0,
-    product_name: collection.products[0]?.title ?? collection.title ?? 'Collection',
-    embed_url: media.embedUrl ?? undefined,
-    video_title: media.title ?? collection.title ?? undefined,
-    curator_id: collection.creator.username ?? undefined,
-    collection_id: collection.collectionId,
-  };
-}
 
 export function CollectionScreen({
   collection,
@@ -60,6 +46,10 @@ export function CollectionScreen({
   savePending = false,
   onSavePress,
   onSharePress,
+  isFollowing = false,
+  followPending = false,
+  isSelf = false,
+  onFollowPress,
 }: Props) {
   const router = useRouter();
   const { tokens } = useThemeMode();
@@ -69,15 +59,16 @@ export function CollectionScreen({
 
   const text = tokens.color.text;
   const muted = tokens.color.textMuted;
-
   const headerTitle = collection.title?.trim() || 'Collection';
-
   const creatorLabel =
     collection.creator.displayName?.trim() ||
     (collection.creator.username ? `@${collection.creator.username}` : 'Creator');
-
-  const previewVideo = useMemo(() => mediaPreviewVideo(collection), [collection]);
-  const urlInfo = previewVideo?.url ? getVideoUrlInfo(previewVideo.url) : null;
+  const caption = collection.caption?.trim() ?? '';
+  const media = useMemo(() => collectionMediaReference(collection), [collection]);
+  const { featured, shopAll } = useMemo(
+    () => splitCollectionProducts(collection.products),
+    [collection.products],
+  );
 
   const onBuy = useCallback(
     async (product: CatalogProductViewModel) => {
@@ -105,6 +96,14 @@ export function CollectionScreen({
     }
   }, [collection.creator.username, router]);
 
+  const openDetails = useCallback((p: CatalogProductViewModel) => {
+    setDetailsProduct(p);
+    setDetailsVisible(true);
+  }, []);
+
+  const productCount = collection.products.length;
+  const isFocused = useIsFocused();
+
   return (
     <View style={[styles.root, { backgroundColor: tokens.color.canvas }]}>
       <CollectionPageHeader
@@ -119,90 +118,101 @@ export function CollectionScreen({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.contextBlock}>
+        <View style={styles.creatorRow}>
           {collection.creator.avatarUrl ? (
-            <Image
-              source={{ uri: collection.creator.avatarUrl }}
-              style={styles.avatar}
-              contentFit="cover"
-            />
-          ) : null}
-          <View style={styles.contextText}>
             <Pressable
               onPress={collection.creator.username ? openCreator : undefined}
               disabled={!collection.creator.username}
             >
-              <Text style={[styles.creator, { color: tokens.color.accent }]}>
-                {creatorLabel}
-              </Text>
+              <Image
+                source={{ uri: collection.creator.avatarUrl }}
+                style={styles.avatar}
+                contentFit="cover"
+              />
             </Pressable>
-            {collection.qualityScore != null ? (
-              <Text style={[styles.meta, { color: muted }]}>
-                Stash score {collection.qualityScore.toFixed(1)}
-              </Text>
-            ) : null}
-            {collection.caption?.trim() ? (
-              <Text style={[styles.caption, { color: muted }]}>{collection.caption.trim()}</Text>
+          ) : (
+            <View style={[styles.avatar, { backgroundColor: tokens.color.canvasEnd }]} />
+          )}
+          <View style={styles.creatorCopy}>
+            <View style={styles.nameRow}>
+              <Pressable
+                onPress={collection.creator.username ? openCreator : undefined}
+                disabled={!collection.creator.username}
+                accessibilityRole="link"
+                accessibilityLabel={`Creator ${creatorLabel}`}
+              >
+                <Text style={[styles.creator, { color: tokens.color.accent }]}>{creatorLabel}</Text>
+              </Pressable>
+              {!isSelf && onFollowPress ? (
+                <FollowControl
+                  isFollowing={isFollowing}
+                  pending={followPending}
+                  size="compact"
+                  onPress={onFollowPress}
+                />
+              ) : null}
+            </View>
+            {collection.creator.username ? (
+              <Text style={[styles.handle, { color: muted }]}>@{collection.creator.username}</Text>
             ) : null}
           </View>
         </View>
 
-        <Text style={[styles.sectionTitle, { color: text }]}>All products</Text>
-        {collection.products.length === 0 ? (
-          <Text style={[styles.empty, { color: muted }]}>No products in this collection yet.</Text>
-        ) : (
-          collection.products.map((product) => (
-            <View key={product.id} style={styles.productRow}>
-              <ProductCard
-                product={product}
-                isLight={isLight}
-                variant="standard"
-                onPress={(p) => {
-                  setDetailsProduct(p);
-                  setDetailsVisible(true);
-                }}
-                onAddToCart={product.catalogProductId ? onAddToCart : undefined}
-                onBuy={product.catalogProductId ? onBuy : undefined}
-              />
-            </View>
-          ))
-        )}
+        {caption ? (
+          <Text style={[styles.caption, { color: muted }]}>{caption}</Text>
+        ) : null}
 
-        {previewVideo && urlInfo?.isValid ? (
-          <View style={styles.mediaSection}>
-            <View style={styles.mediaHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: text, marginTop: 0 }]}>Source video</Text>
-              <Pressable
-                onPress={() => router.push(`/reel/${collection.collectionId}` as Href)}
-                accessibilityRole="button"
-                accessibilityLabel="Open immersive reel"
-                style={styles.watchBtn}
-              >
-                <Text style={[styles.watchBtnText, { color: tokens.color.accent }]}>
-                  Watch reel
-                </Text>
-              </Pressable>
-            </View>
-            <Pressable
-              onPress={() => router.push(`/reel/${collection.collectionId}` as Href)}
-              accessibilityRole="button"
-              accessibilityLabel="Open immersive reel"
+        {media ? (
+          <CollectionMediaReference
+            media={media}
+            collection={collection}
+            isActive={isFocused}
+          />
+        ) : null}
+
+        {featured.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: text }]}>Featured</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.rail}
             >
-              <View
-                style={[
-                  styles.mediaBox,
-                  { backgroundColor: isLight ? '#111827' : '#000' },
-                ]}
-              >
-                {urlInfo.platform === 'youtube' ? (
-                  <YouTubeReelItem video={previewVideo} isActive onBuyPress={() => {}} />
-                ) : urlInfo.platform === 'instagram' ? (
-                  <InstagramReelItem video={previewVideo} isActive onBuyPress={() => {}} />
-                ) : null}
-              </View>
-            </Pressable>
+              {featured.map((product) => (
+                <View key={`featured-${product.id}`} style={styles.railCard}>
+                  <ProductCard
+                    product={product}
+                    isLight={isLight}
+                    variant="compact"
+                    onPress={openDetails}
+                    onAddToCart={product.catalogProductId ? onAddToCart : undefined}
+                    onBuy={product.catalogProductId ? onBuy : undefined}
+                  />
+                </View>
+              ))}
+            </ScrollView>
           </View>
         ) : null}
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: text }]}>Shop all products</Text>
+          {shopAll.length === 0 ? (
+            <Text style={[styles.empty, { color: muted }]}>No products in this collection yet.</Text>
+          ) : (
+            shopAll.map((product) => (
+              <View key={product.id} style={styles.productRow}>
+                <ProductCard
+                  product={product}
+                  isLight={isLight}
+                  variant="standard"
+                  onPress={openDetails}
+                  onAddToCart={product.catalogProductId ? onAddToCart : undefined}
+                  onBuy={product.catalogProductId ? onBuy : undefined}
+                />
+              </View>
+            ))
+          )}
+        </View>
       </ScrollView>
 
       <ProductDetailsSheet
@@ -220,73 +230,63 @@ export function CollectionScreen({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
+    paddingHorizontal: COLLECTION_SCROLL_HORIZONTAL_PADDING,
+    paddingBottom: 40,
     gap: 12,
   },
-  contextBlock: {
+  creatorRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
-    alignItems: 'flex-start',
     marginTop: 4,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#94A3B8',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
-  contextText: {
+  creatorCopy: {
     flex: 1,
-    gap: 4,
+    gap: 2,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   creator: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
   },
-  meta: {
+  handle: {
     fontSize: 13,
     fontWeight: '600',
   },
   caption: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+  section: {
+    gap: 10,
+    marginTop: 8,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
-    marginTop: 8,
   },
   empty: {
     fontSize: 14,
-    marginTop: 4,
+  },
+  rail: {
+    gap: 10,
+    paddingRight: 8,
+  },
+  railCard: {
+    width: 268,
   },
   productRow: {
-    marginTop: 4,
-  },
-  mediaSection: {
-    marginTop: 8,
-    gap: 10,
-  },
-  mediaHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  watchBtn: {
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-  },
-  watchBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  mediaBox: {
-    width: '100%',
-    aspectRatio: 9 / 16,
-    maxHeight: 420,
-    borderRadius: 16,
-    overflow: 'hidden',
+    marginTop: 2,
   },
 });

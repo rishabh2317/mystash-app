@@ -61,7 +61,7 @@ export interface IngestDraftPayload {
   extractionDurationMs?: number;
   /** Correlates with Supabase Edge function JSON logs for the same request. */
   traceId?: string;
-  /** True while async extraction job has not finished (poll DB until draft). */
+  /** True while async product discovery has not finished (Editor polls; Studio does not block). */
   extractionPending?: boolean;
 }
 

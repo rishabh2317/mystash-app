@@ -2,8 +2,8 @@ import React, { createContext, useContext, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 /**
- * UX-B.2 extension point for UX-B.10 toasts.
- * Hosts a pointer-events-box-none overlay. Does not render toast UI yet.
+ * UX-B.2 FeedbackHost — overlay slot for app toasts (UX-CREATE-B.6 / UX-B.10).
+ * Screens must use useAppToast / useFeedbackSlot; do not invent a parallel host.
  */
 type FeedbackSlotApi = {
   setSlot: (node: React.ReactNode) => void;
@@ -31,7 +31,7 @@ export function FeedbackHost({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Reserved for UX-B.10. Screens must not invent a parallel toast host. */
+/** Reserved for toast rendering via useAppToast (FeedbackHost). */
 export function useFeedbackSlot(): FeedbackSlotApi {
   const ctx = useContext(FeedbackSlotContext);
   if (!ctx) {

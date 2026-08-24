@@ -77,7 +77,8 @@ export const BAG_COPY = {
   keepInBag: 'Keep in Bag?',
   keepInBagAction: 'Keep in Bag',
   removeFromBag: 'Remove from Bag',
-  buy: 'Buy',
+  /** Opens merchant / product destination (not an in-app purchase). */
+  buy: 'View Product',
 } as const;
 
 /** Rewrite leaked internal “cart” wording for UI. Does not change API names. */

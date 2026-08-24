@@ -1,3 +1,4 @@
+export { AppToast } from './AppToast';
 export { AppTabBar } from './AppTabBar';
 export { BackButton } from './BackButton';
 export { BagButton } from './BagButton';

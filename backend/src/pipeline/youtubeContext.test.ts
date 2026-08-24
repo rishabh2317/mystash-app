@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   classifyYoutubePlayability,
+  gatherYoutubeContext,
   parseInnertubePlayerContext,
   parseStructuredDescriptionFromNext,
+  shouldSkipYoutubeSecondaryFetches,
 } from './youtubeContext';
 
 describe('classifyYoutubePlayability', () => {
@@ -138,5 +140,72 @@ describe('parseStructuredDescriptionFromNext', () => {
     });
     assert.equal(parsed.description, '');
     assert.equal(parsed.emptyConfirmed, true);
+  });
+});
+
+describe('shouldSkipYoutubeSecondaryFetches', () => {
+  it('skips timedtext/next when UNPLAYABLE and there are no caption tracks', () => {
+    assert.equal(
+      shouldSkipYoutubeSecondaryFetches({
+        playabilityStatus: 'UNPLAYABLE',
+        captionTrackCount: 0,
+      }),
+      true,
+    );
+  });
+
+  it('keeps caption/description fallbacks for playable videos', () => {
+    assert.equal(
+      shouldSkipYoutubeSecondaryFetches({
+        playabilityStatus: 'OK',
+        captionTrackCount: 0,
+      }),
+      false,
+    );
+    assert.equal(
+      shouldSkipYoutubeSecondaryFetches({
+        playabilityStatus: 'UNPLAYABLE',
+        captionTrackCount: 1,
+      }),
+      false,
+    );
+  });
+});
+
+describe('gatherYoutubeContext fast-fail', () => {
+  it('does not call next or timedtext after UNPLAYABLE player with no captions', async () => {
+    const urls: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes('oembed')) {
+        return new Response(
+          JSON.stringify({ title: 'Gone', author_name: 'x', thumbnail_url: 'https://img' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/player')) {
+        return new Response(
+          JSON.stringify({ playabilityStatus: { status: 'UNPLAYABLE' } }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected YouTube fetch ${url}`);
+    }) as typeof fetch;
+    try {
+      const pack = await gatherYoutubeContext('abc123xyz00', {
+        ingestId: 'ing-1',
+        traceId: 'tr-1',
+      });
+      assert.equal(pack.playabilityStatus, 'UNPLAYABLE');
+      assert.equal(pack.transcript, '');
+      assert.equal(
+        urls.some((u) => u.includes('/next') || u.includes('timedtext')),
+        false,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
