@@ -23,7 +23,12 @@ export async function resolveIngestDrafts(
     ingestId,
     {
       async enqueue(job) {
-        await enqueueProductResolve(job);
+        try {
+          await enqueueProductResolve(job);
+        } catch (err) {
+          if ((err as Error).message === 'ingest.queue.redis_unavailable') return;
+          throw err;
+        }
       },
     },
     traceId,

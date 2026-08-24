@@ -334,4 +334,548 @@ describe('TavilyEnrichedPdpSearchStrategy integration', () => {
     assert.ok(discoveryCalls >= 1);
     assert.equal(result.kind, 'Succeeded');
   });
+
+  it('enriches Official + Amazon first and skips BestBuy when merged metadata is ≥90%', async () => {
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'bestbuy.com',
+              merchantUrl: 'https://www.bestbuy.com/site/macbook-air/6509650.p',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.99,
+            },
+            {
+              merchant: 'apple.com',
+              merchantUrl: 'https://www.apple.com/in/macbook-air/',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.8,
+            },
+            {
+              merchant: 'amazon.in',
+              merchantUrl: 'https://www.amazon.in/dp/mac',
+              title: 'Apple MacBook Air',
+              image: null,
+              score: 0.85,
+            },
+          ],
+        };
+      },
+    };
+    const extracted: string[] = [];
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        extracted.push(input.merchantUrl);
+        const isApple = input.merchantUrl.includes('apple.com');
+        const isAmazon = /amazon\./i.test(input.merchantUrl);
+        return {
+          title: 'MacBook Air M4 13-inch laptop',
+          brand: 'Apple',
+          image: 'https://cdn.example/mac.jpg',
+          primaryImage: 'https://cdn.example/mac.jpg',
+          description: 'The most capable MacBook Air yet with M4 chip.',
+          merchantUrl: input.merchantUrl,
+          price: isAmazon ? '99900' : null,
+          currency: isAmazon ? 'INR' : null,
+          availability: isAmazon ? 'InStock' : null,
+          specifications: (isApple ? { Chip: 'M4' } : { Display: '13.6 inch' }) as Record<
+            string,
+            string
+          >,
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+      5,
+    );
+    const result = await pdpSearchHintsAls.run(
+      { brand: 'Apple', name: 'MacBook Air M4', category: 'laptops' },
+      () => strategy.search('Apple MacBook Air M4 laptops'),
+    );
+    assert.equal(result.kind, 'Succeeded');
+    assert.deepEqual(
+      [...extracted].sort(),
+      [
+        'https://www.amazon.in/dp/mac',
+        'https://www.apple.com/in/macbook-air/',
+      ].sort(),
+    );
+    assert.equal(extracted.includes('https://www.bestbuy.com/site/macbook-air/6509650.p'), false);
+    if (result.kind === 'Succeeded') {
+      assert.ok(result.candidates.every((c) => c.enrichmentSucceeded === true));
+      assert.equal(
+        result.candidates.some((c) => c.shoppingEligible === true) ||
+          result.candidates.some((c) => c.shoppingEligible === false),
+        true,
+      );
+    }
+  });
+
+  it('falls back to remaining shortlist merchants when Official + Amazon stay below 90%', async () => {
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'apple.com',
+              merchantUrl: 'https://www.apple.com/in/macbook-air/',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.8,
+            },
+            {
+              merchant: 'amazon.in',
+              merchantUrl: 'https://www.amazon.in/dp/mac',
+              title: 'Apple MacBook Air',
+              image: null,
+              score: 0.85,
+            },
+            {
+              merchant: 'bestbuy.com',
+              merchantUrl: 'https://www.bestbuy.com/site/macbook-air/6509650.p',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.7,
+            },
+          ],
+        };
+      },
+    };
+    const extracted: string[] = [];
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        extracted.push(input.merchantUrl);
+        return {
+          title: 'Mac',
+          brand: 'Apple',
+          merchantUrl: input.merchantUrl,
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+      5,
+    );
+    await pdpSearchHintsAls.run(
+      { brand: 'Apple', name: 'MacBook Air M4', category: 'laptops' },
+      () => strategy.search('Apple MacBook Air M4 laptops'),
+    );
+    const preferred = extracted.slice(0, 2);
+    assert.ok(preferred.includes('https://www.apple.com/in/macbook-air/'));
+    assert.ok(preferred.includes('https://www.amazon.in/dp/mac'));
+    assert.ok(extracted.includes('https://www.bestbuy.com/site/macbook-air/6509650.p'));
+  });
+
+  it('continues with Amazon then fallback when Official is missing', async () => {
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'amazon.com',
+              merchantUrl: 'https://www.amazon.com/dp/B0MAC',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.9,
+            },
+            {
+              merchant: 'bestbuy.com',
+              merchantUrl: 'https://www.bestbuy.com/site/macbook-air/6509650.p',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.8,
+            },
+          ],
+        };
+      },
+    };
+    const extracted: string[] = [];
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        extracted.push(input.merchantUrl);
+        return {
+          title: 'Mac',
+          brand: 'Apple',
+          merchantUrl: input.merchantUrl,
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+    );
+    await pdpSearchHintsAls.run(
+      { brand: 'Apple', name: 'MacBook Air', category: 'laptops' },
+      () => strategy.search('MacBook Air'),
+    );
+    assert.equal(extracted[0], 'https://www.amazon.com/dp/B0MAC');
+    assert.ok(extracted.includes('https://www.bestbuy.com/site/macbook-air/6509650.p'));
+  });
+
+  it('stops metadata enrichment at ≥90% without waiting for additional commerce merchants', async () => {
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'apple.com',
+              merchantUrl: 'https://www.apple.com/in/macbook-air/',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.8,
+            },
+            {
+              merchant: 'amazon.in',
+              merchantUrl: 'https://www.amazon.in/dp/mac',
+              title: 'Apple MacBook Air',
+              image: null,
+              score: 0.85,
+            },
+            {
+              merchant: 'bestbuy.com',
+              merchantUrl: 'https://www.bestbuy.com/site/macbook-air/6509650.p',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.7,
+            },
+          ],
+        };
+      },
+    };
+    const extracted: string[] = [];
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        extracted.push(input.merchantUrl);
+        return {
+          title: 'MacBook Air M4 13-inch laptop',
+          brand: 'Apple',
+          image: 'https://cdn.example/mac.jpg',
+          primaryImage: 'https://cdn.example/mac.jpg',
+          description: 'The most capable MacBook Air yet with M4 chip.',
+          merchantUrl: input.merchantUrl,
+          price: '99900',
+          currency: 'INR',
+          availability: 'InStock',
+          specifications: { Chip: 'M4' },
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+    );
+    const result = await pdpSearchHintsAls.run(
+      { brand: 'Apple', name: 'MacBook Air M4', category: 'laptops' },
+      () => strategy.search('MacBook Air'),
+    );
+    assert.equal(extracted.includes('https://www.bestbuy.com/site/macbook-air/6509650.p'), false);
+    if (result.kind === 'Succeeded') {
+      assert.equal(extracted.length, 2);
+    }
+  });
+
+  it('still attempts Amazon preferred discovery when Amazon is absent from the Serper shortlist', async () => {
+    const queries: string[] = [];
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(q: string): Promise<SearchResult> {
+        queries.push(q);
+        if (q.includes('site:amazon.com')) {
+          return {
+            kind: 'Succeeded',
+            provider: 'serper',
+            candidates: [
+              {
+                merchant: 'amazon.com',
+                merchantUrl: 'https://www.amazon.com/dp/B0HIDDEN',
+                title: 'MacBook Air',
+                image: null,
+                score: 0.9,
+              },
+            ],
+          };
+        }
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'apple.com',
+              merchantUrl: 'https://www.apple.com/in/macbook-air/',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.8,
+            },
+            {
+              merchant: 'bestbuy.com',
+              merchantUrl: 'https://www.bestbuy.com/site/macbook-air/6509650.p',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.99,
+            },
+          ],
+        };
+      },
+    };
+    const extracted: string[] = [];
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        extracted.push(input.merchantUrl);
+        return {
+          title: 'MacBook Air M4 13-inch laptop',
+          brand: 'Apple',
+          image: 'https://cdn.example/mac.jpg',
+          primaryImage: 'https://cdn.example/mac.jpg',
+          description: 'The most capable MacBook Air yet with M4 chip.',
+          merchantUrl: input.merchantUrl,
+          price: '99900',
+          currency: 'INR',
+          availability: 'InStock',
+          specifications: { Chip: 'M4' },
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+    );
+    await pdpSearchHintsAls.run(
+      { brand: 'Apple', name: 'MacBook Air M4', category: 'laptops' },
+      () => strategy.search('MacBook Air M4'),
+    );
+    assert.ok(queries.some((q) => q.includes('site:amazon.com')));
+    assert.ok(extracted.includes('https://www.amazon.com/dp/B0HIDDEN'));
+    assert.ok(extracted.includes('https://www.apple.com/in/macbook-air/'));
+    assert.equal(extracted.includes('https://www.bestbuy.com/site/macbook-air/6509650.p'), false);
+  });
+
+  it('enriches one canonical Official PDP when several regional Official URLs are discovered', async () => {
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'apple.com',
+              merchantUrl: 'https://www.apple.com/in/macbook-air/',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.5,
+            },
+            {
+              merchant: 'apple.com',
+              merchantUrl: 'https://www.apple.com/uk/macbook-air/',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.55,
+            },
+            {
+              merchant: 'apple.com',
+              merchantUrl: 'https://www.apple.com/us/macbook-air/',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.95,
+            },
+            {
+              merchant: 'amazon.com',
+              merchantUrl: 'https://www.amazon.com/dp/B0MAC',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.8,
+            },
+          ],
+        };
+      },
+    };
+    const extracted: string[] = [];
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        extracted.push(input.merchantUrl);
+        return {
+          title: 'MacBook Air M4 13-inch laptop',
+          brand: 'Apple',
+          image: 'https://cdn.example/mac.jpg',
+          primaryImage: 'https://cdn.example/mac.jpg',
+          description: 'The most capable MacBook Air yet with M4 chip.',
+          merchantUrl: input.merchantUrl,
+          price: '99900',
+          currency: 'INR',
+          availability: 'InStock',
+          specifications: { Chip: 'M4' },
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+    );
+    await pdpSearchHintsAls.run(
+      { brand: 'Apple', name: 'MacBook Air M4', category: 'laptops' },
+      () => strategy.search('MacBook Air'),
+    );
+    const appleExtracted = extracted.filter((url) => url.includes('apple.com'));
+    assert.equal(appleExtracted.length, 1);
+    assert.equal(extracted.filter((url) => url.includes('amazon.com')).length, 1);
+  });
+
+  it('uses existing fallback when Official and Amazon preferred discovery both fail', async () => {
+    const queries: string[] = [];
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(q: string): Promise<SearchResult> {
+        queries.push(q);
+        if (q.includes('official') || q.includes('site:amazon.com')) {
+          return { kind: 'Succeeded', provider: 'serper', candidates: [] };
+        }
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'bestbuy.com',
+              merchantUrl: 'https://www.bestbuy.com/site/macbook-air/6509650.p',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.9,
+            },
+          ],
+        };
+      },
+    };
+    const extracted: string[] = [];
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        extracted.push(input.merchantUrl);
+        return {
+          title: 'Mac',
+          brand: 'Apple',
+          merchantUrl: input.merchantUrl,
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+    );
+    await pdpSearchHintsAls.run(
+      { brand: 'Apple', name: 'MacBook Air', category: 'laptops' },
+      () => strategy.search('MacBook Air'),
+    );
+    assert.ok(queries.some((q) => q.includes('official')));
+    assert.ok(queries.some((q) => q.includes('site:amazon.com')));
+    assert.deepEqual(extracted, ['https://www.bestbuy.com/site/macbook-air/6509650.p']);
+  });
+
+  it('continues with Official then fallback when Amazon preferred discovery is empty', async () => {
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(q: string): Promise<SearchResult> {
+        if (q.includes('site:amazon.com')) {
+          return { kind: 'Succeeded', provider: 'serper', candidates: [] };
+        }
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'apple.com',
+              merchantUrl: 'https://www.apple.com/in/macbook-air/',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.8,
+            },
+            {
+              merchant: 'bestbuy.com',
+              merchantUrl: 'https://www.bestbuy.com/site/macbook-air/6509650.p',
+              title: 'MacBook Air',
+              image: null,
+              score: 0.7,
+            },
+          ],
+        };
+      },
+    };
+    const extracted: string[] = [];
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        extracted.push(input.merchantUrl);
+        return {
+          title: 'Mac',
+          brand: 'Apple',
+          merchantUrl: input.merchantUrl,
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-1',
+      'trace-1',
+    );
+    await pdpSearchHintsAls.run(
+      { brand: 'Apple', name: 'MacBook Air', category: 'laptops' },
+      () => strategy.search('MacBook Air'),
+    );
+    assert.equal(extracted[0], 'https://www.apple.com/in/macbook-air/');
+    assert.ok(extracted.includes('https://www.bestbuy.com/site/macbook-air/6509650.p'));
+  });
 });
+

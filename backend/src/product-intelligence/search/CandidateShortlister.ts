@@ -27,14 +27,12 @@ function hostOf(url: string): string {
 }
 
 /**
- * Keep multiple trusted PDPs for metadata enrichment.
- * Preserves the pre-capability enrichment admission policy while attaching
- * descriptive classification and capability data for downstream routing.
+ * Classify and rank PDPs without truncating. Used to pick Official/Amazon
+ * from the full discovery set, not only the enrichment shortlist.
  */
-export function shortlistPdpCandidates(
+export function decoratePdpCandidates(
   candidates: SearchCandidate[],
   hints: PdpRankHints,
-  maxCandidates: number,
 ): ShortlistedCandidate[] {
   const ranked = rankPdpCandidates(candidates, hints);
   const rankByUrl = new Map(ranked.map((candidate) => [candidate.merchantUrl, candidate]));
@@ -94,8 +92,20 @@ export function shortlistPdpCandidates(
     }
     return b.pdpScore - a.pdpScore;
   });
+  return decorated;
+}
 
-  const out = decorated.slice(0, maxCandidates);
+/**
+ * Keep multiple trusted PDPs for metadata enrichment.
+ * Preserves the pre-capability enrichment admission policy while attaching
+ * descriptive classification and capability data for downstream routing.
+ */
+export function shortlistPdpCandidates(
+  candidates: SearchCandidate[],
+  hints: PdpRankHints,
+  maxCandidates: number,
+): ShortlistedCandidate[] {
+  const out = decoratePdpCandidates(candidates, hints).slice(0, maxCandidates);
   for (const shortlisted of out) {
     ingestLog('info', 'metadata.candidate.shortlisted', {
       svc: 'product-intelligence',

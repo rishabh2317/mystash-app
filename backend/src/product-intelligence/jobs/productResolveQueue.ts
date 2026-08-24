@@ -1,7 +1,13 @@
 import { Queue, Worker } from 'bullmq';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '../../logger';
-import { getBullmqConnection, withTimeout } from '../../workers/redisConnection';
+import {
+  getBullmqConnection,
+  REDIS_UNAVAILABLE_ENQUEUE_ERROR,
+  resolveRedisAvailability,
+  shouldBypassBullmqEnqueue,
+  withTimeout,
+} from '../../workers/redisConnection';
 import { createProductIntelligence } from '../factory';
 import { pdpSearchHintsAls } from '../search/pdpSearchHints';
 import { createCollectionTagRemap } from '../../collection/factory';
@@ -34,6 +40,10 @@ export function getProductResolveQueue(): Queue<ProductResolveJobData> {
 }
 
 export async function enqueueProductResolve(data: ProductResolveJobData): Promise<void> {
+  const available = await resolveRedisAvailability();
+  if (shouldBypassBullmqEnqueue(available)) {
+    throw new Error(REDIS_UNAVAILABLE_ENQUEUE_ERROR);
+  }
   const q = getProductResolveQueue();
   // One job per draft — background enrichment updates catalog in place.
   await withTimeout(
@@ -189,7 +199,7 @@ export function startProductResolveWorker(admin: SupabaseClient): Worker<Product
       }
       logger.info({ draftId, result: r?.decision }, 'product.resolve.job.done');
     },
-    { connection: getBullmqConnection(), concurrency: 2 },
+    { connection: getBullmqConnection().duplicate(), concurrency: 2 },
   );
 
   worker.on('failed', (job, err) => {

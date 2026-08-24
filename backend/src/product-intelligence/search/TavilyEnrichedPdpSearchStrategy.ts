@@ -1,15 +1,25 @@
 import type { SearchCandidate, SearchResult } from '../domain/types';
 import type { MerchantEnrichmentService } from '../enrichment/MerchantEnrichmentService';
-import { validPriceValue } from '../enrichment/MetadataMergeService';
+import { mergeEnrichedCandidates, validPriceValue } from '../enrichment/MetadataMergeService';
 import type { ProductSearchProvider } from '../interfaces/ProductSearchProvider';
 import type { SearchStrategy, SearchStrategyHints } from '../interfaces/ProductSearchProvider';
 import { ingestLog } from '../../pipeline/ingestLog';
 import { getPdpSearchHints } from './pdpSearchHints';
 import { classifyPdp } from './PdpClassifier';
-import { shortlistPdpCandidates } from './CandidateShortlister';
-import { scoreCandidateDecisions } from '../scoring/CandidateScoring';
 import { classifyCandidatePage } from './CandidatePageClassifier';
+import { decoratePdpCandidates, shortlistPdpCandidates, type ShortlistedCandidate } from './CandidateShortlister';
+import { scoreCandidateDecisions } from '../scoring/CandidateScoring';
 import { isStrongDirectUrlCandidate, merchantUrlsMatch } from './directUrlIdentity';
+import {
+  amazonPreferredSearchQuery,
+  mergeSearchCandidates,
+  officialPreferredSearchQuery,
+  isAmazonPreferredMetadataCandidate,
+  isOfficialPreferredMetadataCandidate,
+  pickPreferredMetadataTargets,
+  shouldStopAfterPreferredMetadata,
+  toDiscoveryCandidates,
+} from './preferredMetadataTargets';
 
 /**
  * Discovery (Serper) → shortlist many PDPs → enrich until fields fill → return all successes.
@@ -56,26 +66,15 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
     }
 
     // Serper is discovery-only — never use search snippets/images as catalog metadata.
-    const discoveryCandidates: SearchCandidate[] = discovery.candidates.map((c) => ({
-      merchant: c.merchant,
-      merchantUrl: c.merchantUrl,
-      title: c.title,
-      snippet: c.snippet,
-      image: null,
-      score: c.score,
-    }));
+    const discoveryCandidates = toDiscoveryCandidates(discovery.candidates);
+    const identityHints = {
+      brand: pdpHints.brand,
+      name: pdpHints.name ?? query,
+      category: pdpHints.category,
+    };
+    const shortlisted = shortlistPdpCandidates(discoveryCandidates, identityHints, this.maxCandidates);
 
-    const shortlisted = shortlistPdpCandidates(
-      discoveryCandidates,
-      {
-        brand: pdpHints.brand,
-        name: pdpHints.name ?? query,
-        category: pdpHints.category,
-      },
-      this.maxCandidates,
-    );
-
-    if (!shortlisted.length) {
+    if (!shortlisted.length && !discoveryCandidates.length) {
       ingestLog('info', 'search.pdp.rank_empty', {
         svc: 'product-intelligence',
         provider: this.discovery.name,
@@ -88,10 +87,117 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       };
     }
 
-    // Candidates are independent. Promise.all is bounded by the configured
-    // shortlist size (max 10) and preserves shortlist order in the result.
-    const enrichmentResults = await Promise.all(
-      shortlisted.map(async (best): Promise<SearchCandidate | null> => {
+    let pool = decoratePdpCandidates(discoveryCandidates, identityHints);
+    let preferred = pickPreferredMetadataTargets(pool);
+    let officialQueryUsed: string | null = null;
+    let amazonQueryUsed: string | null = null;
+    const hasOfficial = Boolean(preferred.find(isOfficialPreferredMetadataCandidate));
+    const hasAmazon = Boolean(preferred.find(isAmazonPreferredMetadataCandidate));
+
+    if (!hasOfficial || !hasAmazon) {
+      const extraQueries: string[] = [];
+      if (!hasOfficial) {
+        officialQueryUsed = officialPreferredSearchQuery(query, pdpHints.brand);
+        extraQueries.push(officialQueryUsed);
+      }
+      if (!hasAmazon) {
+        amazonQueryUsed = amazonPreferredSearchQuery(query);
+        extraQueries.push(amazonQueryUsed);
+      }
+      const extraResults = await Promise.all(
+        extraQueries.map((q) => this.discovery.search(q)),
+      );
+      const extraCandidates = extraResults.flatMap((result) =>
+        result.kind === 'Succeeded' ? toDiscoveryCandidates(result.candidates) : [],
+      );
+      if (extraCandidates.length) {
+        pool = decoratePdpCandidates(
+          mergeSearchCandidates(discoveryCandidates, extraCandidates),
+          identityHints,
+        );
+        preferred = pickPreferredMetadataTargets(pool);
+      }
+    }
+
+    ingestLog('info', 'metadata.enrichment.preferred_discovery', {
+      svc: 'product-intelligence',
+      preferredCount: preferred.length,
+      preferredUrlList: preferred.map((c) => c.merchantUrl.slice(0, 160)).join(','),
+      officialQueryUsed,
+      amazonQueryUsed,
+    });
+
+    const remaining = shortlisted.filter(
+      (candidate) =>
+        !preferred.some((target) => merchantUrlsMatch(target.merchantUrl, candidate.merchantUrl)),
+    );
+
+    const preferredResults =
+      preferred.length > 0
+        ? await Promise.all(preferred.map((best) => this.enrichShortlisted(best, pdpHints)))
+        : [];
+    const preferredEnriched = preferredResults.filter(
+      (candidate): candidate is SearchCandidate => candidate !== null,
+    );
+
+    const mergeInputs = seed
+      ? [
+          seed,
+          ...preferredEnriched.filter((c) => !merchantUrlsMatch(c.merchantUrl, seed.merchantUrl)),
+        ]
+      : preferredEnriched;
+    const preferredCompleteness =
+      mergeInputs.length > 0 ? mergeEnrichedCandidates(mergeInputs).metadataCompleteness : 0;
+
+    ingestLog('info', 'metadata.enrichment.preferred_pass', {
+      svc: 'product-intelligence',
+      preferredCount: preferred.length,
+      preferredUrlList: preferred.map((c) => c.merchantUrl.slice(0, 160)).join(','),
+      mergedCompleteness: preferredCompleteness,
+    });
+
+    let enrichedCandidates = preferredEnriched;
+    const stopAfterPreferred =
+      preferred.length > 0 && shouldStopAfterPreferredMetadata(preferredCompleteness);
+    if (!stopAfterPreferred) {
+      ingestLog('info', 'metadata.enrichment.fallback_pass', {
+        svc: 'product-intelligence',
+        remainingCount: remaining.length,
+        mergedCompleteness: preferredCompleteness,
+      });
+      const fallbackResults = await Promise.all(
+        remaining.map((best) => this.enrichShortlisted(best, pdpHints)),
+      );
+      enrichedCandidates = [
+        ...preferredEnriched,
+        ...fallbackResults.filter((candidate): candidate is SearchCandidate => candidate !== null),
+      ];
+    } else {
+      ingestLog('info', 'metadata.enrichment.preferred_complete', {
+        svc: 'product-intelligence',
+        mergedCompleteness: preferredCompleteness,
+        skippedCount: remaining.length,
+      });
+    }
+
+    const merged = seed
+      ? [
+          seed,
+          ...enrichedCandidates.filter((c) => !merchantUrlsMatch(c.merchantUrl, seed.merchantUrl)),
+        ]
+      : enrichedCandidates;
+
+    return {
+      kind: 'Succeeded',
+      candidates: merged,
+      provider: this.discovery.name,
+    };
+  }
+
+  private async enrichShortlisted(
+    best: ShortlistedCandidate,
+    pdpHints: ReturnType<typeof getPdpSearchHints>,
+  ): Promise<SearchCandidate | null> {
       ingestLog('info', 'metadata.enrichment.started', {
         svc: 'product-intelligence',
         provider: this.discovery.name,
@@ -211,25 +317,6 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         durationMs: Date.now() - started,
       });
       return candidate;
-      }),
-    );
-
-    const enrichedCandidates = enrichmentResults.filter(
-      (candidate): candidate is SearchCandidate => candidate !== null,
-    );
-
-    const merged = seed
-      ? [
-          seed,
-          ...enrichedCandidates.filter((c) => !merchantUrlsMatch(c.merchantUrl, seed.merchantUrl)),
-        ]
-      : enrichedCandidates;
-
-    return {
-      kind: 'Succeeded',
-      candidates: merged,
-      provider: this.discovery.name,
-    };
   }
 
   private async enrichSeedUrl(seedUrl: string): Promise<SearchCandidate | null> {

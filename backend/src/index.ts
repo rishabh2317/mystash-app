@@ -11,7 +11,7 @@ import { handlePublishIngest } from './publish';
 import { logger } from './logger';
 import { enqueueIngestPipeline } from './workers/queue';
 import { runProgressiveIngestPipeline } from './stages/orchestrator';
-import { startIngestPipelineWorker } from './workers/ingestPipelineWorker';
+import { startEmbeddedIngestPipelineWorker } from './workers/ingestPipelineWorker';
 import { startProductResolveWorker } from './product-intelligence';
 import { getEnv } from './env';
 import { createProductRedirectHandler } from './shopping/productRedirect';
@@ -535,18 +535,28 @@ app.post('/ingest', async (req, res) => {
 });
 
 if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
-  try {
-    startIngestPipelineWorker();
-    logger.info('embedded ingest-pipeline worker started');
-  } catch (e) {
-    logger.warn({ err: e }, 'embedded ingest worker failed to start — use npm run worker or fallback path');
-  }
-  try {
-    startProductResolveWorker(createSupabaseAdmin());
-    logger.info('embedded product-resolve worker started');
-  } catch (e) {
-    logger.warn({ err: e }, 'embedded product-resolve worker failed to start');
-  }
+  void (async () => {
+    try {
+      const worker = await startEmbeddedIngestPipelineWorker();
+      if (worker) logger.info('embedded ingest-pipeline worker started');
+    } catch (e) {
+      logger.warn({ err: e }, 'embedded ingest worker failed to start — use npm run worker or fallback path');
+    }
+    try {
+      const { resolveRedisAvailability, shouldBypassBullmqEnqueue } = await import(
+        './workers/redisConnection'
+      );
+      const available = await resolveRedisAvailability();
+      if (shouldBypassBullmqEnqueue(available)) {
+        logger.info('embedded product-resolve worker skipped — redis unavailable');
+        return;
+      }
+      startProductResolveWorker(createSupabaseAdmin());
+      logger.info('embedded product-resolve worker started');
+    } catch (e) {
+      logger.warn({ err: e }, 'embedded product-resolve worker failed to start');
+    }
+  })();
 }
 
 app.listen(PORT, HOST, () => {
