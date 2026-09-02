@@ -306,6 +306,114 @@ describe('CollectionService', () => {
     );
   });
 
+  it('lists published products by creator with dedupe + pagination', async () => {
+    const repo = new InMemoryCollectionRepository();
+    const svc = new CollectionService(repo);
+    const creator = {
+      ...user,
+      id: '22222222-2222-4222-8222-222222222222',
+    };
+
+    async function publishWithProducts(
+      title: string,
+      products: Array<{
+        catalogProductId: string;
+        name: string;
+        resolutionStatus?: 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED';
+      }>,
+    ) {
+      const draft = await svc.createDraft({
+        user: creator,
+        title,
+        originType: 'url_ingest',
+        status: 'processing',
+      });
+      await svc.applyIngestResult({
+        collectionId: draft.id,
+        status: 'ready_for_review',
+        title,
+        proposedTags: products.map((p, i) => ({
+          collectionId: draft.id,
+          tagSource: 'ai' as const,
+          externalId: `ext-${title}-${i}`,
+          nameSnapshot: p.name,
+          brandSnapshot: null,
+          categorySnapshot: null,
+          catalogProductId: p.catalogProductId,
+          resolutionStatus: p.resolutionStatus ?? 'VERIFIED',
+          includeInPublish: true,
+        })),
+      });
+      return svc.publish({
+        collectionId: draft.id,
+        userId: creator.id,
+        user: creator,
+        includeExternalIds: products.map((_, i) => `ext-${title}-${i}`),
+      });
+    }
+
+    const colA = await publishWithProducts('ColA', [
+      { catalogProductId: 'prod-aaa', name: 'Alpha Shoe' },
+      { catalogProductId: 'prod-bbb', name: 'Beta Bag' },
+    ]);
+    const colB = await publishWithProducts('ColB', [
+      { catalogProductId: 'prod-aaa', name: 'Alpha Shoe Alt' },
+      { catalogProductId: 'prod-ccc', name: 'Gamma Hat' },
+    ]);
+    await publishWithProducts('ColC', [
+      { catalogProductId: 'prod-ddd', name: 'Delta Watch', resolutionStatus: 'UNVERIFIED' },
+    ]);
+
+    const draft = await svc.createDraft({
+      user: creator,
+      title: 'Draft products',
+      originType: 'manual_curation',
+    });
+    await repo.insertTag({
+      collectionId: draft.id,
+      catalogProductId: 'prod-zzz',
+      nameSnapshot: 'Hidden Draft Product',
+      tagSource: 'manual',
+      includeInPublish: true,
+      resolutionStatus: 'VERIFIED',
+    });
+
+    const privatePub = await publishWithProducts('Private', [
+      { catalogProductId: 'prod-private', name: 'Private Only' },
+    ]);
+    await repo.updateCollection(privatePub.id, { visibility: 'private' });
+
+    const page1 = await svc.listPublishedProductsByCreator(creator.id, { limit: 2 });
+    assert.equal(page1.products.length, 2);
+    assert.equal(page1.products[0]!.catalogProductId, 'prod-aaa');
+    assert.equal(page1.products[1]!.catalogProductId, 'prod-bbb');
+    assert.ok(page1.nextCursor);
+    // Representative collection for deduped prod-aaa is one of the published cols
+    assert.ok([colA.id, colB.id].includes(page1.products[0]!.collectionId));
+    assert.equal(page1.products[0]!.price, null);
+    assert.equal(page1.products[0]!.verificationStatus, 'VERIFIED');
+
+    const page2 = await svc.listPublishedProductsByCreator(creator.id, {
+      limit: 2,
+      cursor: page1.nextCursor,
+    });
+    assert.equal(page2.products.length, 2);
+    assert.equal(page2.products[0]!.catalogProductId, 'prod-ccc');
+    assert.equal(page2.products[1]!.catalogProductId, 'prod-ddd');
+    assert.equal(page2.products[1]!.verificationStatus, 'UNVERIFIED');
+    assert.equal(page2.nextCursor, null);
+
+    const ids = [...page1.products, ...page2.products].map((p) => p.catalogProductId);
+    assert.deepEqual(ids, ['prod-aaa', 'prod-bbb', 'prod-ccc', 'prod-ddd']);
+    assert.ok(!ids.includes('prod-zzz'));
+    assert.ok(!ids.includes('prod-private'));
+
+    await assert.rejects(
+      () => svc.listPublishedProductsByCreator('not-a-uuid'),
+      /creator_id must be a valid UUID/i,
+    );
+  });
+
   it('rejects draft when creator gate forbids create', async () => {
     const { UserServiceError } = await import('../user/UserService');
     const repo = new InMemoryCollectionRepository();

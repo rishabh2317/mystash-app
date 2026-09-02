@@ -6,6 +6,7 @@ import {
 } from '@/components/commerce';
 import { CreateInlineNotice } from '@/components/create/CreateInlineNotice';
 import { CreateScreenShell } from '@/components/create/CreateScreenShell';
+import { StagedProgressIndicator } from '@/components/create/StagedProgressIndicator';
 import { PublishConfirmSheet } from '@/components/create/PublishConfirmSheet';
 import { PublishSuccessScreen } from '@/components/create/PublishSuccessScreen';
 import { StatusBlock } from '@/components/status/StatusBlock';
@@ -45,6 +46,7 @@ import {
 } from '@/src/ui/createEditorReadiness';
 import { createPartialProductLinksMessage } from '@/src/ui/createFeedback';
 import { ingestAllowsManualProducts, ingestEditorShowsProcessing } from '@/src/ui/createHandoff';
+import { mapManualProductLinkStages, mapVideoExtractionStages } from '@/src/ui/ingestProgressStages';
 import {
   buildPublishConfirmSummary,
   publishProductCountLabel,
@@ -550,19 +552,10 @@ export default function CreateReviewScreen() {
     return (
       <CreateScreenShell>
         <View style={styles.center}>
-          <StatusBlock kind="loading" message={CREATE_COPY.editorProcessing} />
-          <Text
-            style={{
-              marginTop: tokens.space.xs,
-              color: tokens.color.textMuted,
-              textAlign: 'center',
-              paddingHorizontal: tokens.space.lg,
-              fontSize: 13,
-              lineHeight: 18,
-            }}
-          >
-            {CREATE_COPY.editorProcessingHint}
-          </Text>
+          <StagedProgressIndicator
+            stages={mapVideoExtractionStages(draft)}
+            hint={CREATE_COPY.editorProcessingHint}
+          />
           <TouchableOpacity
             style={[
               styles.secondaryBtn,
@@ -584,18 +577,14 @@ export default function CreateReviewScreen() {
                 .finally(() => setPollingBusy(false));
             }}
           >
-            {pollingBusy ? (
-              <ActivityIndicator color={tokens.color.text} />
-            ) : (
-              <Text
-                style={{
-                  color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
-                  fontWeight: tokens.fontWeight.bold,
-                }}
-              >
-                {CREATE_COPY.editorRefresh}
-              </Text>
-            )}
+            <Text
+              style={{
+                color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
+                fontWeight: tokens.fontWeight.bold,
+              }}
+            >
+              {pollingBusy ? CREATE_COPY.editorLoading : CREATE_COPY.editorRefresh}
+            </Text>
           </TouchableOpacity>
         </View>
       </CreateScreenShell>
@@ -1062,15 +1051,14 @@ export default function CreateReviewScreen() {
                 onPress={() => void addManualLinksToCollection()}
                 disabled={manualBusy}
               >
-                {manualBusy ? (
-                  <ActivityIndicator color={tokens.color.successOn} />
-                ) : (
-                  <Text style={{ color: tokens.color.successOn, fontWeight: tokens.fontWeight.extraBold }}>
-                    Add products
-                  </Text>
-                )}
+                <Text style={{ color: tokens.color.successOn, fontWeight: tokens.fontWeight.extraBold }}>
+                  Add products
+                </Text>
               </TouchableOpacity>
             </View>
+            {manualBusy ? (
+              <StagedProgressIndicator stages={mapManualProductLinkStages(0)} />
+            ) : null}
           </View>
         ) : ingestAllowsManualProducts(draft) ? (
           <TouchableOpacity

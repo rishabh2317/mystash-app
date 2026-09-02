@@ -12,15 +12,27 @@ import {
 
 import { ContextActions } from '@/components/chrome/ContextActions';
 import { TopBar } from '@/components/chrome/TopBar';
+import { ProductDetailsSheet } from '@/components/commerce';
 import { CreatorProfile } from '@/components/creator/CreatorProfile';
+import type { CreatorProfileTab } from '@/components/creator/CreatorProfileHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { mapCreatorProductToCatalogViewModel } from '@/src/mappers/creatorProductMapper';
 import { pageCanvasGradient } from '@/src/theme/tokens';
-import { listCreatorCollections } from '@/src/services/collectionApi';
+import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import {
+  listCreatorCollections,
+  listCreatorProducts,
+} from '@/src/services/collectionApi';
 import { useCreatorFollowHandler } from '@/src/services/creatorFollowOrchestration';
 import { isFollowingCreator } from '@/src/services/engagementApi';
+import {
+  useProductAddToCartHandler,
+  useProductBuyHandler,
+} from '@/src/services/productActionOrchestration';
 import { shareCreatorProfile } from '@/src/services/shareLinks';
 import { fetchPublicCreatorByUsername, UserApiError } from '@/src/services/userApi';
+import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CreatorViewModel } from '@/src/types/creator';
 
@@ -36,13 +48,25 @@ export default function CreatorProfileScreen() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
 
+  const [activeTab, setActiveTab] = useState<CreatorProfileTab>('collections');
   const [collections, setCollections] = useState<CollectionViewModel[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [collectionsLoadingMore, setCollectionsLoadingMore] = useState(false);
   const [collectionsError, setCollectionsError] = useState<string | null>(null);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [followPending, setFollowPending] = useState(false);
+  const [collectionsCursor, setCollectionsCursor] = useState<string | null>(null);
 
+  const [products, setProducts] = useState<CatalogProductViewModel[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsLoadingMore, setProductsLoadingMore] = useState(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
+  const [productsCursor, setProductsCursor] = useState<string | null>(null);
+  const [productsLoaded, setProductsLoaded] = useState(false);
+
+  const [followPending, setFollowPending] = useState(false);
+  const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
+
+  const onAddToCart = useProductAddToCartHandler();
+  const onBuy = useProductBuyHandler();
   const loadGen = useRef(0);
 
   const loadProfile = useCallback(async (username: string) => {
@@ -50,13 +74,16 @@ export default function CreatorProfileScreen() {
     setProfileLoading(true);
     setProfileError(null);
     setNotFound(false);
+    setActiveTab('collections');
+    setProducts([]);
+    setProductsLoaded(false);
+    setProductsCursor(null);
     try {
       const profile = await fetchPublicCreatorByUsername(username);
       if (gen !== loadGen.current) return;
       setCreator(profile);
       setProfileLoading(false);
 
-      // Follow status when authenticated
       if (user && user.id !== profile.userId) {
         try {
           const following = await isFollowingCreator(profile.userId);
@@ -95,12 +122,38 @@ export default function CreatorProfileScreen() {
           cursor: cursor ?? null,
         });
         setCollections((prev) => (append ? [...prev, ...page.collections] : page.collections));
-        setNextCursor(page.nextCursor);
+        setCollectionsCursor(page.nextCursor);
       } catch (e) {
         setCollectionsError(e instanceof Error ? e.message : 'Could not load collections');
       } finally {
         setCollectionsLoading(false);
         setCollectionsLoadingMore(false);
+      }
+    },
+    [],
+  );
+
+  const loadProducts = useCallback(
+    async (creatorId: string, cursor?: string | null, append = false) => {
+      if (append) setProductsLoadingMore(true);
+      else {
+        setProductsLoading(true);
+        setProductsError(null);
+      }
+      try {
+        const page = await listCreatorProducts(creatorId, {
+          limit: 20,
+          cursor: cursor ?? null,
+        });
+        const mapped = page.products.map(mapCreatorProductToCatalogViewModel);
+        setProducts((prev) => (append ? [...prev, ...mapped] : mapped));
+        setProductsCursor(page.nextCursor);
+        setProductsLoaded(true);
+      } catch (e) {
+        setProductsError(e instanceof Error ? e.message : 'Could not load products');
+      } finally {
+        setProductsLoading(false);
+        setProductsLoadingMore(false);
       }
     },
     [],
@@ -119,6 +172,11 @@ export default function CreatorProfileScreen() {
     if (!creator?.userId) return;
     void loadCollections(creator.userId);
   }, [creator?.userId, loadCollections]);
+
+  useEffect(() => {
+    if (!creator?.userId || activeTab !== 'products' || productsLoaded) return;
+    void loadProducts(creator.userId);
+  }, [activeTab, creator?.userId, loadProducts, productsLoaded]);
 
   const isSelf = Boolean(user && creator && user.id === creator.userId);
 
@@ -145,10 +203,7 @@ export default function CreatorProfileScreen() {
           ? {
               ...prev,
               isFollowing: previous,
-              followersCount: Math.max(
-                0,
-                prev.followersCount + (previous ? 1 : -1),
-              ),
+              followersCount: Math.max(0, prev.followersCount + (previous ? 1 : -1)),
             }
           : prev,
       );
@@ -162,7 +217,7 @@ export default function CreatorProfileScreen() {
 
   const onPressCollection = useCallback(
     (collection: CollectionViewModel) => {
-      router.push(`/collection/${collection.collectionId}` as Href);
+      router.push(collectionTilePressPath(collection.collectionId) as Href);
     },
     [router],
   );
@@ -181,6 +236,36 @@ export default function CreatorProfileScreen() {
     }
   }, [creator]);
 
+  const onEndReached = useCallback(() => {
+    if (!creator) return;
+    if (activeTab === 'collections') {
+      if (!collectionsCursor || collectionsLoadingMore) return;
+      void loadCollections(creator.userId, collectionsCursor, true);
+      return;
+    }
+    if (!productsCursor || productsLoadingMore) return;
+    void loadProducts(creator.userId, productsCursor, true);
+  }, [
+    activeTab,
+    collectionsCursor,
+    collectionsLoadingMore,
+    creator,
+    loadCollections,
+    loadProducts,
+    productsCursor,
+    productsLoadingMore,
+  ]);
+
+  const onRetry = useCallback(() => {
+    if (!creator) return;
+    if (activeTab === 'collections') {
+      void loadCollections(creator.userId);
+      return;
+    }
+    setProductsLoaded(false);
+    void loadProducts(creator.userId);
+  }, [activeTab, creator, loadCollections, loadProducts]);
+
   const text = tokens.color.text;
   const muted = tokens.color.textMuted;
   const bg = [...pageCanvasGradient(tokens), tokens.color.canvas] as const;
@@ -192,10 +277,14 @@ export default function CreatorProfileScreen() {
         mode="page"
         title={creator ? `@${creator.username}` : 'Creator'}
         showBack
+        showBag={false}
         trailing={
           creator ? (
             <ContextActions
-              share={{ onPress: () => void onSharePress(), accessibilityLabel: 'Share creator profile' }}
+              share={{
+                onPress: () => void onSharePress(),
+                accessibilityLabel: 'Share creator profile',
+              }}
             />
           ) : undefined
         }
@@ -230,21 +319,33 @@ export default function CreatorProfileScreen() {
         <CreatorProfile
           creator={creator}
           collections={collections}
+          products={products}
           isLight={isLight}
           isSelf={isSelf}
           followPending={followPending}
+          activeTab={activeTab}
           collectionsLoading={collectionsLoading}
           collectionsLoadingMore={collectionsLoadingMore}
           collectionsError={collectionsError}
+          productsLoading={productsLoading}
+          productsLoadingMore={productsLoadingMore}
+          productsError={productsError}
           onFollowPress={() => void onFollowPress()}
+          onTabChange={setActiveTab}
           onPressCollection={onPressCollection}
-          onEndReachedCollections={() => {
-            if (!nextCursor || collectionsLoadingMore || !creator) return;
-            void loadCollections(creator.userId, nextCursor, true);
-          }}
-          onRetryCollections={() => void loadCollections(creator.userId)}
+          onPressProduct={setDetailsProduct}
+          onEndReached={onEndReached}
+          onRetry={onRetry}
         />
       ) : null}
+
+      <ProductDetailsSheet
+        visible={detailsProduct != null}
+        product={detailsProduct}
+        onClose={() => setDetailsProduct(null)}
+        onAddToCart={detailsProduct?.catalogProductId ? onAddToCart : undefined}
+        onBuy={detailsProduct?.catalogProductId ? onBuy : undefined}
+      />
     </View>
   );
 }

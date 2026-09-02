@@ -3,9 +3,11 @@ import * as Haptics from 'expo-haptics';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useCartOptional } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import type { AddToCartOutcome } from '@/src/services/productActionOrchestration';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
+import { catalogProductInBag } from '@/src/ui/bagMembership';
 import { BAG_COPY, controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 
 type Props = {
@@ -19,15 +21,18 @@ type Props = {
 /**
  * User-facing Add to Bag.
  * Parent owns Cart API / auth. Control owns default → pressed → pending → success | error.
- * Success is in-control copy + haptics (toast host is UX-B.10).
+ * After a successful add, stays on Added to Bag and ignores further presses while the product is in Bag.
  */
 export function AddToCartButton({ product, variant = 'card', onAddToCart }: Props) {
   const { tokens } = useThemeMode();
+  const cart = useCartOptional();
   const [pending, setPending] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState(false);
   const [pressed, setPressed] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inBag = catalogProductInBag(cart?.items ?? [], product.catalogProductId);
+  const added = inBag || success;
 
   const clearTimer = () => {
     if (resetTimer.current) {
@@ -38,18 +43,21 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
 
   useEffect(() => {
     setPending(false);
-    setSuccess(false);
     setError(false);
     clearTimer();
   }, [product.id, product.catalogProductId]);
+
+  useEffect(() => {
+    setSuccess(catalogProductInBag(cart?.items ?? [], product.catalogProductId));
+  }, [cart?.items, product.catalogProductId]);
 
   useEffect(() => () => clearTimer(), []);
 
   const phase = resolveControlPhase({
     pending,
-    error,
-    success,
-    pressed: pressed && !pending && !success && !error,
+    error: error && !added,
+    success: added,
+    pressed: pressed && !pending && !added && !error,
   });
 
   const scheduleReset = () => {
@@ -62,7 +70,7 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
   };
 
   const onPress = async () => {
-    if (pending) return;
+    if (pending || added) return;
     setError(false);
     setSuccess(false);
     setPending(true);
@@ -88,7 +96,6 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
         /* haptics are optional */
       }
       setSuccess(true);
-      scheduleReset();
     } catch {
       setPending(false);
       setError(true);
@@ -134,14 +141,14 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
       onPress={() => {
         void onPress();
       }}
-      disabled={pending}
+      disabled={pending || added}
       accessibilityRole="button"
       accessibilityLabel={
-        phase === 'success'
+        added || phase === 'success'
           ? `${product.title}, ${BAG_COPY.added}`
           : `${BAG_COPY.add} ${product.title}`
       }
-      accessibilityState={{ busy: pending, disabled: pending }}
+      accessibilityState={{ busy: pending, disabled: pending || added }}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       style={[

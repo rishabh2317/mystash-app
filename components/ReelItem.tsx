@@ -1,94 +1,113 @@
 import { ThemedText } from '@/components/themed-text';
-import { Video } from '@/src/mocks/videos';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useThemeMode } from '@/contexts/ThemeContext';
+import type { Product, Video } from '@/src/mocks/videos';
+import { feedThumbnailFadeMs } from '@/src/ui/feedA11y';
+import { usePrefersReducedMotion } from '@/src/ui/usePrefersReducedMotion';
 import React, { useRef, useState } from 'react';
-import { Dimensions, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { getVideoUrlInfo, transformToEmbedUrl } from '../src/utils/videoUtils';
-import Header from './Header';
-import BottomDock from './BottomDock';
+import BottomDock, {
+  type BottomDockFollow,
+  type BottomDockSave,
+  type BottomDockShare,
+} from './BottomDock';
+import { ReelActionStack } from './feed/ReelActionStack';
 import InstagramReelItem from './InstagramReelItem';
 import YouTubeReelItem from './YouTubeReelItem';
-
-const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface ReelItemProps {
   video: Video;
   isActive: boolean;
-  onBuyPress: (video: Video) => void;
+  onProductPress?: (product: Product) => void;
+  follow?: BottomDockFollow | null;
+  save?: BottomDockSave | null;
+  share?: BottomDockShare | null;
+  creatorAvatarUrl?: string | null;
+  creatorUsername?: string | null;
+  creatorDisplayName?: string | null;
 }
 
-export default function ReelItem({ video, isActive, onBuyPress }: ReelItemProps) {
-  const router = useRouter();
-  
-  // Validate and transform the video URL
+export default function ReelItem({
+  video,
+  isActive,
+  onProductPress,
+  follow,
+  save,
+  share,
+  creatorAvatarUrl,
+  creatorUsername,
+  creatorDisplayName,
+}: ReelItemProps) {
+  const { tokens } = useThemeMode();
+  const reduceMotion = usePrefersReducedMotion();
+  const fadeMs = feedThumbnailFadeMs({
+    reduceMotion,
+    normalMs: tokens.motion.thumbnailFadeMs,
+    reducedMs: tokens.motion.thumbnailFadeReducedMs,
+  });
   let transformedVideo = { ...video };
-  
+
   if (video.url) {
-    // Use existing embed_url if available, otherwise transform the original URL
     if (!video.embed_url) {
       const embedUrl = transformToEmbedUrl(video.url);
       if (embedUrl) {
         transformedVideo.embed_url = embedUrl;
       }
     } else {
-      // Use the existing embed_url directly
       transformedVideo.embed_url = video.embed_url;
     }
-    
-    // Validate the video URL
+
     const urlInfo = getVideoUrlInfo(video.url);
-    
+
     if (!urlInfo.isValid) {
-      // Invalid video source fallback UI
       return (
-        <View style={styles.container}>
-          <View style={styles.fallbackContainer}>
+        <View style={[styles.stage, { backgroundColor: tokens.color.canvas }]}>
+          <View style={styles.fallback}>
             <ThemedText style={styles.fallbackText}>Invalid Video Source</ThemedText>
             <ThemedText style={styles.fallbackSubtext}>This video cannot be displayed</ThemedText>
           </View>
         </View>
       );
     }
-    
-    // Render platform-specific component with Product Dock
+
     if (urlInfo.platform === 'youtube') {
       return (
-        <YouTubeReelItemWrapper 
-          video={transformedVideo} 
+        <YouTubeReelStage
+          video={transformedVideo}
           originalVideo={video}
-          isActive={isActive} 
-          onBuyPress={onBuyPress} 
-          router={router}
+          isActive={isActive}
+          fadeMs={fadeMs}
+          onProductPress={onProductPress}
+          follow={follow}
+          save={save}
+          share={share}
+          creatorAvatarUrl={creatorAvatarUrl}
+          creatorUsername={creatorUsername}
+          creatorDisplayName={creatorDisplayName}
         />
       );
     }
-    
+
     if (urlInfo.platform === 'instagram') {
       return (
-        <View style={styles.container}>
-          <LinearGradient
-            colors={['#05070A', '#0A0E14', '#05070A']}
-            locations={[0, 0.5, 1]}
-            style={styles.radialGradient}
-          />
-          <InstagramReelItem video={transformedVideo} isActive={isActive} onBuyPress={onBuyPress} />
-          <Header />
-          <BottomDock video={video} router={router} />
-        </View>
+        <ReelStageShell
+          video={video}
+          media={<InstagramReelItem video={transformedVideo} isActive={isActive} fadeMs={fadeMs} />}
+          onProductPress={onProductPress}
+          follow={follow}
+          save={save}
+          share={share}
+          creatorAvatarUrl={creatorAvatarUrl}
+          creatorUsername={creatorUsername}
+          creatorDisplayName={creatorDisplayName}
+        />
       );
     }
   }
-  
-  // Unsupported platform fallback UI
+
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={['#05070A', '#0A0E14', '#05070A']}
-        locations={[0, 0.5, 1]}
-        style={styles.radialGradient}
-      />
-      <View style={styles.fallbackContainer}>
+    <View style={[styles.stage, { backgroundColor: tokens.color.canvas }]}>
+      <View style={styles.fallback}>
         <ThemedText style={styles.fallbackText}>Unsupported Platform</ThemedText>
         <ThemedText style={styles.fallbackSubtext}>This video platform is not yet supported</ThemedText>
       </View>
@@ -96,70 +115,132 @@ export default function ReelItem({ video, isActive, onBuyPress }: ReelItemProps)
   );
 }
 
-interface YouTubeReelItemWrapperProps {
+function ReelStageShell({
+  video,
+  media,
+  onProductPress,
+  follow,
+  save,
+  share,
+  creatorAvatarUrl,
+  creatorUsername,
+  creatorDisplayName,
+  onVolumeToggle,
+  isMuted,
+}: {
   video: Video;
-  originalVideo: Video;
-  isActive: boolean;
-  onBuyPress: (video: Video) => void;
-  router: any;
-}
-
-function YouTubeReelItemWrapper({ video, originalVideo, isActive, onBuyPress, router }: YouTubeReelItemWrapperProps) {
-  const [isMuted, setIsMuted] = useState(true);
-  const webViewRef = useRef<any>(null);
-
-  const toggleAudio = () => {
-    const newMutedState = !isMuted;
-    setIsMuted(newMutedState);
-    
-    // Route all audio control through a single bridge function inside the WebView.
-    if (webViewRef.current) {
-      const setMutedJS = `
-        (function() {
-          try {
-            if (typeof window.__mystashSetMuted === 'function') {
-              window.__mystashSetMuted(${newMutedState});
-            } else {
-              window.__mystashPendingMuted = ${newMutedState};
-            }
-          } catch (e) {}
-          true;
-        })();
-      `;
-      webViewRef.current.injectJavaScript(setMutedJS);
-    }
-  };
+  media: React.ReactNode;
+  onProductPress?: (product: Product) => void;
+  follow?: BottomDockFollow | null;
+  save?: BottomDockSave | null;
+  share?: BottomDockShare | null;
+  creatorAvatarUrl?: string | null;
+  creatorUsername?: string | null;
+  creatorDisplayName?: string | null;
+  onVolumeToggle?: () => void;
+  isMuted?: boolean;
+}) {
+  const { tokens } = useThemeMode();
+  const [dockHeight, setDockHeight] = useState(160);
+  /** Align stack with dock title-row band (top of dock overlay). */
+  const actionBottom = Math.max(dockHeight - 52, 96);
 
   return (
-    <View style={styles.container}>
-      <YouTubeReelItem video={video} isActive={isActive} onBuyPress={onBuyPress} webViewRef={webViewRef} />
-      <Header />
-      <BottomDock 
-        video={originalVideo} 
-        router={router} 
-        onVolumeToggle={toggleAudio}
+    <View style={[styles.stage, { backgroundColor: tokens.color.canvas }]}>
+      {media}
+      <ReelActionStack
+        onVolumeToggle={onVolumeToggle}
         isMuted={isMuted}
+        save={save}
+        share={share}
+        bottomOffset={actionBottom}
+      />
+      <BottomDock
+        video={video}
+        onProductPress={onProductPress}
+        follow={follow}
+        creatorAvatarUrl={creatorAvatarUrl}
+        creatorUsername={creatorUsername}
+        creatorDisplayName={creatorDisplayName}
+        onDockHeightChange={setDockHeight}
       />
     </View>
   );
 }
 
+function YouTubeReelStage({
+  video,
+  originalVideo,
+  isActive,
+  fadeMs,
+  onProductPress,
+  follow,
+  save,
+  share,
+  creatorAvatarUrl,
+  creatorUsername,
+  creatorDisplayName,
+}: {
+  video: Video;
+  originalVideo: Video;
+  isActive: boolean;
+  fadeMs: number;
+  onProductPress?: (product: Product) => void;
+  follow?: BottomDockFollow | null;
+  save?: BottomDockSave | null;
+  share?: BottomDockShare | null;
+  creatorAvatarUrl?: string | null;
+  creatorUsername?: string | null;
+  creatorDisplayName?: string | null;
+}) {
+  const [isMuted, setIsMuted] = useState(true);
+  const webViewRef = useRef<any>(null);
+
+  const toggleAudio = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        (function() {
+          try {
+            if (typeof window.__mystashSetMuted === 'function') {
+              window.__mystashSetMuted(${nextMuted});
+            } else {
+              window.__mystashPendingMuted = ${nextMuted};
+            }
+          } catch (e) {}
+          true;
+        })();
+      `);
+    }
+  };
+
+  return (
+    <ReelStageShell
+      video={originalVideo}
+      media={<YouTubeReelItem video={video} isActive={isActive} webViewRef={webViewRef} fadeMs={fadeMs} />}
+      onProductPress={onProductPress}
+      follow={follow}
+      save={save}
+      share={share}
+      creatorAvatarUrl={creatorAvatarUrl}
+      creatorUsername={creatorUsername}
+      creatorDisplayName={creatorDisplayName}
+      onVolumeToggle={toggleAudio}
+      isMuted={isMuted}
+    />
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
-    backgroundColor: '#0A0E14',
+  stage: {
+    flex: 1,
+    width: '100%',
     position: 'relative',
+    overflow: 'hidden',
   },
-  radialGradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    opacity: 0.8,
-  },
-  fallbackContainer: {
+  fallback: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
@@ -175,17 +256,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.7)',
     textAlign: 'center',
-  },
-  fallbackTitle: {
-    color: 'white',
-    textAlign: 'center',
-    fontSize: 16,
-    marginBottom: 10,
-    fontWeight: 'bold',
-  },
-  fallbackMessage: {
-    color: 'rgba(255,255,255,0.7)',
-    textAlign: 'center',
-    fontSize: 12,
   },
 });

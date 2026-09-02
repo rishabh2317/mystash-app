@@ -167,7 +167,7 @@ export function buildInstagramEmbedHtml(
           
           document.addEventListener('message', function(event) {
             if (event.data === 'pause') {
-              console.log('Pause requested for Instagram video');
+              return;
             }
           });
           

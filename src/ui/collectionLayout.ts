@@ -36,6 +36,11 @@ export function collectionReelPath(collectionId: string): string {
   return `/reel/${collectionId}`;
 }
 
+/** Primary tap target for Collection tiles/cards (Focused Reel, not Collection page). */
+export function collectionTilePressPath(collectionId: string): string {
+  return collectionReelPath(collectionId);
+}
+
 export function splitCollectionProducts(products: CatalogProductViewModel[]): {
   featured: CatalogProductViewModel[];
   shopAll: CatalogProductViewModel[];

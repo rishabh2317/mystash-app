@@ -4,6 +4,7 @@ import type {
   CreateCollectionInput,
   CreateMediaInput,
   CreateTagInput,
+  PublishedCreatorProductTagRow,
   UpdateCollectionPatch,
   UpdateTagPatch,
 } from './CollectionRepository';
@@ -772,5 +773,97 @@ export class SupabaseCollectionRepository implements CollectionRepository {
     const { data, error } = await query;
     if (error) throw new Error(error.message);
     return (data ?? []).map((row) => mapCollection(row as Row));
+  }
+
+  async sumPublishedCollectionSaves(creatorId: string): Promise<number> {
+    const { data, error } = await this.admin
+      .from('collections')
+      .select('saves_count')
+      .eq('creator_id', creatorId)
+      .eq('status', 'published')
+      .eq('visibility', 'public')
+      .eq('moderation_state', 'clear')
+      .is('deleted_at', null);
+    if (error) throw new Error(error.message);
+    let sum = 0;
+    for (const row of data ?? []) {
+      sum += Number((row as Row).saves_count) || 0;
+    }
+    return sum;
+  }
+
+  async listPublishedCreatorProductTagRows(
+    creatorId: string,
+    opts: { limit: number; afterCatalogProductId?: string | null },
+  ): Promise<PublishedCreatorProductTagRow[]> {
+    // PostgREST sees two paths between these tables:
+    // 1) collection_product_tags.collection_id → collections.id (intended)
+    // 2) collections.primary_product_tag_id → collection_product_tags.id (inverse)
+    // Disambiguate with the owning FK column on the tag row.
+    let query = this.admin
+      .from('collection_product_tags')
+      .select(
+        `
+        catalog_product_id,
+        name_snapshot,
+        image_snapshot,
+        brand_snapshot,
+        resolution_status,
+        collection_id,
+        collections!collection_id!inner (
+          id,
+          title,
+          creator_id,
+          status,
+          visibility,
+          moderation_state,
+          deleted_at
+        )
+      `,
+      )
+      .eq('collections.creator_id', creatorId)
+      .eq('collections.status', 'published')
+      .eq('collections.visibility', 'public')
+      .eq('collections.moderation_state', 'clear')
+      .is('collections.deleted_at', null)
+      .is('deleted_at', null)
+      .eq('visibility', 'visible')
+      .or('include_in_publish.eq.true,include_in_publish.is.null')
+      .not('catalog_product_id', 'is', null)
+      .order('catalog_product_id', { ascending: true })
+      .limit(opts.limit);
+
+    const after = opts.afterCatalogProductId?.trim();
+    if (after) {
+      query = query.gt('catalog_product_id', after);
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    const rows: PublishedCreatorProductTagRow[] = [];
+    for (const raw of data ?? []) {
+      const row = raw as Row & {
+        collections?:
+          | { id?: string; title?: string | null }
+          | { id?: string; title?: string | null }[]
+          | null;
+      };
+      const catalogProductId =
+        typeof row.catalog_product_id === 'string' ? row.catalog_product_id : null;
+      if (!catalogProductId) continue;
+      const col = Array.isArray(row.collections) ? row.collections[0] : row.collections;
+      rows.push({
+        catalogProductId,
+        nameSnapshot: (row.name_snapshot as string) ?? null,
+        imageSnapshot: (row.image_snapshot as string) ?? null,
+        brandSnapshot: (row.brand_snapshot as string) ?? null,
+        resolutionStatus:
+          (row.resolution_status as CollectionProductTag['resolutionStatus']) ?? null,
+        collectionId: (col?.id as string) ?? String(row.collection_id),
+        collectionTitle: (col?.title as string | null | undefined) ?? null,
+      });
+    }
+    return rows;
   }
 }

@@ -2,6 +2,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { CreatorOnboardingPanel } from '@/components/creator/CreatorOnboardingPanel';
 import { CreateInlineNotice } from '@/components/create/CreateInlineNotice';
 import { CreateScreenShell } from '@/components/create/CreateScreenShell';
+import { StagedProgressIndicator } from '@/components/create/StagedProgressIndicator';
 import { StatusBlock } from '@/components/status/StatusBlock';
 import { submitManualProductLinks } from '@/src/services/curation';
 import {
@@ -18,6 +19,7 @@ import {
   createSurfaceStyle,
 } from '@/src/ui/createChrome';
 import { createPartialProductLinksMessage, createUnsupportedUrlFieldError } from '@/src/ui/createFeedback';
+import { mapManualProductLinkStages } from '@/src/ui/ingestProgressStages';
 import { useAppToast } from '@/src/ui/useAppToast';
 import { isSupportedVideoUrl } from '@/src/utils/videoUtils';
 import { useCreateFlowReset } from '@/src/state/createFlowSession';
@@ -26,7 +28,6 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -443,20 +444,18 @@ export default function ManualProductsScreen() {
           onPress={onFetchDetails}
           accessibilityState={{ busy }}
         >
-          {busy ? (
-            <ActivityIndicator color={tokens.color.successOn} />
-          ) : (
-            <Text
-              style={{
-                color: tokens.color.successOn,
-                fontWeight: tokens.fontWeight.extraBold,
-                fontSize: tokens.fontSize.body,
-              }}
-            >
-              {CREATE_COPY.manualFetch}
-            </Text>
-          )}
+          <Text
+            style={{
+              color: tokens.color.successOn,
+              fontWeight: tokens.fontWeight.extraBold,
+              fontSize: tokens.fontSize.body,
+              opacity: busy ? 0.85 : 1,
+            }}
+          >
+            {CREATE_COPY.manualFetch}
+          </Text>
         </TouchableOpacity>
+        {busy ? <StagedProgressIndicator stages={mapManualProductLinkStages(0)} /> : null}
 
         {preview ? (
           <View style={{ marginTop: tokens.space.lg - 4, gap: tokens.space.sm }}>

@@ -12,6 +12,7 @@ import {
   formatBagBadgeText,
   type TopBarMode,
 } from '@/src/ui/chrome';
+import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 
 type Props = {
   mode?: TopBarMode;
@@ -32,6 +33,7 @@ export function BagButton({ mode = 'page' }: Props) {
       onPress={() => router.push('/cart')}
       accessibilityRole="button"
       accessibilityLabel={bagButtonAccessibilityLabel(count)}
+      hitSlop={hitSlopToMinTarget(40)}
       style={[
         styles.btn,
         { backgroundColor: immersive ? 'rgba(0,0,0,0.45)' : tokens.color.overlay },

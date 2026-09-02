@@ -8,6 +8,7 @@ import {
 
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 
 type Props = {
   isFollowing: boolean;
@@ -38,8 +39,10 @@ export function FollowControl({
     pressed,
   });
   const compact = size === 'compact';
+  const hit = compact ? hitSlopToMinTarget(28) : hitSlopToMinTarget(40);
   const label = labelOverride ?? (isFollowing ? 'Following' : 'Follow');
-  const onAccent = !isFollowing && !labelOverride;
+  /** Compact (Home identity) stays secondary; Collection keeps the filled CTA. */
+  const onAccent = !isFollowing && !labelOverride && !compact;
   const spinnerColor = onAccent ? tokens.color.textOnAccent : tokens.color.text;
   const labelColor = onAccent ? tokens.color.textOnAccent : tokens.color.text;
   const labelSize = compact ? tokens.fontSize.caption : tokens.fontSize.body;
@@ -51,6 +54,7 @@ export function FollowControl({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: disabled || pending, busy: pending, selected: isFollowing }}
+      hitSlop={hit}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       style={[

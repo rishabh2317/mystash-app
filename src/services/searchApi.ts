@@ -31,13 +31,28 @@ export type SearchResultCard = {
   primaryMediaRef?: string | null;
   creator?: SearchCreatorSnapshot | null;
   productTagCount?: number;
+  viewsCount?: number;
+  savesCount?: number;
   username?: string | null;
+  followersCount?: number;
   verificationStatus?: string | null;
+  price?: string | null;
+  priceCurrency?: string | null;
+  matchReason?: string | null;
 };
+
+export type SearchQueryIntent =
+  | 'EXACT_PRODUCT'
+  | 'CREATOR'
+  | 'DISCOVERY'
+  | 'CATEGORY_CONCEPT'
+  | 'COMPARISON'
+  | 'COMMERCE'
+  | 'TRENDING';
 
 export type BlendedSearchResponse = {
   query: string;
-  intent: string;
+  intent: SearchQueryIntent | string;
   retrievalMode: string;
   presentation: 'unified' | 'typed';
   results: SearchResultCard[];
@@ -119,9 +134,15 @@ function parseCard(raw: Record<string, unknown>): SearchResultCard | null {
     primaryMediaRef: typeof raw.primaryMediaRef === 'string' ? raw.primaryMediaRef : null,
     creator,
     productTagCount: typeof raw.productTagCount === 'number' ? raw.productTagCount : undefined,
+    viewsCount: typeof raw.viewsCount === 'number' ? raw.viewsCount : undefined,
+    savesCount: typeof raw.savesCount === 'number' ? raw.savesCount : undefined,
     username: typeof raw.username === 'string' ? raw.username : null,
+    followersCount: typeof raw.followersCount === 'number' ? raw.followersCount : undefined,
     verificationStatus:
       typeof raw.verificationStatus === 'string' ? raw.verificationStatus : null,
+    price: typeof raw.price === 'string' ? raw.price : null,
+    priceCurrency: typeof raw.priceCurrency === 'string' ? raw.priceCurrency : null,
+    matchReason: typeof raw.matchReason === 'string' ? raw.matchReason : null,
   };
 }
 

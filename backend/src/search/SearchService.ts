@@ -1,7 +1,7 @@
 import { EmbeddingError, type EmbeddingPort } from './embeddings/EmbeddingPort';
 import { fuseHybridCandidates } from './domain/hybrid';
 import { detectQueryIntent } from './domain/intent';
-import { prepareQuery } from './domain/queryPrep';
+import { prepareQuery, prepareSearchQuery } from './domain/queryPrep';
 import { blendResults, rankCandidates } from './domain/ranking';
 import type {
   AutocompleteResponse,
@@ -172,7 +172,7 @@ export class SearchService {
 
   async search(input: SearchQueryInput): Promise<BlendedSearchResponse> {
     const started = Date.now();
-    const prepared = prepareQuery(input.q ?? '');
+    const prepared = prepareSearchQuery(input.q ?? '');
     if (!prepared.normalized) {
       throw new SearchServiceError('q required', 400);
     }
@@ -183,11 +183,20 @@ export class SearchService {
     const degraded: string[] = [];
     let retrievalMode: BlendedSearchResponse['retrievalMode'] = 'hybrid';
 
+    const filters: SearchQueryInput['filters'] = { ...(input.filters ?? {}) };
+    if (prepared.priceMin != null) {
+      filters.priceMin = prepared.priceMin;
+    }
+    if (prepared.priceMax != null) {
+      filters.priceMax = prepared.priceMax;
+    }
+    const activeFilters = Object.keys(filters).length ? filters : undefined;
+
     const candidateLimit = Math.max(limit * 3, 40);
 
     let lexical = await this.index.lexicalSearch({
       q: prepared.expanded,
-      filters: input.filters,
+      filters: activeFilters,
       limit: candidateLimit,
     });
 
@@ -197,7 +206,7 @@ export class SearchService {
         const emb = await this.embedQueryCached(prepared.corrected);
         vector = await this.index.vectorSearch({
           vector: emb,
-          filters: input.filters,
+          filters: activeFilters,
           limit: candidateLimit,
         });
       } catch (e) {
@@ -220,7 +229,7 @@ export class SearchService {
       if (prepared.corrected !== prepared.expanded) {
         lexical = await this.index.lexicalSearch({
           q: prepared.corrected,
-          filters: input.filters,
+          filters: activeFilters,
           limit: candidateLimit,
         });
         fused = fuseHybridCandidates(lexical, vector);
@@ -231,7 +240,7 @@ export class SearchService {
         const emb = await this.embedQueryCached(prepared.corrected);
         vector = await this.index.vectorSearch({
           vector: emb,
-          filters: input.filters,
+          filters: activeFilters,
           limit: candidateLimit,
         });
         fused = fuseHybridCandidates([], vector);
@@ -258,7 +267,7 @@ export class SearchService {
 
     const ranked = rankCandidates(fused, laneWeights);
     const window = Math.min(ranked.length, Math.max(limit * 5, 50));
-    const blended = blendResults(ranked, presentation, window);
+    const blended = blendResults(ranked, presentation, window, prepared.corrected);
     const latencyMs = Date.now() - started;
 
     const offset = decodeCursor(input.cursor);

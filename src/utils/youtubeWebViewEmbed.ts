@@ -32,7 +32,12 @@ export function resolveYoutubeParentOrigin(): string {
 }
 
 /** HTML document + iframe params used by the home feed WebView (must match `baseUrl`). */
-export function buildYoutubeWebHtml(videoId: string, parentOrigin: string): string {
+export function buildYoutubeWebHtml(
+  videoId: string,
+  parentOrigin: string,
+  cropScale = 1.12,
+): string {
+  const scale = Number.isFinite(cropScale) && cropScale > 0 ? cropScale : 1.12;
   const q = new URLSearchParams({
     autoplay: '1',
     mute: '1',
@@ -58,7 +63,7 @@ export function buildYoutubeWebHtml(videoId: string, parentOrigin: string): stri
     }
     iframe#videoPlayer {
       position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; border: none;
-      transform: scale(1.12); transform-origin: center center;
+      transform: scale(${scale}); transform-origin: center center;
     }
   </style>
 </head>

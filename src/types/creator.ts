@@ -15,6 +15,8 @@ export type CreatorViewModel = {
   followersCount: number;
   followingCount: number;
   collectionCount: number;
+  /** Aggregate Collection saves across this creator's published Collections. */
+  savesCount: number;
   /** Engagement-owned; omit / false when logged out. */
   isFollowing?: boolean;
 };

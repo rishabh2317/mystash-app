@@ -2,6 +2,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { CreatorOnboardingPanel } from '@/components/creator/CreatorOnboardingPanel';
 import { CreateInlineNotice } from '@/components/create/CreateInlineNotice';
 import { CreateScreenShell } from '@/components/create/CreateScreenShell';
+import { StagedProgressIndicator } from '@/components/create/StagedProgressIndicator';
 import { StatusBlock } from '@/components/status/StatusBlock';
 import { listUserDraftIngests, type UserDraftIngestSummary, submitIngestUrl } from '@/src/services/curation';
 import {
@@ -24,6 +25,7 @@ import {
   type CreateDraftSegment,
 } from '@/src/ui/createDraftSegments';
 import { createUnsupportedUrlFieldError } from '@/src/ui/createFeedback';
+import { mapStudioSubmitStages } from '@/src/ui/ingestProgressStages';
 import { useAppToast } from '@/src/ui/useAppToast';
 import { isSupportedVideoUrl } from '@/src/utils/videoUtils';
 import { useCreateFlowReset } from '@/src/state/createFlowSession';
@@ -49,7 +51,7 @@ export default function CreateSubmitScreen() {
   const [url, setUrl] = useState('');
   const [videoTitle, setVideoTitle] = useState('');
   const [busy, setBusy] = useState(false);
-  const [progressHint, setProgressHint] = useState<string | null>(null);
+  const [submitProgressStage, setSubmitProgressStage] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
   const [resumeDrafts, setResumeDrafts] = useState<UserDraftIngestSummary[]>([]);
   const [draftsLoading, setDraftsLoading] = useState(false);
@@ -182,7 +184,7 @@ export default function CreateSubmitScreen() {
       setUrl('');
       setVideoTitle('');
       setBusy(false);
-      setProgressHint(null);
+      setSubmitProgressStage(0);
       setFormError(null);
     }, []),
   );
@@ -229,9 +231,7 @@ export default function CreateSubmitScreen() {
     }
 
     setBusy(true);
-    setProgressHint(
-      productAcquisition === 'manual' ? CREATE_COPY.progressManualMode : CREATE_COPY.progressSending,
-    );
+    setSubmitProgressStage(0);
     try {
       await new Promise<void>((resolve) => queueMicrotask(resolve));
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -244,7 +244,7 @@ export default function CreateSubmitScreen() {
             setFormError(CREATE_COPY.startFailedBody);
             return;
           }
-          setProgressHint(CREATE_COPY.progressOpeningEditor);
+          setSubmitProgressStage(1);
           refreshResumeList();
           const modeQ = productAcquisition === 'manual' ? '&mode=manual' : '';
           router.push(
@@ -264,7 +264,7 @@ export default function CreateSubmitScreen() {
         }
       }
     } finally {
-      setProgressHint(null);
+      setSubmitProgressStage(0);
       setBusy(false);
     }
   };
@@ -423,19 +423,16 @@ export default function CreateSubmitScreen() {
           onPress={() => void onSubmit('automatic')}
           accessibilityState={{ busy }}
         >
-          {busy ? (
-            <ActivityIndicator color={tokens.color.successOn} />
-          ) : (
-            <Text
-              style={{
-                color: tokens.color.successOn,
-                fontWeight: tokens.fontWeight.extraBold,
-                fontSize: tokens.fontSize.body,
-              }}
-            >
-              {CREATE_COPY.primaryStart}
-            </Text>
-          )}
+          <Text
+            style={{
+              color: tokens.color.successOn,
+              fontWeight: tokens.fontWeight.extraBold,
+              fontSize: tokens.fontSize.body,
+              opacity: busy ? 0.85 : 1,
+            }}
+          >
+            {CREATE_COPY.primaryStart}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -452,24 +449,14 @@ export default function CreateSubmitScreen() {
               color: tokens.color.accent,
               fontWeight: tokens.fontWeight.extraBold,
               fontSize: tokens.fontSize.body,
+              opacity: busy ? 0.85 : 1,
             }}
           >
             {CREATE_COPY.secondaryManual}
           </Text>
         </TouchableOpacity>
-        {progressHint ? (
-          <Text
-            style={{
-              color: tokens.color.textMuted,
-              fontSize: 13,
-              lineHeight: 18,
-              textAlign: 'center',
-              marginTop: 4,
-            }}
-            accessibilityLiveRegion="polite"
-          >
-            {progressHint}
-          </Text>
+        {busy ? (
+          <StagedProgressIndicator stages={mapStudioSubmitStages(submitProgressStage)} />
         ) : null}
 
         <Text

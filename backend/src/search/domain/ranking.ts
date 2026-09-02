@@ -114,8 +114,56 @@ function diversifyCreators(hits: RankedHit[]): RankedHit[] {
   return out;
 }
 
-export function toResultCard(hit: RankedHit): SearchResultCard {
+function formatIndexPrice(amount: number | null, currency: string | null): string | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  if (currency?.trim()) return `${currency.trim()} ${amount}`;
+  return String(amount);
+}
+
+/** Deterministic one-line hint from indexed fields + query tokens. */
+export function buildMatchReason(
+  hit: RankedHit,
+  query: string,
+): string | null {
+  const tokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+  if (tokens.length === 0) return null;
+
   const d = hit.document;
+  if (d.entityType === 'collection') {
+    const brand = d.searchBrands.find((b) =>
+      tokens.some((t) => b.toLowerCase().includes(t) || t.includes(b.toLowerCase())),
+    );
+    if (brand) return `Matches brand ${brand}`;
+    const category = d.searchCategories.find((c) =>
+      tokens.some((t) => c.toLowerCase().includes(t) || t.includes(c.toLowerCase())),
+    );
+    if (category) return `In ${category}`;
+    if (d.productTagCount > 0) return `${d.productTagCount} products inside`;
+    return null;
+  }
+  if (d.entityType === 'product') {
+    const brand = d.brand?.toLowerCase() ?? '';
+    if (brand && tokens.some((t) => brand.includes(t) || t.includes(brand))) {
+      return d.brand ? `Brand: ${d.brand}` : null;
+    }
+    const category = d.category?.toLowerCase() ?? '';
+    if (category && tokens.some((t) => category.includes(t) || t.includes(category))) {
+      return d.category ? `Category: ${d.category}` : null;
+    }
+    return null;
+  }
+  if (d.entityType === 'creator') {
+    if (d.followersCount > 0) return `${d.followersCount} followers`;
+  }
+  return null;
+}
+
+export function toResultCard(hit: RankedHit, query = ''): SearchResultCard {
+  const d = hit.document;
+  const matchReason = buildMatchReason(hit, query);
   if (d.entityType === 'collection') {
     return {
       entityType: 'collection',
@@ -128,6 +176,9 @@ export function toResultCard(hit: RankedHit): SearchResultCard {
       primaryMediaRef: d.primaryMediaRef,
       creator: d.creator,
       productTagCount: d.productTagCount,
+      viewsCount: d.viewsCount,
+      savesCount: d.savesCount,
+      matchReason,
     };
   }
   if (d.entityType === 'creator') {
@@ -139,6 +190,8 @@ export function toResultCard(hit: RankedHit): SearchResultCard {
       subtitle: `@${d.username}`,
       imageRef: d.avatarRef,
       username: d.username,
+      followersCount: d.followersCount,
+      matchReason,
     };
   }
   return {
@@ -149,6 +202,9 @@ export function toResultCard(hit: RankedHit): SearchResultCard {
     subtitle: [d.brand, d.model].filter(Boolean).join(' · ') || null,
     imageRef: d.primaryImageRef,
     verificationStatus: d.verificationStatus,
+    price: formatIndexPrice(d.priceAmount, d.priceCurrency),
+    priceCurrency: d.priceCurrency,
+    matchReason,
   };
 }
 
@@ -156,6 +212,7 @@ export function blendResults(
   ranked: RankedHit[],
   presentation: 'unified' | 'typed',
   limit: number,
+  query = '',
 ): {
   results: SearchResultCard[];
   lanes?: {
@@ -164,7 +221,7 @@ export function blendResults(
     products: SearchResultCard[];
   };
 } {
-  const cards = ranked.map(toResultCard);
+  const cards = ranked.map((hit) => toResultCard(hit, query));
   const lanes = {
     collections: cards.filter((c) => c.entityType === 'collection'),
     creators: cards.filter((c) => c.entityType === 'creator'),

@@ -144,4 +144,27 @@ export interface CollectionRepository {
     creatorId: string,
     opts: { limit: number; cursor?: { publishedAt: string; id: string } | null },
   ): Promise<Collection[]>;
+
+  /** Sum saves_count for published+public+clear+not-deleted Collections. */
+  sumPublishedCollectionSaves(creatorId: string): Promise<number>;
+
+  /**
+   * Publish-surface product tags on published+public+clear Collections for a creator.
+   * Ordered by catalog_product_id ASC. Keyset: catalog_product_id > afterCatalogProductId.
+   */
+  listPublishedCreatorProductTagRows(
+    creatorId: string,
+    opts: { limit: number; afterCatalogProductId?: string | null },
+  ): Promise<PublishedCreatorProductTagRow[]>;
 }
+
+/** Join row for creator product listing (tag snapshot + representative Collection). */
+export type PublishedCreatorProductTagRow = {
+  catalogProductId: string;
+  nameSnapshot: string | null;
+  imageSnapshot: string | null;
+  brandSnapshot: string | null;
+  resolutionStatus: CollectionProductTag['resolutionStatus'];
+  collectionId: string;
+  collectionTitle: string | null;
+};

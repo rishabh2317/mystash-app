@@ -13,6 +13,7 @@ import {
   collectionMediaSourceUrl,
   collectionMediaWatchLinkLabel,
   collectionReelPath,
+  collectionTilePressPath,
   collectionReelPlayerSize,
   originalReelPlatformLabel,
   splitCollectionProducts,
@@ -76,6 +77,7 @@ describe('UX-B.5 collection layout', () => {
 
   it('opens the existing Focused Reel route for full-screen', () => {
     assert.equal(collectionReelPath('col-1'), '/reel/col-1');
+    assert.equal(collectionTilePressPath('col-1'), '/reel/col-1');
   });
 
   it('keeps products first: featured rail only when there are 4+ items, shop-all is the full list', () => {

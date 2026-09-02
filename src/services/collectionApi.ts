@@ -25,6 +25,22 @@ export type CreatorCollectionsPage = {
   nextCursor: string | null;
 };
 
+export type CreatorPublishedProductDto = {
+  catalogProductId: string;
+  title: string | null;
+  brand: string | null;
+  heroImage: string | null;
+  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED';
+  price: string | null;
+  collectionId: string;
+  collectionTitle: string | null;
+};
+
+export type CreatorProductsPage = {
+  products: CreatorPublishedProductDto[];
+  nextCursor: string | null;
+};
+
 /** Public published Collections for a creator (Creator Profile grid). */
 export async function listCreatorCollections(
   creatorId: string,
@@ -52,6 +68,41 @@ export async function listCreatorCollections(
 
   return {
     collections: (body.collections ?? []).map(mapPublishedCollectionListItem),
+    nextCursor: body.nextCursor ?? null,
+  };
+}
+
+/** Distinct products across a creator's published Collections (paginated). */
+export async function listCreatorProducts(
+  creatorId: string,
+  opts?: { limit?: number; cursor?: string | null },
+): Promise<CreatorProductsPage> {
+  const id = creatorId.trim();
+  if (!id) {
+    throw new CollectionApiError('creator_id is required', 400);
+  }
+  const params = new URLSearchParams();
+  params.set('creator_id', id);
+  if (opts?.limit != null) params.set('limit', String(opts.limit));
+  if (opts?.cursor) params.set('cursor', opts.cursor);
+
+  const res = await fetch(`${apiBase()}/collections/products?${params.toString()}`, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+  });
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new CollectionApiError(body.error ?? `Products failed (${res.status})`, res.status);
+  }
+
+  const body = (await res.json()) as {
+    products?: CreatorPublishedProductDto[];
+    nextCursor?: string | null;
+  };
+
+  return {
+    products: body.products ?? [],
     nextCursor: body.nextCursor ?? null,
   };
 }

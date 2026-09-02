@@ -28,6 +28,8 @@ describe('searchMapper', () => {
         title: 'Beach fits',
         slug: 'beach-fits',
         productTagCount: 3,
+        viewsCount: 42,
+        savesCount: 7,
         creator: {
           creatorId: 'creator-1',
           displayName: 'Ada',
@@ -39,6 +41,8 @@ describe('searchMapper', () => {
     assert.ok(mapped);
     assert.equal(mapped.collectionId, collectionId);
     assert.equal(mapped.productCount, 3);
+    assert.equal(mapped.counters.views, 42);
+    assert.equal(mapped.counters.saves, 7);
     assert.equal(mapped.creator.username, 'ada');
     assert.notEqual(mapped.collectionId, 'video-should-not-appear');
   });
@@ -57,11 +61,13 @@ describe('searchMapper', () => {
         id: 'user-1',
         username: 'mystash',
         title: 'Mystash',
+        followersCount: 1200,
       }),
     );
     assert.ok(mapped);
     assert.equal(mapped.userId, 'user-1');
     assert.equal(mapped.username, 'mystash');
+    assert.equal(mapped.followersCount, 1200);
   });
 
   it('drops creator hits without username', () => {
@@ -81,11 +87,16 @@ describe('searchMapper', () => {
         id: catalogProductId,
         title: 'Sony XM5',
         verificationStatus: 'VERIFIED',
+        price: 'USD 299',
+        priceCurrency: 'USD',
+        matchReason: 'Brand: Sony',
       }),
     );
     assert.ok(mapped);
     assert.equal(mapped.catalogProductId, catalogProductId);
     assert.equal(mapped.id, catalogProductId);
     assert.equal(mapped.verificationStatus, 'VERIFIED');
+    assert.equal(mapped.price, 'USD 299');
+    assert.equal(mapped.shortDescription, 'Brand: Sony');
   });
 });

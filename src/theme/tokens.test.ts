@@ -11,6 +11,8 @@ describe('theme tokens', () => {
     assert.equal(t.space.md, 16);
     assert.equal(n.radius.md, 12);
     assert.equal(t.motion.themeMs, 300);
+    assert.equal(t.motion.thumbnailFadeMs, 300);
+    assert.equal(t.motion.thumbnailFadeReducedMs, 80);
   });
 
   it('keeps modes visually distinct while sharing type/space', () => {

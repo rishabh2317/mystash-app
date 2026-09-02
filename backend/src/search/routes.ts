@@ -43,6 +43,8 @@ export function registerSearchRoutes(app: Express): void {
         verifiedOnly?: boolean;
         recentlyPublished?: boolean;
         popular?: boolean;
+        priceMin?: number;
+        priceMax?: number;
       } = {};
       if (req.query.creator_id) filters.creatorId = String(req.query.creator_id);
       if (req.query.brand) filters.brand = String(req.query.brand);
@@ -55,6 +57,14 @@ export function registerSearchRoutes(app: Express): void {
       }
       if (req.query.popular === '1' || req.query.popular === 'true') {
         filters.popular = true;
+      }
+      if (req.query.price_min != null) {
+        const n = Number(req.query.price_min);
+        if (Number.isFinite(n)) filters.priceMin = n;
+      }
+      if (req.query.price_max != null) {
+        const n = Number(req.query.price_max);
+        if (Number.isFinite(n)) filters.priceMax = n;
       }
 
       const result = await search.search({

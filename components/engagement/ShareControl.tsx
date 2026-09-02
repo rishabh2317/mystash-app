@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 
 type Props = {
   /** @deprecated Colors come from ThemeMode tokens. */
@@ -32,6 +33,7 @@ export function ShareControl({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled: disabled || pending, busy: pending }}
+      hitSlop={hitSlopToMinTarget(40)}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       style={[
@@ -42,7 +44,7 @@ export function ShareControl({
         },
       ]}
     >
-      <Ionicons name="share-outline" size={20} color={tokens.color.icon} />
+      <Ionicons name="paper-plane-outline" size={20} color={tokens.color.icon} />
     </Pressable>
   );
 }

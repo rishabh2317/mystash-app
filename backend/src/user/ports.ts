@@ -10,4 +10,6 @@ export type UserCreatorPort = {
 export type CollectionDiscoveryPort = {
   hideCreatorCollectionsFromDiscovery(creatorId: string): Promise<void>;
   restoreCreatorCollectionsDiscovery(creatorId: string): Promise<void>;
+  /** Sum saves_count for published+public+clear Collections owned by creator. */
+  sumPublishedCollectionSaves(creatorId: string): Promise<number>;
 };

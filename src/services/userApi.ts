@@ -1,6 +1,5 @@
-import type { CreatorStatus } from '@/src/types/creator';
+import type { CreatorStatus, CreatorViewModel } from '@/src/types/creator';
 import { mapPublicUserToCreatorViewModel } from '@/src/mappers/creatorMapper';
-import type { CreatorViewModel } from '@/src/types/creator';
 import { supabase } from '@/src/services/supabase';
 
 export class UserApiError extends Error {
@@ -58,6 +57,7 @@ type UserSettingsDto = {
     followersCount: number;
     followingCount: number;
     collectionCount: number;
+    savesCount?: number;
   };
   emailMirrored: string | null;
   accountStatus: string;

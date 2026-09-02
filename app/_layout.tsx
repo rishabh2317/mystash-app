@@ -28,9 +28,10 @@ export default function RootLayout() {
                 <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
                 <Stack.Screen name="product-list/[id]" options={{ headerShown: false }} />
                 <Stack.Screen name="collection/[collectionId]" options={{ headerShown: false }} />
-                <Stack.Screen name="reel/[collectionId]" options={{ headerShown: false }} />
+                <Stack.Screen name="reel" options={{ headerShown: false }} />
                 <Stack.Screen name="cart" options={{ headerShown: false }} />
                 <Stack.Screen name="analytics" options={{ headerShown: false }} />
+                <Stack.Screen name="settings" options={{ headerShown: false }} />
                 <Stack.Screen name="creator/[username]" options={{ headerShown: false }} />
               </Stack>
               <StatusBar style="auto" />

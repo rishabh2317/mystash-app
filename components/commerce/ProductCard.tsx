@@ -1,11 +1,13 @@
 import React, { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { AddToCartOutcome } from '@/src/services/productActionOrchestration';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { displayHeroUri } from '@/src/services/catalogProductMapper';
 import { trackProductEvent } from '@/src/logging/productAnalytics';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { BAG_COPY, controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { COLLECTION_PRODUCT_COPY } from '@/src/ui/collectionProductActions';
 import { AddToCartButton } from './AddToCartButton';
 import { ProductHeroImage } from './ProductHeroImage';
 import { VerificationBadge } from './VerificationBadge';
@@ -29,6 +31,20 @@ type Props = {
    * Parent owns shopping redirect — ProductCard never calls openProductShopping.
    */
   onBuy?: (product: CatalogProductViewModel) => void;
+  /**
+   * Optional. Collection page: opens AI Review sheet (replaces Buy / View Product).
+   */
+  onAiReview?: (product: CatalogProductViewModel) => void;
+  /**
+   * Optional. Merchant redirect shortcut — top-right external link icon.
+   * Parent owns shopping redirect — ProductCard never calls openProductShopping.
+   */
+  onMerchantShortcut?: (product: CatalogProductViewModel) => void;
+  /**
+   * When true, show indexed/catalog price even if verification is not VERIFIED.
+   * Search uses index denorm before full catalog hydration.
+   */
+  showIndexPrice?: boolean;
 };
 
 export function ProductCard({
@@ -37,6 +53,9 @@ export function ProductCard({
   variant = 'standard',
   onAddToCart,
   onBuy,
+  onAiReview,
+  onMerchantShortcut,
+  showIndexPrice = false,
 }: Props) {
   const { tokens, isLight } = useThemeMode();
   const [buyPressed, setBuyPressed] = React.useState(false);
@@ -48,11 +67,15 @@ export function ProductCard({
   }, [product.id, product.catalogProductId, product.verificationStatus]);
 
   const showPrice =
-    product.verificationStatus === 'VERIFIED' && !!product.price && product.price !== '—';
+    !!product.price &&
+    product.price !== '—' &&
+    (product.verificationStatus === 'VERIFIED' || showIndexPrice);
   const canShop = !!product.catalogProductId;
   const showAddToCart = !!onAddToCart && canShop;
-  const showBuy = !!onBuy && canShop;
-  const showActions = showAddToCart || showBuy;
+  const showAiReview = !!onAiReview && canShop;
+  const showBuy = !!onBuy && canShop && !showAiReview;
+  const showMerchantShortcut = !!onMerchantShortcut && canShop;
+  const showActions = showAddToCart || showBuy || showAiReview;
   const isCompact = variant === 'compact';
 
   return (
@@ -67,6 +90,24 @@ export function ProductCard({
         },
       ]}
     >
+      {showMerchantShortcut ? (
+        <Pressable
+          onPress={() => onMerchantShortcut?.(product)}
+          accessibilityRole="button"
+          accessibilityLabel={COLLECTION_PRODUCT_COPY.merchantShortcutA11y}
+          hitSlop={8}
+          style={({ pressed }) => [
+            styles.merchantShortcut,
+            {
+              backgroundColor: tokens.color.canvas,
+              borderColor: tokens.color.border,
+              opacity: pressed ? 0.8 : 1,
+            },
+          ]}
+        >
+          <Ionicons name="open-outline" size={16} color={tokens.color.text} />
+        </Pressable>
+      ) : null}
       <Pressable
         onPress={() => {
           trackProductEvent('product.card.opened', {
@@ -121,6 +162,23 @@ export function ProductCard({
 
       {showActions ? (
         <View style={styles.actionsRow}>
+          {showAiReview ? (
+            <Pressable
+              onPress={() => onAiReview?.(product)}
+              accessibilityRole="button"
+              accessibilityLabel={`${COLLECTION_PRODUCT_COPY.aiReview} ${product.title}`}
+              style={[
+                styles.actionBtn,
+                {
+                  backgroundColor: tokens.color.cta,
+                },
+              ]}
+            >
+              <Text style={[styles.actionBtnText, { color: tokens.color.successOn }]}>
+                {COLLECTION_PRODUCT_COPY.aiReview}
+              </Text>
+            </Pressable>
+          ) : null}
           {showBuy ? (
             <Pressable
               onPress={() => onBuy?.(product)}
@@ -158,6 +216,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     padding: 10,
     gap: 10,
+    position: 'relative',
+  },
+  merchantShortcut: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 2,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardCompact: {
     padding: 8,

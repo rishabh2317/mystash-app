@@ -61,7 +61,11 @@ export function TopBar({
       </Text>
       <View style={styles.trailing} pointerEvents="box-none">
         {trailing}
-        {showBag ? <BagButton mode={mode} /> : <View style={styles.slot} pointerEvents="none" />}
+        {showBag ? (
+          <BagButton mode={mode} />
+        ) : trailing ? null : (
+          <View style={styles.slot} pointerEvents="none" />
+        )}
       </View>
     </View>
   );

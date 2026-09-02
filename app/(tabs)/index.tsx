@@ -1,27 +1,39 @@
-import { useThemeMode } from '@/contexts/ThemeContext';
 import { TopBar } from '@/components/chrome/TopBar';
+import { FeedProductSheet } from '@/components/feed/FeedProductSheet';
+import { FeedTeachHint } from '@/components/feed/FeedTeachHint';
 import ReelItem from '@/components/ReelItem';
-import { ThemedText } from '@/components/themed-text';
-import type { Video } from '@/src/mocks/videos';
+import { StatusBlock } from '@/components/status/StatusBlock';
+import { useThemeMode } from '@/contexts/ThemeContext';
+import type { Product, Video } from '@/src/mocks/videos';
 import { recordCollectionViewOnce } from '@/src/services/collectionViewTracking';
+import { dismissFeedTeach, readFeedTeachDismissed } from '@/src/services/feedTeach';
+import { useFeedReelEngagement } from '@/src/services/feedReelEngagement';
 import { subscribeFeedReload } from '@/src/services/feedRefresh';
-import { openProductShopping } from '@/src/services/shoppingClick';
 import { fetchVideos } from '@/src/services/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import {
+  classifyFeedLoadFailure,
+  FEED_COPY,
+  feedFailureCopy,
+  type FeedFailureKind,
+} from '@/src/ui/feedLoadState';
+import {
+  feedReelAnnouncement,
+  shouldShowFeedTeach,
+} from '@/src/ui/feedA11y';
+import { feedItemLayout, nextFeedThumbnailUrl, preserveFeedIndex } from '@/src/ui/feedViewport';
+import { Image } from 'expo-image';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
   Dimensions,
   FlatList,
   RefreshControl,
-  ScrollView,
+  StyleSheet,
   Text,
-  TouchableOpacity,
   View,
+  type ViewToken,
 } from 'react-native';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const WINDOW_HEIGHT = Dimensions.get('window').height;
 
 export default function HomeScreen() {
   const { tokens } = useThemeMode();
@@ -29,28 +41,48 @@ export default function HomeScreen() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [failureKind, setFailureKind] = useState<FeedFailureKind | null>(null);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [teachDismissed, setTeachDismissed] = useState<boolean | null>(null);
   const hasLoadedOnce = useRef(false);
+  const videosRef = useRef<Video[]>([]);
+  const activeVideoIdRef = useRef<string | undefined>(undefined);
+  const activeIndexRef = useRef(0);
   const listRef = useRef<FlatList<Video>>(null);
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 90,
     minimumViewTime: 300,
   }).current;
 
-  const scrollFeedToTop = useCallback(() => {
-    setActiveIndex(0);
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToOffset({ offset: 0, animated: false });
-    });
-  }, []);
+  const itemHeight = viewportHeight > 0 ? viewportHeight : WINDOW_HEIGHT;
+  const activeVideo = videos[activeIndex];
+  const engagement = useFeedReelEngagement(activeVideo);
 
   const applyVideoRows = useCallback(
-    (supabaseVideos: Video[]) => {
-      setVideos(supabaseVideos);
-      setLoadError(null);
-      scrollFeedToTop();
+    (next: Video[]) => {
+      const nextIndex = preserveFeedIndex({
+        previousId: activeVideoIdRef.current,
+        previousIndex: activeIndexRef.current,
+        nextIds: next.map((row) => row.id),
+      });
+      videosRef.current = next;
+      setVideos(next);
+      setActiveIndex(nextIndex);
+      setFailureKind(null);
+      if (hasLoadedOnce.current && next.length > 0) {
+        requestAnimationFrame(() => {
+          try {
+            listRef.current?.scrollToIndex({ index: nextIndex, animated: false });
+          } catch {
+            listRef.current?.scrollToOffset({
+              offset: feedItemLayout(itemHeight, nextIndex).offset,
+              animated: false,
+            });
+          }
+        });
+      }
     },
-    [scrollFeedToTop],
+    [itemHeight],
   );
 
   const loadFromSupabase = useCallback(
@@ -58,15 +90,19 @@ export default function HomeScreen() {
       const { showFullScreenSpinner, isCancelled } = opts;
       try {
         if (showFullScreenSpinner) setLoading(true);
-        const supabaseVideos = await fetchVideos();
+        const rows = await fetchVideos();
         if (isCancelled?.()) return;
-        applyVideoRows(supabaseVideos);
+        applyVideoRows(rows);
       } catch (error) {
         if (isCancelled?.()) return;
-        console.error('Error loading videos:', error);
-        const msg = error instanceof Error ? error.message : 'Could not load the feed.';
-        setLoadError(msg);
-        setVideos([]);
+        const kind = classifyFeedLoadFailure(error);
+        if (hasLoadedOnce.current && videosRef.current.length > 0) {
+          setFailureKind(null);
+        } else {
+          setFailureKind(kind);
+          videosRef.current = [];
+          setVideos([]);
+        }
       } finally {
         setRefreshing(false);
         if (isCancelled?.()) return;
@@ -77,29 +113,29 @@ export default function HomeScreen() {
     [applyVideoRows],
   );
 
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      const showSpinner = !hasLoadedOnce.current;
-
-      void (async () => {
-        await loadFromSupabase({
-          showFullScreenSpinner: showSpinner,
-          isCancelled: () => cancelled,
-        });
-      })();
-
-      return () => {
-        cancelled = true;
-      };
-    }, [loadFromSupabase]),
-  );
+  useEffect(() => {
+    let cancelled = false;
+    void loadFromSupabase({
+      showFullScreenSpinner: true,
+      isCancelled: () => cancelled,
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Once: switching tabs must not refetch or jump to item 0.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     return subscribeFeedReload(() => {
       void loadFromSupabase({ showFullScreenSpinner: false });
     });
   }, [loadFromSupabase]);
+
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+    activeVideoIdRef.current = videos[activeIndex]?.id;
+  }, [activeIndex, videos]);
 
   /** Same Collection view path as /collection and /reel — identity is video.collection_id only. */
   useEffect(() => {
@@ -114,137 +150,224 @@ export default function HomeScreen() {
     });
   }, [activeIndex, videos]);
 
-  const onViewableItemsChanged = useRef(({ changed, viewableItems }: any) => {
-    if (changed.length > 0) {
-      const { index, isViewable } = changed[0];
+  useEffect(() => {
+    const uri = nextFeedThumbnailUrl(videos, activeIndex);
+    if (!uri) return;
+    void Image.prefetch(uri);
+  }, [activeIndex, videos]);
 
-      if (isViewable) {
-        setActiveIndex(index);
-
-        viewableItems.forEach((viewableItem: any) => {
-          if (viewableItem.isViewable && viewableItem.index !== index) {
-            console.log(`Pausing video at index ${viewableItem.index}`);
-          }
-        });
-      }
-    }
-  }).current;
-
-  const handleBuyPress = useCallback(async (video: Video) => {
-    const linked = video.products?.find((p) => p.catalog_product_id);
-    if (linked?.catalog_product_id) {
-      try {
-        await openProductShopping({
-          catalogProductId: linked.catalog_product_id,
-          videoId: video.id,
-          creatorId: video.curator_id,
-        });
-      } catch {
-        Alert.alert('Error', 'Could not open the product link.');
-      }
-      return;
-    }
-    Alert.alert(
-      'Stash it',
-      `${video.product_name}\nCreator: ${video.creator_name}\nOpen the product list to shop this reel.`,
-      [{ text: 'OK' }],
-    );
+  useEffect(() => {
+    void readFeedTeachDismissed().then(setTeachDismissed);
   }, []);
 
+  const persistTeachDismiss = useCallback(() => {
+    setTeachDismissed(true);
+    void dismissFeedTeach();
+  }, []);
+
+  useEffect(() => {
+    if (activeIndex > 0 && teachDismissed === false) persistTeachDismiss();
+  }, [activeIndex, persistTeachDismiss, teachDismissed]);
+
+  const [inspect, setInspect] = useState<{ video: Video; product: Product } | null>(null);
+
+  const onViewableItemsChanged = useRef(
+    ({ changed }: { changed: ViewToken[] }) => {
+      if (changed.length === 0) return;
+      const { index, isViewable } = changed[0];
+      if (isViewable && typeof index === 'number' && index >= 0) {
+        setActiveIndex(index);
+      }
+    },
+  ).current;
+
+  const handleProductPress = useCallback((video: Video, product: Product) => {
+    setInspect({ video, product });
+  }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void loadFromSupabase({ showFullScreenSpinner: false });
+  }, [loadFromSupabase]);
+
   const renderItem = useCallback(
-    ({ item, index }: { item: Video; index: number }) => (
-      <ReelItem video={item} isActive={index === activeIndex} onBuyPress={handleBuyPress} />
-    ),
-    [activeIndex, handleBuyPress],
+    ({ item, index }: { item: Video; index: number }) => {
+      const active = index === activeIndex;
+      return (
+        <View style={{ height: itemHeight, width: '100%' }}>
+          <ReelItem
+            video={item}
+            isActive={active}
+            onProductPress={(product) => handleProductPress(item, product)}
+            follow={
+              active && engagement.showFollow
+                ? {
+                    isFollowing: engagement.isFollowing,
+                    pending: engagement.followPending,
+                    onPress: () => void engagement.onFollowPress(),
+                  }
+                : null
+            }
+            save={
+              active && engagement.canSaveShare
+                ? {
+                    isSaved: engagement.isSaved,
+                    pending: engagement.savePending,
+                    onPress: () => void engagement.onSavePress(),
+                  }
+                : null
+            }
+            share={
+              active && engagement.canSaveShare
+                ? {
+                    onPress: () => void engagement.onSharePress(),
+                    accessibilityLabel: 'Share collection',
+                  }
+                : null
+            }
+            creatorAvatarUrl={active ? engagement.avatarUrl : undefined}
+            creatorUsername={active ? engagement.username : undefined}
+            creatorDisplayName={active ? engagement.displayName : undefined}
+          />
+        </View>
+      );
+    },
+    [
+      activeIndex,
+      engagement.avatarUrl,
+      engagement.canSaveShare,
+      engagement.displayName,
+      engagement.followPending,
+      engagement.isFollowing,
+      engagement.isSaved,
+      engagement.onFollowPress,
+      engagement.onSavePress,
+      engagement.onSharePress,
+      engagement.savePending,
+      engagement.showFollow,
+      engagement.username,
+      handleProductPress,
+      itemHeight,
+    ],
   );
 
   const keyExtractor = useCallback((item: Video) => item.id, []);
+  const getItemLayout = useCallback(
+    (_data: ArrayLike<Video> | null | undefined, index: number) => feedItemLayout(itemHeight, index),
+    [itemHeight],
+  );
+
+  const announcement = feedReelAnnouncement({
+    title: activeVideo?.video_title || activeVideo?.product_name,
+    creatorName: engagement.displayName,
+  });
+  const showTeach = shouldShowFeedTeach({
+    dismissed: teachDismissed,
+    activeIndex,
+    feedReady: !loading && videos.length > 0,
+  });
 
   const chrome = <TopBar mode="immersive" showBack={false} />;
 
+  const retry = () => {
+    const showSpinner = !hasLoadedOnce.current || videosRef.current.length === 0;
+    if (showSpinner) setLoading(true);
+    setRefreshing(true);
+    void loadFromSupabase({ showFullScreenSpinner: showSpinner });
+  };
+
+  const onViewportLayout = (event: { nativeEvent: { layout: { height: number } } }) => {
+    const next = Math.round(event.nativeEvent.layout.height);
+    if (next > 0 && next !== viewportHeight) setViewportHeight(next);
+  };
+
   if (loading) {
     return (
-      <View style={{ flex: 1 }}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color={tokens.color.accent} />
-          <ThemedText style={{ marginTop: 16, color: tokens.color.text }}>Loading amazing products...</ThemedText>
-        </View>
+      <View style={{ flex: 1 }} onLayout={onViewportLayout}>
+        <StatusBlock kind="loading" fill message={FEED_COPY.loadingMessage} />
         {chrome}
       </View>
     );
   }
 
   if (videos.length === 0) {
+    const copy = failureKind ? feedFailureCopy(failureKind) : FEED_COPY.empty;
     return (
-      <View style={{ flex: 1 }}>
-      <ScrollView
-        contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              void loadFromSupabase({ showFullScreenSpinner: false });
-            }}
-          />
-        }
-      >
-        <ThemedText style={{ fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 8 }}>
-          No reels in your feed yet
-        </ThemedText>
-        <ThemedText style={{ fontSize: 14, textAlign: 'center', opacity: 0.85, marginBottom: 20 }}>
-          {loadError
-            ? loadError
-            : 'Publish from the Create tab. If rows exist in Supabase but you see this message, apply the migration that adds public read on `videos` (RLS), then pull to refresh.'}
-        </ThemedText>
-        <TouchableOpacity
-          onPress={() => {
-            setRefreshing(true);
-            void loadFromSupabase({ showFullScreenSpinner: false });
-          }}
-          style={{ alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 20 }}
-        >
-          <Text style={{ color: '#0EA5E9', fontWeight: '700', fontSize: 16 }}>Retry</Text>
-        </TouchableOpacity>
-      </ScrollView>
-      {chrome}
+      <View style={{ flex: 1 }} onLayout={onViewportLayout}>
+        <StatusBlock
+          kind={failureKind ? 'error' : 'empty'}
+          fill
+          title={copy.title}
+          message={copy.message}
+          actionLabel={copy.actionLabel}
+          onAction={retry}
+        />
+        {chrome}
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1 }}>
-    <FlatList
-      ref={listRef}
-      data={videos}
-      renderItem={renderItem}
-      keyExtractor={keyExtractor}
-      pagingEnabled={true}
-      snapToInterval={SCREEN_HEIGHT}
-      decelerationRate="fast"
-      viewabilityConfig={viewabilityConfig}
-      onViewableItemsChanged={onViewableItemsChanged}
-      showsVerticalScrollIndicator={false}
-      removeClippedSubviews={true}
-      maxToRenderPerBatch={3}
-      windowSize={5}
-      initialNumToRender={1}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            void loadFromSupabase({ showFullScreenSpinner: false });
-          }}
-        />
-      }
-      getItemLayout={(data, index) => ({
-        length: SCREEN_HEIGHT,
-        offset: SCREEN_HEIGHT * index,
-        index,
-      })}
-    />
-    {chrome}
+    <View style={{ flex: 1 }} onLayout={onViewportLayout}>
+      <FlatList
+        ref={listRef}
+        data={videos}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        pagingEnabled
+        snapToInterval={itemHeight}
+        snapToAlignment="start"
+        disableIntervalMomentum
+        decelerationRate="fast"
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        maxToRenderPerBatch={2}
+        windowSize={3}
+        initialNumToRender={1}
+        extraData={`${activeIndex}:${itemHeight}:${engagement.showFollow}:${engagement.isFollowing}:${engagement.isSaved}`}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={tokens.color.accent}
+          />
+        }
+        getItemLayout={getItemLayout}
+        onScrollToIndexFailed={({ index }) => {
+          listRef.current?.scrollToOffset({
+            offset: feedItemLayout(itemHeight, index).offset,
+            animated: false,
+          });
+        }}
+      />
+      <FeedProductSheet
+        visible={inspect != null}
+        video={inspect?.video ?? null}
+        product={inspect?.product ?? null}
+        onClose={() => setInspect(null)}
+      />
+      {announcement ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          accessibilityRole="text"
+          style={styles.srOnly}
+        >
+          {announcement}
+        </Text>
+      ) : null}
+      <FeedTeachHint visible={showTeach} onDismiss={persistTeachDismiss} />
+      {chrome}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  srOnly: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
+});

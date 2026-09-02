@@ -178,6 +178,34 @@ export function registerCollectionRoutes(app: Express): void {
     }
   });
 
+  /**
+   * Public list: distinct catalog products tagged on a creator's published Collections.
+   * Must be registered before /collections/:id.
+   */
+  app.get('/collections/products', async (req, res) => {
+    try {
+      const creatorId =
+        typeof req.query.creator_id === 'string' ? req.query.creator_id.trim() : '';
+      if (!creatorId) {
+        res.status(400).json({ error: 'creator_id is required' });
+        return;
+      }
+      const limitRaw =
+        typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+      const cursor =
+        typeof req.query.cursor === 'string' ? req.query.cursor : null;
+      const admin = createSupabaseAdmin();
+      const svc = createCollectionService(admin);
+      const result = await svc.listPublishedProductsByCreator(creatorId, {
+        limit: limitRaw,
+        cursor,
+      });
+      res.json(result);
+    } catch (e) {
+      handleServiceError(res, e);
+    }
+  });
+
   app.get('/collections/by-slug/:slug', async (req, res) => {
     try {
       const admin = createSupabaseAdmin();

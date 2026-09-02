@@ -73,9 +73,17 @@ export function detectQueryIntent(rawQuery: string): IntentResult {
   };
 }
 
+/**
+ * Username-shaped token without @ — requires handle punctuation (`.` or `_`).
+ * Bare dictionary words and partial autocomplete tokens are not creator evidence.
+ */
 function looksLikeHandle(lower: string): boolean {
   const tokens = lower.split(/\s+/).filter(Boolean);
-  return tokens.length === 1 && /^[a-z][a-z0-9._]{2,30}$/.test(tokens[0]!) && !PRODUCT_MODEL.test(tokens[0]!);
+  if (tokens.length !== 1) return false;
+  const token = tokens[0]!;
+  if (token.length < 3 || token.length > 31) return false;
+  if (PRODUCT_MODEL.test(token)) return false;
+  return /^[a-z][a-z0-9]*[._][a-z0-9._]+$/.test(token);
 }
 
 function looksLikeExactProduct(lower: string): boolean {

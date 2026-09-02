@@ -12,6 +12,7 @@ export default function CreateStackLayout() {
             mode="page"
             title={typeof options.title === 'string' ? options.title : ''}
             showBack={Boolean(back)}
+            showBag={false}
             onBack={() => navigation.goBack()}
           />
         ),

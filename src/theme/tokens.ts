@@ -82,6 +82,8 @@ export type ThemeTokens = {
     pressOpacity: number;
     themeMs: number;
     addToBagSuccessMs: number;
+    thumbnailFadeMs: number;
+    thumbnailFadeReducedMs: number;
   };
 };
 
@@ -132,6 +134,8 @@ const SHARED_TYPE = {
     pressOpacity: 0.88,
     themeMs: 300,
     addToBagSuccessMs: 1800,
+    thumbnailFadeMs: 300,
+    thumbnailFadeReducedMs: 80,
   },
 };
 

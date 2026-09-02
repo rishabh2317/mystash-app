@@ -14,6 +14,7 @@ export function isSearchFlowPath(pathname: string): boolean {
   return (
     p.startsWith('/collection/') ||
     p.startsWith('/creator/') ||
+    p.startsWith('/reel/search/') ||
     p.startsWith('/reel/') ||
     p === '/cart' ||
     p.startsWith('/cart/') ||

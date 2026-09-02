@@ -11,6 +11,8 @@ export function createCollectionDiscoveryPort(admin: SupabaseClient): Collection
       repo.hideCreatorFromDiscovery(creatorId),
     restoreCreatorCollectionsDiscovery: (creatorId) =>
       repo.restoreCreatorDiscovery(creatorId),
+    sumPublishedCollectionSaves: (creatorId) =>
+      repo.sumPublishedCollectionSaves(creatorId),
   };
 }
 

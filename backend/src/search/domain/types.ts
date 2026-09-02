@@ -139,8 +139,15 @@ export type SearchResultCard = {
   primaryMediaRef?: string | null;
   creator?: CreatorSnapshotDenorm | null;
   productTagCount?: number;
+  viewsCount?: number;
+  savesCount?: number;
   username?: string | null;
+  followersCount?: number;
   verificationStatus?: string | null;
+  /** Search-index denorm — not live Shopping. */
+  price?: string | null;
+  priceCurrency?: string | null;
+  matchReason?: string | null;
 };
 
 export type BlendedSearchResponse = {

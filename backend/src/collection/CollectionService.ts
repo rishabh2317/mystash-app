@@ -123,6 +123,34 @@ function decodePublishedListCursor(
   return null;
 }
 
+export type CreatorPublishedProduct = {
+  catalogProductId: string;
+  title: string | null;
+  brand: string | null;
+  heroImage: string | null;
+  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'UNRESOLVED';
+  price: null;
+  collectionId: string;
+  collectionTitle: string | null;
+};
+
+function encodeCreatorProductCursor(catalogProductId: string): string {
+  return Buffer.from(JSON.stringify({ c: catalogProductId }), 'utf8').toString('base64url');
+}
+
+function decodeCreatorProductCursor(cursor?: string | null): string | null {
+  if (!cursor?.trim()) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      c?: string;
+    };
+    if (typeof parsed.c === 'string' && parsed.c) return parsed.c;
+  } catch {
+    /* invalid cursor → start */
+  }
+  return null;
+}
+
 const allowAllCreators: UserCreatorPort = {
   async assertCanCreateCollections() {},
   async getCreatorSnapshot() {
@@ -188,6 +216,62 @@ export class CollectionService {
     return {
       collections: page.map(toPublishedCollectionListItem),
       nextCursor,
+    };
+  }
+
+  /**
+   * Public Creator Profile products: deduped catalog products tagged on
+   * published+public+clear Collections. Keyset on catalogProductId ASC.
+   */
+  async listPublishedProductsByCreator(
+    creatorId: string,
+    opts?: { limit?: number; cursor?: string | null },
+  ): Promise<{ products: CreatorPublishedProduct[]; nextCursor: string | null }> {
+    const creatorIdTrimmed = creatorId?.trim();
+    if (!creatorIdTrimmed || !UUID_RE.test(creatorIdTrimmed)) {
+      throw new CollectionServiceError('creator_id must be a valid UUID', 400);
+    }
+    const limitRaw = opts?.limit ?? 20;
+    if (!Number.isFinite(limitRaw) || limitRaw < 1) {
+      throw new CollectionServiceError('limit must be between 1 and 50', 400);
+    }
+    const limit = Math.min(50, Math.max(1, Math.floor(limitRaw)));
+    let after = decodeCreatorProductCursor(opts?.cursor);
+    const unique: CreatorPublishedProduct[] = [];
+    const BATCH = Math.max(limit * 5, 50);
+
+    while (unique.length < limit + 1) {
+      const rows = await this.repo.listPublishedCreatorProductTagRows(creatorIdTrimmed, {
+        limit: BATCH,
+        afterCatalogProductId: after,
+      });
+      if (rows.length === 0) break;
+
+      for (const row of rows) {
+        if (unique.some((p) => p.catalogProductId === row.catalogProductId)) continue;
+        unique.push({
+          catalogProductId: row.catalogProductId,
+          title: row.nameSnapshot,
+          brand: row.brandSnapshot,
+          heroImage: row.imageSnapshot,
+          verificationStatus: row.resolutionStatus ?? 'UNRESOLVED',
+          price: null,
+          collectionId: row.collectionId,
+          collectionTitle: row.collectionTitle,
+        });
+        if (unique.length >= limit + 1) break;
+      }
+
+      after = rows[rows.length - 1]!.catalogProductId;
+      if (rows.length < BATCH) break;
+    }
+
+    const page = unique.slice(0, limit);
+    const hasMore = unique.length > limit;
+    const last = page[page.length - 1];
+    return {
+      products: page,
+      nextCursor: hasMore && last ? encodeCreatorProductCursor(last.catalogProductId) : null,
     };
   }
 

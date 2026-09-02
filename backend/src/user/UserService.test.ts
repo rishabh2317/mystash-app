@@ -19,6 +19,7 @@ describe('UserService', () => {
     const svc = new UserService(users, {
       hideCreatorCollectionsFromDiscovery: (id) => collections.hideCreatorFromDiscovery(id),
       restoreCreatorCollectionsDiscovery: (id) => collections.restoreCreatorDiscovery(id),
+      sumPublishedCollectionSaves: (id) => collections.sumPublishedCollectionSaves(id),
     });
     return { users, collections, svc };
   }
@@ -121,5 +122,51 @@ describe('UserService', () => {
     assert.equal(settings?.bio, 'Hello');
     assert.equal(settings?.country, 'US');
     assert.equal(settings?.isCreator, false);
+    assert.equal(settings?.publicStats.savesCount, 0);
+  });
+
+  it('attaches aggregated savesCount on public profile and settings', async () => {
+    const { svc, collections } = setup();
+    await svc.ensureFromAuth(authUser);
+    await svc.startCreatorOnboarding(authUser.id);
+    await svc.completeCreatorOnboarding(authUser.id);
+
+    const a = await collections.insertCollection({
+      slug: 'saves-a',
+      creatorId: authUser.id,
+      originType: 'url_ingest',
+    });
+    await collections.updateCollection(a.id, {
+      status: 'published',
+      visibility: 'public',
+      moderationState: 'clear',
+      savesCount: 3,
+    });
+    const b = await collections.insertCollection({
+      slug: 'saves-b',
+      creatorId: authUser.id,
+      originType: 'url_ingest',
+    });
+    await collections.updateCollection(b.id, {
+      status: 'published',
+      visibility: 'public',
+      moderationState: 'clear',
+      savesCount: 7,
+    });
+    const draft = await collections.insertCollection({
+      slug: 'saves-draft',
+      creatorId: authUser.id,
+      originType: 'manual_curation',
+    });
+    await collections.updateCollection(draft.id, {
+      status: 'draft',
+      visibility: 'private',
+      savesCount: 100,
+    });
+
+    const profile = await svc.getPublicProfile('alice');
+    assert.equal(profile?.publicStats.savesCount, 10);
+    const settings = await svc.getSettings(authUser.id);
+    assert.equal(settings?.publicStats.savesCount, 10);
   });
 });

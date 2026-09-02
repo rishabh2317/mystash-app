@@ -20,6 +20,19 @@ import { ProductDetailsSheet } from '@/components/commerce/ProductDetailsSheet';
 import { CreatorCard } from '@/components/creator/CreatorCard';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { pageCanvasGradient } from '@/src/theme/tokens';
+import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import {
+  beginSearchReelSession,
+  searchReelPath,
+  shouldOpenSearchReelFeed,
+} from '@/src/ui/searchReelNavigation';
+import {
+  popularFallbackMessage,
+  searchConstraintChipLabel,
+  searchSectionOrder,
+  searchSectionTitle,
+  type SearchSectionKind,
+} from '@/src/ui/searchSections';
 import {
   dedupeById,
   mapSearchCollectionCard,
@@ -103,6 +116,7 @@ function partitionResults(results: SearchResultCard[]): {
 
 type ListRow =
   | { key: string; kind: 'landing'; collections: CollectionViewModel[]; loading: boolean }
+  | { key: string; kind: 'banner'; text: string }
   | { key: string; kind: 'status'; text: string; action?: () => void }
   | { key: string; kind: 'section'; title: string }
   | { key: string; kind: 'collection'; collection: CollectionViewModel }
@@ -133,6 +147,8 @@ export default function SearchScreen() {
   const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
   const [explore, setExplore] = useState<CollectionViewModel[]>([]);
   const [exploreLoading, setExploreLoading] = useState(true);
+  const [searchIntent, setSearchIntent] = useState<string | null>(null);
+  const [searchDegraded, setSearchDegraded] = useState<string[]>([]);
 
   const loadGen = useRef(0);
   const activeQueryRef = useRef('');
@@ -159,6 +175,8 @@ export default function SearchScreen() {
     setShowSuggestions(false);
     setDetailsVisible(false);
     setDetailsProduct(null);
+    setSearchIntent(null);
+    setSearchDegraded([]);
   }, []);
 
   useEffect(() => {
@@ -222,21 +240,14 @@ export default function SearchScreen() {
       });
       if (gen !== loadGen.current) return;
 
-      const source =
-        !append && res.lanes
-          ? {
-              collections: res.lanes.collections,
-              creators: res.lanes.creators,
-              products: res.lanes.products,
-            }
-          : partitionResults(res.results);
-
-      const mapped = await cardsToSections(source);
+      const mapped = await cardsToSections(partitionResults(res.results));
       if (gen !== loadGen.current) return;
 
       setSections((prev) => (append ? mergeSections(prev, mapped) : mapped));
       setNextCursor(res.nextCursor);
       setZeroResult(Boolean(res.zeroResult) && !append);
+      setSearchIntent(typeof res.intent === 'string' ? res.intent : null);
+      setSearchDegraded(Array.isArray(res.degraded) ? res.degraded : []);
       setError(null);
     } catch (e) {
       if (gen !== loadGen.current) return;
@@ -315,9 +326,27 @@ export default function SearchScreen() {
       Keyboard.dismiss();
       setShowSuggestions(false);
       emitClick('collection', collection.collectionId);
-      router.push(`/collection/${collection.collectionId}` as Href);
+
+      const openSearchReel = shouldOpenSearchReelFeed({
+        hasActiveQuery: Boolean(debouncedQuery.trim()),
+        collections: sections.collections,
+        tappedCollectionId: collection.collectionId,
+      });
+
+      if (openSearchReel) {
+        beginSearchReelSession({
+          query: debouncedQuery,
+          collections: sections.collections,
+          startCollectionId: collection.collectionId,
+          nextCursor,
+        });
+        router.push(searchReelPath(collection.collectionId) as Href);
+        return;
+      }
+
+      router.push(collectionTilePressPath(collection.collectionId) as Href);
     },
-    [emitClick, router],
+    [debouncedQuery, emitClick, nextCursor, router, sections.collections],
   );
 
   const onCreatorPress = useCallback(
@@ -357,13 +386,28 @@ export default function SearchScreen() {
       }
       if (s.entityType === 'collection' && s.id) {
         emitClick('collection', s.id);
-        router.push(`/collection/${s.id}` as Href);
+        const openSearchReel = shouldOpenSearchReelFeed({
+          hasActiveQuery: Boolean(debouncedQuery.trim()),
+          collections: sections.collections,
+          tappedCollectionId: s.id,
+        });
+        if (openSearchReel) {
+          beginSearchReelSession({
+            query: debouncedQuery,
+            collections: sections.collections,
+            startCollectionId: s.id,
+            nextCursor,
+          });
+          router.push(searchReelPath(s.id) as Href);
+          return;
+        }
+        router.push(collectionTilePressPath(s.id) as Href);
         return;
       }
       setInput(s.text);
       setDebouncedQuery(s.text.trim());
     },
-    [emitClick, router],
+    [debouncedQuery, emitClick, nextCursor, router, sections.collections],
   );
 
   const onLoadMore = useCallback(() => {
@@ -407,24 +451,49 @@ export default function SearchScreen() {
       text: `No results for “${debouncedQuery}”`,
     });
   } else {
-    if (sections.collections.length) {
-      rows.push({ key: 'sec-col', kind: 'section', title: 'Collections' });
-      for (const c of sections.collections) {
-        rows.push({ key: `col-${c.collectionId}`, kind: 'collection', collection: c });
-      }
+    const fallback = popularFallbackMessage(searchDegraded);
+    if (fallback) {
+      rows.push({ key: 'banner-fallback', kind: 'banner', text: fallback });
     }
-    if (sections.creators.length) {
-      rows.push({ key: 'sec-cre', kind: 'section', title: 'Creators' });
-      for (const c of sections.creators) {
-        rows.push({ key: `cre-${c.userId}`, kind: 'creator', creator: c });
-      }
+    const constraint = searchConstraintChipLabel(searchIntent, debouncedQuery);
+    if (constraint) {
+      rows.push({ key: 'banner-constraint', kind: 'banner', text: constraint });
     }
-    if (sections.products.length) {
-      rows.push({ key: 'sec-prod', kind: 'section', title: 'Products' });
-      for (const p of sections.products) {
-        rows.push({ key: `prod-${p.id}`, kind: 'product', product: p });
+
+    const order = searchSectionOrder(searchIntent);
+    const pushSection = (kind: SearchSectionKind) => {
+      if (kind === 'collections' && sections.collections.length) {
+        rows.push({
+          key: 'sec-col',
+          kind: 'section',
+          title: searchSectionTitle('collections', searchIntent),
+        });
+        for (const c of sections.collections) {
+          rows.push({ key: `col-${c.collectionId}`, kind: 'collection', collection: c });
+        }
       }
-    }
+      if (kind === 'creators' && sections.creators.length) {
+        rows.push({
+          key: 'sec-cre',
+          kind: 'section',
+          title: searchSectionTitle('creators', searchIntent),
+        });
+        for (const c of sections.creators) {
+          rows.push({ key: `cre-${c.userId}`, kind: 'creator', creator: c });
+        }
+      }
+      if (kind === 'products' && sections.products.length) {
+        rows.push({
+          key: 'sec-prod',
+          kind: 'section',
+          title: searchSectionTitle('products', searchIntent),
+        });
+        for (const p of sections.products) {
+          rows.push({ key: `prod-${p.id}`, kind: 'product', product: p });
+        }
+      }
+    };
+    for (const kind of order) pushSection(kind);
     if (nextCursor || loadingMore) {
       rows.push({ key: 'footer', kind: 'footer' });
     }
@@ -535,6 +604,18 @@ export default function SearchScreen() {
               </View>
             );
           }
+          if (item.kind === 'banner') {
+            return (
+              <View
+                style={[
+                  styles.banner,
+                  { backgroundColor: tokens.color.surface, borderColor: tokens.color.border },
+                ]}
+              >
+                <Text style={[styles.bannerText, { color: muted }]}>{item.text}</Text>
+              </View>
+            );
+          }
           if (item.kind === 'status') {
             return (
               <View style={styles.statusBlock}>
@@ -585,6 +666,7 @@ export default function SearchScreen() {
                   product={item.product}
                   isLight={isLight}
                   variant="standard"
+                  showIndexPrice
                   onPress={onProductPress}
                   onAddToCart={item.product.catalogProductId ? onAddToCart : undefined}
                   onBuy={item.product.catalogProductId ? onBuy : undefined}
@@ -658,6 +740,18 @@ const styles = StyleSheet.create({
   landingBody: {
     fontSize: 15,
     lineHeight: 22,
+  },
+  banner: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  bannerText: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   exploreGrid: {
     flexDirection: 'row',

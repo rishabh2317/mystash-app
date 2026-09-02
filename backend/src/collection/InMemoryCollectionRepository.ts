@@ -3,6 +3,7 @@ import type {
   CreateCollectionInput,
   CreateMediaInput,
   CreateTagInput,
+  PublishedCreatorProductTagRow,
   UpdateCollectionPatch,
   UpdateTagPatch,
 } from './CollectionRepository';
@@ -472,5 +473,61 @@ export class InMemoryCollectionRepository implements CollectionRepository {
         })
       : eligible;
     return filtered.slice(0, opts.limit);
+  }
+
+  async sumPublishedCollectionSaves(creatorId: string): Promise<number> {
+    let sum = 0;
+    for (const c of this.collections.values()) {
+      if (
+        c.creatorId === creatorId &&
+        !c.deletedAt &&
+        c.status === 'published' &&
+        c.visibility === 'public' &&
+        c.moderationState === 'clear'
+      ) {
+        sum += c.savesCount;
+      }
+    }
+    return sum;
+  }
+
+  async listPublishedCreatorProductTagRows(
+    creatorId: string,
+    opts: { limit: number; afterCatalogProductId?: string | null },
+  ): Promise<PublishedCreatorProductTagRow[]> {
+    const publishedIds = new Set(
+      [...this.collections.values()]
+        .filter(
+          (c) =>
+            c.creatorId === creatorId &&
+            !c.deletedAt &&
+            c.status === 'published' &&
+            c.visibility === 'public' &&
+            c.moderationState === 'clear',
+        )
+        .map((c) => c.id),
+    );
+    const after = opts.afterCatalogProductId?.trim() || null;
+    const rows: PublishedCreatorProductTagRow[] = [];
+    for (const t of this.tags.values()) {
+      if (!publishedIds.has(t.collectionId)) continue;
+      if (t.deletedAt) continue;
+      if (t.visibility !== 'visible') continue;
+      if (t.includeInPublish === false) continue;
+      if (!t.catalogProductId) continue;
+      if (after && t.catalogProductId <= after) continue;
+      const col = this.collections.get(t.collectionId);
+      rows.push({
+        catalogProductId: t.catalogProductId,
+        nameSnapshot: t.nameSnapshot,
+        imageSnapshot: t.imageSnapshot,
+        brandSnapshot: t.brandSnapshot,
+        resolutionStatus: t.resolutionStatus,
+        collectionId: t.collectionId,
+        collectionTitle: col?.title ?? null,
+      });
+    }
+    rows.sort((a, b) => a.catalogProductId.localeCompare(b.catalogProductId));
+    return rows.slice(0, opts.limit);
   }
 }

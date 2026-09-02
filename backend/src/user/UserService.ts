@@ -96,6 +96,9 @@ export class UserService implements UserCreatorPort {
     private readonly discovery: CollectionDiscoveryPort = {
       async hideCreatorCollectionsFromDiscovery() {},
       async restoreCreatorCollectionsDiscovery() {},
+      async sumPublishedCollectionSaves() {
+        return 0;
+      },
     },
   ) {}
 
@@ -107,7 +110,12 @@ export class UserService implements UserCreatorPort {
     const user = await this.repo.getByUsername(username);
     if (!user || user.deletedAt || user.accountStatus === 'DELETED') return null;
     if (user.accountStatus === 'SUSPENDED') return null;
-    return toPublicProfile(user);
+    const profile = toPublicProfile(user);
+    const savesCount = await this.discovery.sumPublishedCollectionSaves(user.id);
+    return {
+      ...profile,
+      publicStats: { ...profile.publicStats, savesCount },
+    };
   }
 
   async resolveUsernameRedirect(username: string): Promise<string | null> {
@@ -118,7 +126,12 @@ export class UserService implements UserCreatorPort {
   async getSettings(userId: string): Promise<UserSettings | null> {
     const user = await this.repo.getById(userId);
     if (!user || user.deletedAt) return null;
-    return toSettings(user);
+    const settings = toSettings(user);
+    const savesCount = await this.discovery.sumPublishedCollectionSaves(user.id);
+    return {
+      ...settings,
+      publicStats: { ...settings.publicStats, savesCount },
+    };
   }
 
   async ensureFromAuth(authUser: AuthUserLike): Promise<User> {

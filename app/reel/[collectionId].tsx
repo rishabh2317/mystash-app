@@ -1,5 +1,5 @@
 import ReelItem from '@/components/ReelItem';
-import { ContextActions } from '@/components/chrome/ContextActions';
+import { FeedProductSheet } from '@/components/feed/FeedProductSheet';
 import { TopBar } from '@/components/chrome/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
@@ -11,9 +11,11 @@ import { CollectionApiError } from '@/src/services/collectionApi';
 import { useCollectionSaveHandler } from '@/src/services/collectionSaveOrchestration';
 import { loadCollectionDetail } from '@/src/services/collectionHydration';
 import { useRecordCollectionView } from '@/src/services/collectionViewTracking';
-import { isCollectionSaved } from '@/src/services/engagementApi';
+import { useCreatorFollowHandler } from '@/src/services/creatorFollowOrchestration';
+import { isCollectionSaved, isFollowingCreator } from '@/src/services/engagementApi';
 import { shareCollection } from '@/src/services/shareLinks';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
+import type { Product } from '@/src/mocks/videos';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -47,6 +49,9 @@ export default function FocusedReelHost() {
   const [notFound, setNotFound] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [savePending, setSavePending] = useState(false);
+  const [inspectProduct, setInspectProduct] = useState<Product | null>(null);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
 
   const load = useCallback(async () => {
     if (!collectionId?.trim()) {
@@ -92,6 +97,24 @@ export default function FocusedReelHost() {
     enabled: Boolean(detail),
   });
 
+  useEffect(() => {
+    if (!user || !detail?.creator.id) {
+      setIsFollowing(false);
+      return;
+    }
+    let cancelled = false;
+    void isFollowingCreator(detail.creator.id)
+      .then((next) => {
+        if (!cancelled) setIsFollowing(next);
+      })
+      .catch(() => {
+        if (!cancelled) setIsFollowing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail?.creator.id, user]);
+
   const reelVideo = useMemo(() => {
     if (!detail) return null;
     return mapReelViewModelToVideo(mapCollectionDetailToReelViewModel(detail));
@@ -110,6 +133,31 @@ export default function FocusedReelHost() {
       setSavePending(false);
     },
   });
+
+  const isSelf = Boolean(user && detail && user.id === detail.creator.id);
+
+  const followHandler = useCreatorFollowHandler({
+    creatorId: detail?.creator.id ?? '',
+    username: detail?.creator.username ?? '',
+    isSelf,
+    isFollowing,
+    onOptimisticFollow: (next) => {
+      setFollowPending(true);
+      setIsFollowing(next);
+    },
+    onRollback: (previous) => {
+      setIsFollowing(previous);
+      setFollowPending(false);
+    },
+  });
+
+  const onFollowPress = useCallback(async () => {
+    try {
+      await followHandler();
+    } finally {
+      setFollowPending(false);
+    }
+  }, [followHandler]);
 
   const onSavePress = useCallback(async () => {
     if (!detail) return;
@@ -197,18 +245,46 @@ export default function FocusedReelHost() {
 
   return (
     <View style={styles.root}>
-      <ReelItem video={reelVideo} isActive onBuyPress={() => {}} />
+      <ReelItem
+        video={reelVideo}
+        isActive
+        onProductPress={(product) => setInspectProduct(product)}
+        follow={
+          detail.creator.id && !isSelf
+            ? {
+                isFollowing,
+                pending: followPending,
+                onPress: () => void onFollowPress(),
+              }
+            : null
+        }
+        save={{
+          isSaved,
+          pending: savePending,
+          onPress: () => void onSavePress(),
+        }}
+        share={{
+          onPress: () => void onSharePress(),
+          accessibilityLabel: 'Share collection',
+        }}
+        creatorAvatarUrl={detail.creator.avatarUrl}
+        creatorUsername={detail.creator.username}
+        creatorDisplayName={
+          detail.creator.displayName ??
+          (detail.creator.username ? `@${detail.creator.username}` : undefined)
+        }
+      />
+      <FeedProductSheet
+        visible={inspectProduct != null}
+        video={reelVideo}
+        product={inspectProduct}
+        onClose={() => setInspectProduct(null)}
+      />
       <TopBar
         mode="immersive"
         showBack
         backAccessibilityLabel="Close reel"
         onBack={() => router.back()}
-        trailing={
-          <ContextActions
-            save={{ isSaved, pending: savePending, onPress: () => void onSavePress() }}
-            share={{ onPress: () => void onSharePress(), accessibilityLabel: 'Share collection' }}
-          />
-        }
       />
     </View>
   );

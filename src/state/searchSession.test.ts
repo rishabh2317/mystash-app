@@ -18,6 +18,7 @@ describe('shouldResetSearchSession', () => {
     assert.equal(shouldResetSearchSession('/collection/col-1', '/search'), false);
     assert.equal(shouldResetSearchSession('/creator/ada', '/search'), false);
     assert.equal(shouldResetSearchSession('/reel/col-1', '/search'), false);
+    assert.equal(shouldResetSearchSession('/reel/search/col-1', '/search'), false);
     assert.equal(shouldResetSearchSession('/cart', '/search'), false);
   });
 

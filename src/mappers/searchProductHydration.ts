@@ -16,7 +16,15 @@ export async function hydrateSearchProducts(
   for (const card of productCards) {
     const row = rows.get(card.id.trim());
     if (row) {
-      out.push(catalogRowToViewModel(row));
+      const hydrated = catalogRowToViewModel(row);
+      if ((!hydrated.price || hydrated.price === '—') && card.price?.trim()) {
+        hydrated.price = card.price.trim();
+        hydrated.currency = card.priceCurrency?.trim() || hydrated.currency;
+      }
+      if (!hydrated.shortDescription && card.matchReason) {
+        hydrated.shortDescription = card.matchReason;
+      }
+      out.push(hydrated);
       continue;
     }
     const thin = mapSearchProductCardThin(card);

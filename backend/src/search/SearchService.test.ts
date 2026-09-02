@@ -243,6 +243,43 @@ describe('SearchService V1', () => {
     assert.equal(cursor, null);
   });
 
+  it('applies price max from natural-language query', async () => {
+    const { svc } = await seeded();
+    await svc.indexProduct({
+      catalogProductId: 'prod-cheap',
+      name: 'Budget Buds',
+      brand: 'Generic',
+      category: 'headphones',
+      popularity: 10,
+      priceAmount: 5000,
+      priceCurrency: 'INR',
+    });
+    await svc.indexProduct({
+      catalogProductId: 'prod-expensive',
+      name: 'Premium Buds',
+      brand: 'Sony',
+      category: 'headphones',
+      popularity: 90,
+      priceAmount: 25000,
+      priceCurrency: 'INR',
+    });
+    const res = await svc.search({ q: 'headphones under 15000', presentation: 'typed' });
+    const productIds = (res.lanes?.products ?? res.results.filter((r) => r.entityType === 'product')).map(
+      (r) => r.id,
+    );
+    assert.ok(productIds.includes('prod-cheap'));
+    assert.equal(productIds.includes('prod-expensive'), false);
+  });
+
+  it('includes engagement stats on collection result cards', async () => {
+    const { svc } = await seeded();
+    const res = await svc.search({ q: 'beach outfits', presentation: 'typed' });
+    const col = res.lanes?.collections.find((r) => r.id === 'col-beach');
+    assert.ok(col);
+    assert.equal(col.viewsCount, 100);
+    assert.equal(col.savesCount, 20);
+  });
+
   it('rejects incompatible embedding space on upsert', async () => {
     const index = new InMemorySearchIndex({
       embeddingSpace: {

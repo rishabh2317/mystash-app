@@ -1,13 +1,32 @@
 import { ProductCard, ProductDetailsSheet } from '@/components/commerce';
+import { AiReviewSheet } from '@/components/commerce/AiReviewSheet';
+import { CollectionTile } from '@/components/collection/CollectionTile';
 import { FollowControl } from '@/components/engagement/FollowControl';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
+import type { CollectionViewModel } from '@/src/types/collection';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
+import { listCreatorCollections } from '@/src/services/collectionApi';
+import { loadCollectionRelatedProducts } from '@/src/services/collectionRelatedProducts';
 import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
 import { openProductShopping } from '@/src/services/shoppingClick';
+import {
+  COLLECTION_PRODUCT_COPY,
+} from '@/src/ui/collectionProductActions';
+import {
+  CREATOR_MORE_COLLECTIONS_PREVIEW,
+  filterCreatorCollectionsPreview,
+  shouldShowCreatorCollectionsViewAll,
+} from '@/src/ui/collectionCreatorMore';
+import {
+  collectionMediaReference,
+  collectionTilePressPath,
+  COLLECTION_SCROLL_HORIZONTAL_PADDING,
+  splitCollectionProducts,
+} from '@/src/ui/collectionLayout';
 import { useIsFocused } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -20,11 +39,6 @@ import {
 import { CollectionMediaReference } from './CollectionMediaReference';
 import { CollectionPageHeader } from './CollectionPageHeader';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import {
-  collectionMediaReference,
-  COLLECTION_SCROLL_HORIZONTAL_PADDING,
-  splitCollectionProducts,
-} from '@/src/ui/collectionLayout';
 
 type Props = {
   collection: CollectionDetailViewModel;
@@ -56,6 +70,13 @@ export function CollectionScreen({
   const onAddToCart = useProductAddToCartHandler();
   const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
   const [detailsVisible, setDetailsVisible] = useState(false);
+  const [aiReviewProduct, setAiReviewProduct] = useState<CatalogProductViewModel | null>(null);
+  const [aiReviewVisible, setAiReviewVisible] = useState(false);
+  const [relatedProducts, setRelatedProducts] = useState<CatalogProductViewModel[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [creatorCollections, setCreatorCollections] = useState<CollectionViewModel[]>([]);
+  const [creatorCollectionsNextCursor, setCreatorCollectionsNextCursor] = useState<string | null>(null);
+  const [creatorCollectionsLoading, setCreatorCollectionsLoading] = useState(false);
 
   const text = tokens.color.text;
   const muted = tokens.color.textMuted;
@@ -101,7 +122,113 @@ export function CollectionScreen({
     setDetailsVisible(true);
   }, []);
 
-  const productCount = collection.products.length;
+  const openAiReview = useCallback((p: CatalogProductViewModel) => {
+    setAiReviewProduct(p);
+    setAiReviewVisible(true);
+  }, []);
+
+  const onMerchantShortcut = useCallback(
+    async (product: CatalogProductViewModel) => {
+      await onBuy(product);
+    },
+    [onBuy],
+  );
+
+  const collectionCardProps = useCallback(
+    (product: CatalogProductViewModel) => ({
+      onPress: openDetails,
+      onAddToCart: product.catalogProductId ? onAddToCart : undefined,
+      onAiReview: product.catalogProductId ? openAiReview : undefined,
+      onMerchantShortcut: product.catalogProductId ? onMerchantShortcut : undefined,
+    }),
+    [onAddToCart, onMerchantShortcut, openAiReview, openDetails],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setRelatedLoading(true);
+    void loadCollectionRelatedProducts(collection)
+      .then((rows) => {
+        if (!cancelled) setRelatedProducts(rows);
+      })
+      .finally(() => {
+        if (!cancelled) setRelatedLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [collection]);
+
+  useEffect(() => {
+    const creatorId = collection.creator.id?.trim();
+    if (!creatorId) {
+      setCreatorCollections([]);
+      setCreatorCollectionsNextCursor(null);
+      return;
+    }
+    let cancelled = false;
+    setCreatorCollectionsLoading(true);
+    void listCreatorCollections(creatorId, { limit: CREATOR_MORE_COLLECTIONS_PREVIEW + 1 })
+      .then((page) => {
+        if (cancelled) return;
+        setCreatorCollections(page.collections);
+        setCreatorCollectionsNextCursor(page.nextCursor);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCreatorCollections([]);
+          setCreatorCollectionsNextCursor(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCreatorCollectionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [collection.creator.id, collection.collectionId]);
+
+  const moreFromCreator = useMemo(
+    () =>
+      filterCreatorCollectionsPreview(
+        creatorCollections,
+        collection.collectionId,
+        CREATOR_MORE_COLLECTIONS_PREVIEW,
+      ),
+    [collection.collectionId, creatorCollections],
+  );
+
+  const showCreatorViewAll = useMemo(() => {
+    const others = creatorCollections.filter(
+      (c) => c.collectionId !== collection.collectionId,
+    );
+    return shouldShowCreatorCollectionsViewAll({
+      totalOthers: others.length,
+      previewLimit: CREATOR_MORE_COLLECTIONS_PREVIEW,
+      hasNextCursor: Boolean(creatorCollectionsNextCursor),
+      creatorUsername: collection.creator.username,
+    });
+  }, [
+    collection.collectionId,
+    collection.creator.username,
+    creatorCollections,
+    creatorCollectionsNextCursor,
+  ]);
+
+  const onPressCreatorCollection = useCallback(
+    (item: CollectionViewModel) => {
+      router.push(collectionTilePressPath(item.collectionId) as never);
+    },
+    [router],
+  );
+
+  const onViewAllCreatorCollections = useCallback(() => {
+    const handle = collection.creator.username?.trim();
+    if (handle) {
+      router.push(`/creator/${encodeURIComponent(handle)}` as never);
+    }
+  }, [collection.creator.username, router]);
+
   const isFocused = useIsFocused();
 
   return (
@@ -184,9 +311,7 @@ export function CollectionScreen({
                     product={product}
                     isLight={isLight}
                     variant="compact"
-                    onPress={openDetails}
-                    onAddToCart={product.catalogProductId ? onAddToCart : undefined}
-                    onBuy={product.catalogProductId ? onBuy : undefined}
+                    {...collectionCardProps(product)}
                   />
                 </View>
               ))}
@@ -205,16 +330,84 @@ export function CollectionScreen({
                   product={product}
                   isLight={isLight}
                   variant="standard"
-                  onPress={openDetails}
-                  onAddToCart={product.catalogProductId ? onAddToCart : undefined}
-                  onBuy={product.catalogProductId ? onBuy : undefined}
+                  {...collectionCardProps(product)}
                 />
               </View>
             ))
           )}
         </View>
+
+        {relatedLoading || relatedProducts.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: text }]}>
+              {COLLECTION_PRODUCT_COPY.relatedProducts}
+            </Text>
+            {relatedLoading && relatedProducts.length === 0 ? (
+              <Text style={[styles.empty, { color: muted }]}>Loading related products…</Text>
+            ) : (
+              relatedProducts.map((product) => (
+                <View key={`related-${product.id}`} style={styles.productRow}>
+                  <ProductCard
+                    product={product}
+                    isLight={isLight}
+                    variant="standard"
+                    {...collectionCardProps(product)}
+                  />
+                </View>
+              ))
+            )}
+          </View>
+        ) : null}
+
+        {creatorCollectionsLoading || moreFromCreator.length > 0 ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: text, marginTop: 0 }]}>
+                {COLLECTION_PRODUCT_COPY.moreFromCreator}
+              </Text>
+              {showCreatorViewAll ? (
+                <Pressable
+                  onPress={onViewAllCreatorCollections}
+                  accessibilityRole="button"
+                  accessibilityLabel={COLLECTION_PRODUCT_COPY.viewAll}
+                >
+                  <Text style={[styles.viewAll, { color: tokens.color.accent }]}>
+                    {COLLECTION_PRODUCT_COPY.viewAll}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {creatorCollectionsLoading && moreFromCreator.length === 0 ? (
+              <Text style={[styles.empty, { color: muted }]}>Loading collections…</Text>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.creatorRail}
+              >
+                {moreFromCreator.map((item) => (
+                  <View key={item.collectionId} style={styles.creatorTile}>
+                    <CollectionTile
+                      collection={item}
+                      isLight={isLight}
+                      onPress={onPressCreatorCollection}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        ) : null}
       </ScrollView>
 
+      <AiReviewSheet
+        visible={aiReviewVisible}
+        product={aiReviewProduct}
+        onClose={() => {
+          setAiReviewVisible(false);
+          setAiReviewProduct(null);
+        }}
+      />
       <ProductDetailsSheet
         visible={detailsVisible}
         product={detailsProduct}
@@ -275,6 +468,18 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '800',
+    marginTop: 8,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 8,
+  },
+  viewAll: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   empty: {
     fontSize: 14,
@@ -288,5 +493,12 @@ const styles = StyleSheet.create({
   },
   productRow: {
     marginTop: 2,
+  },
+  creatorRail: {
+    gap: 12,
+    paddingRight: 8,
+  },
+  creatorTile: {
+    width: 168,
   },
 });

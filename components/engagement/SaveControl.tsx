@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 
 type Props = {
   isSaved: boolean;
@@ -47,6 +48,7 @@ export function SaveControl({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: disabled || pending, busy: pending, selected: isSaved }}
+      hitSlop={hitSlopToMinTarget(40)}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       style={[

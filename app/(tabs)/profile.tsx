@@ -1,14 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import Animated, { interpolateColor, useAnimatedStyle } from 'react-native-reanimated';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 import { TopBar } from '@/components/chrome/TopBar';
-import { ProfileRow } from '@/components/profile/ProfileRow';
+import { ProductDetailsSheet } from '@/components/commerce';
+import { CreatorProfile } from '@/components/creator/CreatorProfile';
+import type { CreatorProfileTab } from '@/components/creator/CreatorProfileHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { mapCreatorProductToCatalogViewModel } from '@/src/mappers/creatorProductMapper';
 import {
   parseAddToCartIntent,
   parseAuthIntent,
@@ -16,41 +28,21 @@ import {
   parseSaveCollectionIntent,
 } from '@/src/navigation/authIntent';
 import { requestAddToCart } from '@/src/services/cartBoundary';
+import {
+  listCreatorCollections,
+  listCreatorProducts,
+} from '@/src/services/collectionApi';
 import { followCreator, saveCollection } from '@/src/services/engagementApi';
-import { ensureMe, type UserSettingsViewModel } from '@/src/services/userApi';
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { BAG_COPY } from '@/src/ui/contracts';
-
-function ThemeToggleCard() {
-  const { toggleTheme, lightOpacity, tokens, isLight } = useThemeMode();
-
-  const trackStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(lightOpacity.value, [0, 1], ['rgba(15,23,42,0.45)', 'rgba(209,213,219,0.9)']),
-    borderColor: interpolateColor(lightOpacity.value, [0, 1], ['rgba(255,255,255,0.25)', 'rgba(176,181,187,1)']),
-  }));
-
-  const thumbStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(lightOpacity.value, [0, 1], ['#A855F7', '#00F2FF']),
-    borderColor: interpolateColor(lightOpacity.value, [0, 1], ['rgba(168,85,247,0.5)', 'rgba(0,242,255,0.5)']),
-    transform: [{ translateX: isLight ? 0 : 28 }],
-  }));
-
-  return (
-    <View style={[styles.themeCard, { backgroundColor: isLight ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.08)' }]}>
-      <View style={styles.themeTextWrap}>
-        <Text style={[styles.themeTitle, { color: tokens.color.text }]}>Appearance</Text>
-        <Text style={[styles.themeSubtitle, { color: tokens.color.textMuted }]}>
-          {isLight ? 'Industrial Titanium' : 'Deep Space Nebula'}
-        </Text>
-      </View>
-      <TouchableOpacity activeOpacity={0.85} onPress={toggleTheme}>
-        <Animated.View style={[styles.toggleTrack, trackStyle]}>
-          <Animated.View style={[styles.toggleThumb, thumbStyle]} />
-        </Animated.View>
-      </TouchableOpacity>
-    </View>
-  );
-}
+import {
+  useProductAddToCartHandler,
+  useProductBuyHandler,
+} from '@/src/services/productActionOrchestration';
+import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import { pageCanvasGradient } from '@/src/theme/tokens';
+import { ensureMe } from '@/src/services/userApi';
+import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
+import type { CollectionViewModel } from '@/src/types/collection';
+import type { CreatorViewModel } from '@/src/types/creator';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -62,7 +54,7 @@ export default function ProfileScreen() {
     collectionId?: string | string[];
   }>();
   const { tokens, isLight } = useThemeMode();
-  const { user, loading, signInWithEmail, signUpWithEmail, signInWithGoogle, signOut } = useAuth();
+  const { user, loading, signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
@@ -71,25 +63,29 @@ export default function ProfileScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const consumedAuthIntentRef = useRef<string | null>(null);
-  const [me, setMe] = useState<UserSettingsViewModel | null>(null);
 
-  useEffect(() => {
-    if (!user || loading) {
-      setMe(null);
-      return;
-    }
-    let cancelled = false;
-    ensureMe()
-      .then((next) => {
-        if (!cancelled) setMe(next);
-      })
-      .catch(() => {
-        if (!cancelled) setMe(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user, loading]);
+  const [creator, setCreator] = useState<CreatorViewModel | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<CreatorProfileTab>('collections');
+  const [collections, setCollections] = useState<CollectionViewModel[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [collectionsLoadingMore, setCollectionsLoadingMore] = useState(false);
+  const [collectionsError, setCollectionsError] = useState<string | null>(null);
+  const [collectionsCursor, setCollectionsCursor] = useState<string | null>(null);
+
+  const [products, setProducts] = useState<CatalogProductViewModel[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsLoadingMore, setProductsLoadingMore] = useState(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
+  const [productsCursor, setProductsCursor] = useState<string | null>(null);
+  const [productsLoaded, setProductsLoaded] = useState(false);
+
+  const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
+  const onAddToCart = useProductAddToCartHandler();
+  const onBuy = useProductBuyHandler();
+  const loadGen = useRef(0);
 
   // OD-12: resume ADD_TO_CART / FOLLOW_CREATOR / SAVE_COLLECTION after successful auth.
   useEffect(() => {
@@ -156,61 +152,136 @@ export default function ProfileScreen() {
     router,
   ]);
 
-  const profileName = useMemo(() => {
-    if (!user) return '';
-    return (
-      me?.displayName ||
-      (user.user_metadata?.full_name as string) ||
-      (user.user_metadata?.name as string) ||
-      user.email?.split('@')[0] ||
-      'Mystash User'
-    );
-  }, [user, me?.displayName]);
+  const loadProfile = useCallback(async () => {
+    const gen = ++loadGen.current;
+    setProfileLoading(true);
+    setProfileError(null);
+    setActiveTab('collections');
+    setProducts([]);
+    setProductsLoaded(false);
+    setProductsCursor(null);
+    try {
+      const me = await ensureMe();
+      if (gen !== loadGen.current) return;
+      setCreator(me);
+      setProfileLoading(false);
+    } catch (e) {
+      if (gen !== loadGen.current) return;
+      setProfileLoading(false);
+      setProfileError(e instanceof Error ? e.message : 'Could not load profile');
+      setCreator(null);
+    }
+  }, []);
 
-  const profileHandle = useMemo(() => {
-    if (!user) return '';
-    return me?.username || (user.user_metadata?.username as string) || user.email?.split('@')[0] || 'user';
-  }, [user, me?.username]);
+  const loadCollections = useCallback(
+    async (creatorId: string, cursor?: string | null, append = false) => {
+      if (append) setCollectionsLoadingMore(true);
+      else {
+        setCollectionsLoading(true);
+        setCollectionsError(null);
+      }
+      try {
+        const page = await listCreatorCollections(creatorId, {
+          limit: 20,
+          cursor: cursor ?? null,
+        });
+        setCollections((prev) => (append ? [...prev, ...page.collections] : page.collections));
+        setCollectionsCursor(page.nextCursor);
+      } catch (e) {
+        setCollectionsError(e instanceof Error ? e.message : 'Could not load collections');
+      } finally {
+        setCollectionsLoading(false);
+        setCollectionsLoadingMore(false);
+      }
+    },
+    [],
+  );
 
-  const creatorStatusLabel = useMemo(() => {
-    switch (me?.creatorStatus) {
-      case 'ACTIVE':
-        return 'ACTIVE creator';
-      case 'ONBOARDING':
-        return 'Onboarding in progress';
-      case 'SUSPENDED':
-        return 'Creator suspended';
-      case 'NONE':
-        return 'Shopper (not a creator)';
-      default:
-        return 'Loading…';
-    }
-  }, [me?.creatorStatus]);
+  const loadProducts = useCallback(
+    async (creatorId: string, cursor?: string | null, append = false) => {
+      if (append) setProductsLoadingMore(true);
+      else {
+        setProductsLoading(true);
+        setProductsError(null);
+      }
+      try {
+        const page = await listCreatorProducts(creatorId, {
+          limit: 20,
+          cursor: cursor ?? null,
+        });
+        const mapped = page.products.map(mapCreatorProductToCatalogViewModel);
+        setProducts((prev) => (append ? [...prev, ...mapped] : mapped));
+        setProductsCursor(page.nextCursor);
+        setProductsLoaded(true);
+      } catch (e) {
+        setProductsError(e instanceof Error ? e.message : 'Could not load products');
+      } finally {
+        setProductsLoading(false);
+        setProductsLoadingMore(false);
+      }
+    },
+    [],
+  );
 
-  const curateCopy = useMemo(() => {
-    if (me?.creatorStatus === 'ACTIVE') {
-      return {
-        title: 'Curate collection',
-        sub: 'Paste a reel URL, review AI picks, publish to the feed. Same flow as the Create tab.',
-      };
+  useEffect(() => {
+    if (!user || loading) {
+      setCreator(null);
+      setCollections([]);
+      setProducts([]);
+      return;
     }
-    if (me?.creatorStatus === 'ONBOARDING') {
-      return {
-        title: 'Finish creator setup',
-        sub: 'Complete onboarding on the Create tab to activate Collections.',
-      };
+    void loadProfile();
+  }, [user, loading, loadProfile]);
+
+  useEffect(() => {
+    if (!creator?.userId) return;
+    void loadCollections(creator.userId);
+  }, [creator?.userId, loadCollections]);
+
+  useEffect(() => {
+    if (!creator?.userId || activeTab !== 'products' || productsLoaded) return;
+    void loadProducts(creator.userId);
+  }, [activeTab, creator?.userId, loadProducts, productsLoaded]);
+
+  const onPressCollection = useCallback(
+    (collection: CollectionViewModel) => {
+      router.push(collectionTilePressPath(collection.collectionId) as Href);
+    },
+    [router],
+  );
+
+  const onEndReached = useCallback(() => {
+    if (!creator) return;
+    if (activeTab === 'collections') {
+      if (!collectionsCursor || collectionsLoadingMore) return;
+      void loadCollections(creator.userId, collectionsCursor, true);
+      return;
     }
-    if (me?.creatorStatus === 'SUSPENDED') {
-      return {
-        title: 'Creator suspended',
-        sub: 'Collection creation is blocked until creator privileges are reinstated.',
-      };
+    if (!productsCursor || productsLoadingMore) return;
+    void loadProducts(creator.userId, productsCursor, true);
+  }, [
+    activeTab,
+    collectionsCursor,
+    collectionsLoadingMore,
+    creator,
+    loadCollections,
+    loadProducts,
+    productsCursor,
+    productsLoadingMore,
+  ]);
+
+  const onRetry = useCallback(() => {
+    if (!creator) {
+      void loadProfile();
+      return;
     }
-    return {
-      title: 'Become a creator',
-      sub: 'Activate your creator account on the Create tab to ingest Collections.',
-    };
-  }, [me?.creatorStatus]);
+    if (activeTab === 'collections') {
+      void loadCollections(creator.userId);
+      return;
+    }
+    setProductsLoaded(false);
+    void loadProducts(creator.userId);
+  }, [activeTab, creator, loadCollections, loadProducts, loadProfile]);
 
   const onSubmitAuth = async () => {
     if (!email.trim() || !password.trim()) {
@@ -265,8 +336,6 @@ export default function ProfileScreen() {
   const onGoogleSignIn = async () => {
     setSubmitting(true);
     try {
-      // Forward validated Profile route intent into OAuth redirectTo so a cold
-      // Google callback can resume ADD_TO_CART / FOLLOW_CREATOR / SAVE_COLLECTION.
       const authIntent = parseAuthIntent(params);
       const { error } = await signInWithGoogle({ authIntent });
       if (error && error !== 'Google sign in canceled.') {
@@ -277,12 +346,16 @@ export default function ProfileScreen() {
     }
   };
 
+  const bg = [...pageCanvasGradient(tokens), tokens.color.canvas] as const;
+  const text = tokens.color.text;
+  const muted = tokens.color.textMuted;
+
   if (loading) {
     return (
       <View style={{ flex: 1 }}>
-        <TopBar mode="page" title="Profile" />
+        <TopBar mode="page" title="Profile" showBag={false} />
         <View style={[styles.screen, styles.centered]}>
-          <ActivityIndicator size="large" color={isLight ? '#00AFC0' : '#A855F7'} />
+          <ActivityIndicator size="large" color={tokens.color.accent} />
         </View>
       </View>
     );
@@ -301,14 +374,19 @@ export default function ProfileScreen() {
           end={{ x: 0.8, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
-        <TopBar mode="page" title="Profile" />
+        <TopBar mode="page" title="Profile" showBag={false} />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={[styles.name, { color: tokens.color.text }]}>Welcome to Mystash</Text>
           <Text style={[styles.email, { color: tokens.color.textMuted }]}>
             Sign in to manage profile, wishlist, and creator earnings.
           </Text>
 
-          <View style={[styles.authCard, { backgroundColor: isLight ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.08)' }]}>
+          <View
+            style={[
+              styles.authCard,
+              { backgroundColor: isLight ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.08)' },
+            ]}
+          >
             <View style={styles.authModeSwitch}>
               <TouchableOpacity
                 onPress={() => setAuthMode('signup')}
@@ -369,7 +447,9 @@ export default function ProfileScreen() {
             )}
 
             <TouchableOpacity style={styles.primaryBtn} onPress={onSubmitAuth} disabled={submitting}>
-              <Text style={styles.primaryBtnText}>{authMode === 'signup' ? 'Create account' : 'Sign in'}</Text>
+              <Text style={styles.primaryBtnText}>
+                {authMode === 'signup' ? 'Create account' : 'Sign in'}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.googleBtn} onPress={onGoogleSignIn} disabled={submitting}>
@@ -384,119 +464,66 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.screen}>
-      <LinearGradient
-        colors={
-          isLight
-            ? [tokens.color.canvasSoft, tokens.color.canvasSoftEnd, tokens.color.canvasEnd]
-            : [tokens.color.canvasSoft, tokens.color.canvasSoftEnd, tokens.color.canvas]
+      <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
+      <TopBar
+        mode="page"
+        title={creator ? `@${creator.username}` : 'Profile'}
+        showBag={false}
+        trailing={
+          <Pressable
+            onPress={() => router.push('/settings')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Open Settings and Analytics"
+            style={styles.menuBtn}
+          >
+            <Ionicons name="menu" size={24} color={text} />
+          </Pressable>
         }
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
-        style={StyleSheet.absoluteFill}
       />
-      <TopBar mode="page" title="Profile" />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerBlock}>
-          <Image
-            source={{
-              uri:
-                (user.user_metadata?.avatar_url as string) ||
-                'https://i.pravatar.cc/300?img=33',
-            }}
-            style={styles.avatar}
-            contentFit="cover"
-          />
-          <Text style={[styles.name, { color: tokens.color.text }]}>{profileName}</Text>
-          <Text style={[styles.email, { color: tokens.color.textMuted }]}>{user.email}</Text>
-          <Text style={[styles.handle, { color: isLight ? '#00AFC0' : '#A855F7' }]}>@{profileHandle}</Text>
+      {profileLoading && !creator ? (
+        <View style={styles.centered}>
+          <ActivityIndicator color={text} />
         </View>
-
-        <ThemeToggleCard />
-
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => router.push('/(tabs)/create')}
-          disabled={me?.creatorStatus === 'SUSPENDED'}
-          style={[
-            styles.curateCard,
-            {
-              borderColor: isLight ? 'rgba(0,242,255,0.45)' : 'rgba(168,85,247,0.55)',
-              backgroundColor: isLight ? 'rgba(255,255,255,0.88)' : 'rgba(255,255,255,0.08)',
-              opacity: me?.creatorStatus === 'SUSPENDED' ? 0.55 : 1,
-            },
-          ]}
-        >
-          <Ionicons name="sparkles-outline" size={22} color={isLight ? '#00AFC0' : '#C084FC'} />
-          <View style={{ flex: 1, paddingLeft: 10 }}>
-            <Text style={[styles.curateTitle, { color: tokens.color.text }]}>{curateCopy.title}</Text>
-            <Text style={[styles.curateSub, { color: tokens.color.textMuted }]}>{curateCopy.sub}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={isLight ? '#64748B' : '#94A3B8'} />
-        </TouchableOpacity>
-
-        {me && me.creatorStatus !== 'NONE' ? (
-          <ProfileRow
-            icon="stats-chart-outline"
-            label="Analytics"
-            value="Views, followers, saves, and more"
-            action={() => router.push('/analytics')}
-          />
-        ) : null}
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: tokens.color.text }]}>Account</Text>
-          <ProfileRow
-            icon="cart-outline"
-            label="Bag"
-            value={BAG_COPY.view}
-            action={() => router.push('/cart')}
-          />
-          <ProfileRow icon="person-outline" label="Username" value={`@${profileHandle}`} />
-          <ProfileRow icon="create-outline" label="Creator status" value={creatorStatusLabel} />
-          <ProfileRow
-            icon="globe-outline"
-            label="Public profile"
-            value="View as others see you"
-            action={() => router.push(`/creator/${encodeURIComponent(profileHandle)}`)}
-          />
-          <ProfileRow icon="mail-outline" label="Email" value={user.email ?? 'N/A'} />
-          <ProfileRow icon="shield-checkmark-outline" label="Plan" value="Mystash Pro Beta" />
-          <ProfileRow icon="card-outline" label="Payment" value="Visa •••• 2189 (placeholder)" />
-          <ProfileRow icon="location-outline" label="Shipping Address" value="Add primary address" />
-          <ProfileRow icon="notifications-outline" label="Notifications" value="Push + Email enabled" />
-          <ProfileRow icon="lock-closed-outline" label="Privacy" value="Manage data & permissions" />
+      ) : profileError && !creator ? (
+        <View style={styles.centered}>
+          <Text style={[styles.stateTitle, { color: text }]}>Couldn’t load profile</Text>
+          <Text style={[styles.stateBody, { color: muted }]}>{profileError}</Text>
+          <Pressable onPress={() => void loadProfile()} style={styles.retry}>
+            <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
+          </Pressable>
         </View>
+      ) : creator ? (
+        <CreatorProfile
+          creator={creator}
+          collections={collections}
+          products={products}
+          isLight={isLight}
+          isSelf
+          activeTab={activeTab}
+          collectionsLoading={collectionsLoading}
+          collectionsLoadingMore={collectionsLoadingMore}
+          collectionsError={collectionsError}
+          productsLoading={productsLoading}
+          productsLoadingMore={productsLoadingMore}
+          productsError={productsError}
+          onFollowPress={() => {}}
+          onTabChange={setActiveTab}
+          onPressCollection={onPressCollection}
+          onPressProduct={setDetailsProduct}
+          onEndReached={onEndReached}
+          onRetry={onRetry}
+        />
+      ) : null}
 
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: tokens.color.text }]}>Social</Text>
-          <ProfileRow
-            icon="logo-instagram"
-            label="Instagram"
-            value="@mystash_app"
-            action={() => Linking.openURL('https://instagram.com')}
-          />
-          <ProfileRow
-            icon="logo-youtube"
-            label="YouTube"
-            value="@MystashOfficial"
-            action={() => Linking.openURL('https://youtube.com')}
-          />
-          <ProfileRow
-            icon="globe-outline"
-            label="Website"
-            value="mystash.ai"
-            action={() => Linking.openURL('https://mystash.ai')}
-          />
-        </View>
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: tokens.color.text }]}>Session</Text>
-          <TouchableOpacity style={[styles.dangerBtn, { backgroundColor: isLight ? '#111827' : '#EF4444' }]} onPress={signOut}>
-            <Text style={styles.dangerBtnText}>Sign out</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+      <ProductDetailsSheet
+        visible={detailsProduct != null}
+        product={detailsProduct}
+        onClose={() => setDetailsProduct(null)}
+        onAddToCart={detailsProduct?.catalogProductId ? onAddToCart : undefined}
+        onBuy={detailsProduct?.catalogProductId ? onBuy : undefined}
+      />
     </View>
   );
 }
@@ -512,20 +539,20 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   centered: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 28,
+    gap: 8,
   },
-  headerBlock: {
+  stateTitle: { fontSize: 18, fontWeight: '800' },
+  stateBody: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  retry: { marginTop: 12, padding: 12 },
+  menuBtn: {
+    width: 44,
+    height: 44,
     alignItems: 'center',
-    marginBottom: 8,
-  },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    marginBottom: 10,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.35)',
+    justifyContent: 'center',
   },
   name: {
     fontSize: 24,
@@ -534,54 +561,6 @@ const styles = StyleSheet.create({
   email: {
     fontSize: 14,
     marginTop: 4,
-  },
-  handle: {
-    fontSize: 13,
-    marginTop: 4,
-    fontWeight: '700',
-  },
-  themeCard: {
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  themeTextWrap: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  themeTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  themeSubtitle: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  toggleTrack: {
-    width: 54,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 2,
-  },
-  toggleThumb: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  section: {
-    gap: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: 6,
-    marginBottom: 2,
   },
   authCard: {
     borderRadius: 16,
@@ -646,33 +625,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 14,
   },
-  dangerBtn: {
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  dangerBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  curateCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    gap: 4,
-  },
-  curateTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  curateSub: {
-    fontSize: 13,
-    marginTop: 2,
-    lineHeight: 18,
-  },
 });
-

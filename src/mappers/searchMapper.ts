@@ -27,7 +27,10 @@ export function mapSearchCollectionCard(card: SearchResultCard): CollectionViewM
       displayName: creator?.displayName ?? null,
       avatarUrl: creator?.avatarRef ?? null,
     },
-    counters: { views: 0, saves: 0 },
+    counters: {
+      views: typeof card.viewsCount === 'number' ? card.viewsCount : 0,
+      saves: typeof card.savesCount === 'number' ? card.savesCount : 0,
+    },
   };
 }
 
@@ -52,9 +55,10 @@ export function mapSearchCreatorCard(card: SearchResultCard): CreatorViewModel |
     isCreator: true,
     accountType: 'personal',
     joinedAt: '',
-    followersCount: 0,
+    followersCount: typeof card.followersCount === 'number' ? card.followersCount : 0,
     followingCount: 0,
     collectionCount: 0,
+    savesCount: 0,
   };
 }
 
@@ -64,6 +68,8 @@ export function mapSearchProductCardThin(card: SearchResultCard): CatalogProduct
   const catalogProductId = card.id.trim();
   if (!catalogProductId) return null;
   const hero = card.imageRef?.startsWith('http') ? card.imageRef : null;
+  const indexPrice = card.price?.trim() || null;
+  const indexCurrency = card.priceCurrency?.trim() || null;
   return {
     id: catalogProductId,
     catalogProductId,
@@ -73,12 +79,12 @@ export function mapSearchProductCardThin(card: SearchResultCard): CatalogProduct
     heroImage: hero,
     galleryImages: hero ? [hero] : [],
     description: null,
-    shortDescription: null,
+    shortDescription: card.matchReason ?? null,
     specifications: {},
     verificationStatus: asVerification(card.verificationStatus),
     availability: null,
-    price: null,
-    currency: null,
+    price: indexPrice,
+    currency: indexCurrency,
     lastVerifiedAt: null,
     metadataCompleteness: null,
   };

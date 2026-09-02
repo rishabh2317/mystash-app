@@ -4,46 +4,46 @@ import {
   extractYoutubeVideoIdFromUrl,
   resolveYoutubeParentOrigin,
 } from '@/src/utils/youtubeWebViewEmbed';
+import { youtubeStageCropScale } from '@/src/ui/feedYoutubeCrop';
 import { Image } from 'expo-image';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Animated,
-    Dimensions,
     StyleSheet,
-    View
+    View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
-
-const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface YouTubeReelItemProps {
   video: Video;
   isActive: boolean;
-  onBuyPress: (video: Video) => void;
   webViewRef?: React.RefObject<any>;
+  fadeMs?: number;
 }
 
-export default function YouTubeReelItem({ video, isActive, onBuyPress, webViewRef: externalWebViewRef }: YouTubeReelItemProps) {
+export default function YouTubeReelItem({
+  video,
+  isActive,
+  webViewRef: externalWebViewRef,
+  fadeMs = 300,
+}: YouTubeReelItemProps) {
   const [showWebView, setShowWebView] = useState(false);
+  const [stageHeight, setStageHeight] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const internalWebViewRef = useRef<WebView>(null);
-  
-  // Use external ref if provided, otherwise use internal ref
   const webViewRef = externalWebViewRef || internalWebViewRef;
 
   useEffect(() => {
-    if (isActive && video.embed_url) {
-      // Fade out thumbnail, then show webview
+    if (isActive && video.embed_url && stageHeight > 0) {
       Animated.timing(fadeAnim, {
         toValue: 0,
-        duration: 300,
+        duration: fadeMs,
         useNativeDriver: true,
       }).start(() => {
         setShowWebView(true);
-        // Fade in webview
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 300,
+          duration: fadeMs,
           useNativeDriver: true,
         }).start();
       });
@@ -55,23 +55,28 @@ export default function YouTubeReelItem({ video, isActive, onBuyPress, webViewRe
         useNativeDriver: true,
       }).start();
     }
-  }, [isActive, video.embed_url]);
+  }, [fadeAnim, fadeMs, isActive, stageHeight, video.embed_url]);
 
   const parentOrigin = useMemo(() => resolveYoutubeParentOrigin(), []);
   const videoId = video.embed_url ? extractYoutubeVideoIdFromUrl(video.embed_url) : null;
+  const cropScale = youtubeStageCropScale(stageHeight);
   const youtubeHtml = useMemo(
     () =>
       videoId && video.embed_url
-        ? buildYoutubeWebHtml(videoId, parentOrigin)
+        ? buildYoutubeWebHtml(videoId, parentOrigin, cropScale)
         : '<!DOCTYPE html><html><body style="background:#000"></body></html>',
-    [videoId, video.embed_url, parentOrigin],
+    [cropScale, parentOrigin, video.embed_url, videoId],
   );
 
   return (
-    <View style={styles.container}>
-      {/* Video/Thumbnail Container */}
+    <View
+      style={styles.container}
+      onLayout={(event) => {
+        const next = Math.round(event.nativeEvent.layout.height);
+        if (next > 0 && stageHeight === 0) setStageHeight(next);
+      }}
+    >
       <View style={styles.videoContainer}>
-        {/* Static Thumbnail */}
         <Animated.View style={[styles.thumbnailContainer, { opacity: showWebView ? 0 : fadeAnim }]}>
           <Image
             source={{ uri: video.thumbnail }}
@@ -82,8 +87,7 @@ export default function YouTubeReelItem({ video, isActive, onBuyPress, webViewRe
           />
         </Animated.View>
 
-        {/* WebView for YouTube Embed - Only shown when active */}
-        {isActive && video.embed_url && showWebView && videoId && (
+        {isActive && video.embed_url && showWebView && videoId ? (
           <Animated.View style={[styles.webViewContainer, { opacity: fadeAnim }]}>
             <WebView
               ref={webViewRef}
@@ -107,14 +111,9 @@ export default function YouTubeReelItem({ video, isActive, onBuyPress, webViewRe
               onError={(error) => {
                 if (__DEV__) console.warn('YouTube WebView:', error.nativeEvent);
               }}
-              onMessage={(event) => {
-                if (__DEV__ && event.nativeEvent.data === 'videoReady') {
-                  console.log('YouTube player ready');
-                }
-              }}
             />
           </Animated.View>
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -122,8 +121,8 @@ export default function YouTubeReelItem({ video, isActive, onBuyPress, webViewRe
 
 const styles = StyleSheet.create({
   container: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
+    width: '100%',
+    flex: 1,
     backgroundColor: 'black',
   },
   videoContainer: {
@@ -151,104 +150,5 @@ const styles = StyleSheet.create({
   webView: {
     width: '100%',
     height: '100%',
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  contentContainer: {
-    position: 'absolute',
-    bottom: 80,
-    left: 20,
-    right: 20,
-  },
-  productInfo: {
-    marginBottom: 20,
-  },
-  productName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 4,
-  },
-  creatorName: {
-    fontSize: 16,
-    color: 'white',
-    marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 4,
-  },
-  stashScore: {
-    fontSize: 14,
-    color: 'white',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 4,
-  },
-  buyButton: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 25,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  buyButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  audioButton: {
-    position: 'absolute',
-    top: 60,
-    right: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  audioButtonText: {
-    fontSize: 20,
-    color: 'white',
-  },
-  headerMask: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 80, // Cover YouTube title bar/IG profile
-    zIndex: 10, // Higher than WebView
-  },
-  footerMask: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: SCREEN_HEIGHT * 0.2, // 20% of screen height
-    backgroundColor: 'rgba(0,0,0,0.95)', // Opaque to hide footers
-    zIndex: 10, // Higher than WebView
-  },
-  stashScoreContainer: {
-    position: 'absolute',
-    top: 40, // Centered in header
-    right: 20,
   },
 });

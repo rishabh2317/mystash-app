@@ -1,335 +1,278 @@
-import React, { useMemo } from 'react';
-import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, {
-  Extrapolate,
-  interpolate,
-  interpolateColor,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
+import { useRouter, type Href } from 'expo-router';
+import React from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FollowControl } from '@/components/engagement/FollowControl';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { trackProductEvent } from '@/src/logging/productAnalytics';
 import type { Product, Video } from '@/src/mocks/videos';
+import { creatorPath } from '@/src/services/sharePaths';
+import {
+  creatorDisplayNameFromFeed,
+  creatorUsernameFromFeed,
+} from '@/src/ui/feedCreatorIdentity';
+import {
+  FEED_MIN_HIT_TARGET,
+  productChipAccessibilityLabel,
+} from '@/src/ui/feedA11y';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const CHIP_WIDTH = 84;
 
-const DOCK_HEIGHT = SCREEN_HEIGHT * 0.32;
-/** Fixed-width dock chips so one product does not stretch across the row; extras scroll horizontally. */
-const PRODUCT_DOCK_CARD_WIDTH = 96;
-const VIEW_MORE_CELL_WIDTH = 86;
-
-function StarDustOverlay({ density = 90 }: { density?: number }) {
-  // Stable star positions across renders.
-  const stars = useMemo(() => {
-    const arr: Array<{ x: number; y: number; s: number }> = [];
-    for (let i = 0; i < density; i++) {
-      arr.push({
-        x: Math.random() * 100,
-        y: Math.random() * 100,
-        s: Math.random() < 0.3 ? 1.5 : 1,
-      });
-    }
-    return arr;
-  }, [density]);
-
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      {stars.map((star, idx) => (
-        <View
-          key={idx}
-          style={{
-            position: 'absolute',
-            left: `${star.x}%`,
-            top: `${star.y}%`,
-            width: star.s,
-            height: star.s,
-            borderRadius: 2,
-            backgroundColor: 'white',
-            opacity: 0.1,
-          }}
-        />
-      ))}
-    </View>
-  );
+function hexWithAlpha(hex: string, alpha: number): string {
+  const raw = hex.replace('#', '');
+  if (raw.length !== 6) return hex;
+  const a = Math.round(alpha * 255)
+    .toString(16)
+    .padStart(2, '0');
+  return `#${raw}${a}`;
 }
 
-function LedFlowTrack({ lightOpacity, darkOpacity }: { lightOpacity: any; darkOpacity: any }) {
-  const pulse = useSharedValue(0);
-
-  React.useEffect(() => {
-    pulse.value = 0;
-    pulse.value = withRepeat(withTiming(1, { duration: 1600 }), -1, true);
-  }, [pulse]);
-
-  const baseLightStyle = useAnimatedStyle(() => ({
-    opacity: lightOpacity.value * 0.6,
-  }));
-
-  const baseNebulaStyle = useAnimatedStyle(() => ({
-    opacity: darkOpacity.value * 0.6,
-  }));
-
-  const titaniumGlowStyle = useAnimatedStyle(() => ({
-    opacity: lightOpacity.value * interpolate(pulse.value, [0, 1], [0.45, 0.95], Extrapolate.CLAMP),
-    transform: [{ scaleX: interpolate(pulse.value, [0, 1], [0.985, 1], Extrapolate.CLAMP) }],
-  }));
-
-  const nebulaGlowStyle = useAnimatedStyle(() => ({
-    opacity: darkOpacity.value * interpolate(pulse.value, [0, 1], [0.35, 0.9], Extrapolate.CLAMP),
-    transform: [{ scaleX: interpolate(pulse.value, [0, 1], [0.98, 1], Extrapolate.CLAMP) }],
-  }));
-
-  return (
-    <View style={styles.ledOuter}>
-      <Animated.View style={[styles.ledBaseLight, baseLightStyle]} pointerEvents="none" />
-      <Animated.View style={[styles.ledBaseNebula, baseNebulaStyle]} pointerEvents="none" />
-
-      <Animated.View
-        style={[styles.fullLengthLed, titaniumGlowStyle, { shadowRadius: 8, shadowOpacity: 0.6 }]}
-        pointerEvents="none"
-      >
-        <LinearGradient
-          colors={['#00F2FF', '#22D3EE', '#60A5FA', '#00F2FF']}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
-
-      <Animated.View
-        style={[styles.fullLengthLed, nebulaGlowStyle, { shadowColor: '#A855F7', shadowRadius: 15, shadowOpacity: 0.65 }]}
-        pointerEvents="none"
-      >
-        <LinearGradient
-          colors={['#A855F7', '#7C3AED', '#22D3EE', '#A855F7']}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
-    </View>
-  );
-}
-
-function ProductCardFrame({
+function ProductChip({
   product,
-  lightOpacity,
-  darkOpacity,
+  tokens,
+  onPress,
 }: {
   product: Product;
-  lightOpacity: any;
-  darkOpacity: any;
+  tokens: ReturnType<typeof useThemeMode>['tokens'];
+  onPress: (product: Product) => void;
 }) {
+  const shopable = Boolean(product.catalog_product_id?.trim());
   return (
-    <View style={styles.productCardColumn}>
-      <Animated.View style={[styles.titaniumCardFrame, styles.layerFill, { opacity: lightOpacity }]} pointerEvents="none">
-        <View style={styles.cardContent}>
-          <Image
-            source={{ uri: product.image }}
-            style={styles.productImage}
-            contentFit="cover"
-            recyclingKey={`${product.id}:${product.image}`}
-          />
-          <Text style={[styles.productPrice, { color: '#1A1A1B' }]}>{product.price}</Text>
-        </View>
-      </Animated.View>
-
-      <Animated.View style={[styles.nebulaCardFrame, styles.layerFill, { opacity: darkOpacity }]} pointerEvents="none">
-        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-        <View style={[styles.nebulaCardInner, styles.cardContent]}>
-          <Image
-            source={{ uri: product.image }}
-            style={styles.productImage}
-            contentFit="cover"
-            recyclingKey={`${product.id}:${product.image}`}
-          />
-          <Text style={[styles.productPrice, { color: '#F8FAFC', textShadowColor: '#A855F7' }]}>{product.price}</Text>
-        </View>
-      </Animated.View>
-    </View>
+    <Pressable
+      onPress={() => {
+        trackProductEvent('product.card.opened', {
+          catalogProductId: product.catalog_product_id ?? product.id,
+        });
+        onPress(product);
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={productChipAccessibilityLabel(product.name, product.price)}
+      accessibilityHint={shopable ? undefined : 'Shopping is not available yet'}
+      style={[
+        styles.chip,
+        {
+          borderColor: tokens.color.border,
+          backgroundColor: tokens.color.surface,
+          borderRadius: tokens.radius.md,
+        },
+      ]}
+    >
+      <Image
+        source={{ uri: product.image }}
+        style={styles.chipImage}
+        contentFit="cover"
+        recyclingKey={`${product.id}:${product.image}`}
+      />
+      <Text
+        style={[styles.chipPrice, { color: tokens.color.text, fontSize: tokens.fontSize.caption }]}
+        numberOfLines={1}
+      >
+        {product.price}
+      </Text>
+    </Pressable>
   );
 }
+
+export type BottomDockFollow = {
+  isFollowing: boolean;
+  pending?: boolean;
+  onPress: () => void;
+};
+
+export type BottomDockSave = {
+  isSaved: boolean;
+  pending?: boolean;
+  onPress: () => void;
+};
+
+export type BottomDockShare = {
+  onPress: () => void;
+  accessibilityLabel?: string;
+};
 
 export default function BottomDock({
   video,
-  router,
-  onVolumeToggle,
-  isMuted,
+  onProductPress,
+  follow,
+  creatorAvatarUrl,
+  creatorUsername,
+  creatorDisplayName,
+  onDockHeightChange,
 }: {
   video: Video;
-  router: any;
-  onVolumeToggle?: () => void;
-  isMuted?: boolean;
+  onProductPress?: (product: Product) => void;
+  follow?: BottomDockFollow | null;
+  creatorAvatarUrl?: string | null;
+  creatorUsername?: string | null;
+  creatorDisplayName?: string | null;
+  onDockHeightChange?: (height: number) => void;
 }) {
-  const { mode, lightOpacity, darkOpacity } = useThemeMode();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { tokens } = useThemeMode();
+  const products = video.products ?? [];
+  const collectionId = video.collection_id?.trim();
+  const username = creatorUsername ?? creatorUsernameFromFeed(video);
+  const displayName = creatorDisplayName ?? creatorDisplayNameFromFeed(video);
 
-  const products = video.products || [];
-  const showProductDock = products.length > 0;
-
-  const handleViewAll = () => {
-    if (!video.collection_id) return;
-    router.push(`/collection/${video.collection_id}`);
+  const handleViewCollection = () => {
+    if (!collectionId) return;
+    router.push(`/collection/${collectionId}`);
   };
 
-  const titleAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      color: interpolateColor(lightOpacity.value, [0, 1], ['#F8FAFC', '#1A1A1B']),
-      textShadowColor: interpolateColor(
-        lightOpacity.value,
-        [0, 1],
-        ['rgba(168,85,247,0.55)', 'rgba(0,0,0,0)'],
-      ),
-      textShadowRadius: interpolate(lightOpacity.value, [0, 1], [10, 0], Extrapolate.CLAMP),
-    } as any;
-  });
-
-  const curatorAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      color: interpolateColor(lightOpacity.value, [0, 1], ['#E5E7EB', '#4E5257']),
-    } as any;
-  });
-
-  const stashAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      color: interpolateColor(lightOpacity.value, [0, 1], ['#A855F7', '#00F2FF']),
-    } as any;
-  });
-
-  const starTint = mode === 'titanium' ? '#F59E0B' : '#FDE68A';
-
   return (
-    <View style={styles.wrapper} pointerEvents="box-none">
-      {/* Dock background crossfade */}
-      <Animated.View style={[styles.titaniumBg, { opacity: lightOpacity }]} pointerEvents="none">
-        <LinearGradient
-          colors={['#FDFDFD', '#E8E8E8', '#D1D1D1']}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-        />
-      </Animated.View>
+    <View
+      style={styles.wrap}
+      pointerEvents="box-none"
+      onLayout={(e) => {
+        const h = Math.round(e.nativeEvent.layout.height);
+        if (h > 0) onDockHeightChange?.(h);
+      }}
+    >
+      <LinearGradient
+        pointerEvents="none"
+        colors={['transparent', hexWithAlpha(tokens.color.canvas, 0.88)]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View
+        pointerEvents="none"
+        style={[styles.hairline, { backgroundColor: hexWithAlpha(tokens.color.accent, 0.45) }]}
+      />
 
-      <Animated.View style={[styles.nebulaBg, { opacity: darkOpacity }]} pointerEvents="none">
-        <LinearGradient
-          colors={['#0D111F', '#020408']}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-        />
-        <LinearGradient
-          colors={['rgba(45,58,104,0.45)', 'rgba(13,17,31,0.0)']}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-        />
-        <StarDustOverlay />
-      </Animated.View>
-
-      {/* Specular chamfer line (top edge of the dock) */}
-      <View style={styles.dockTopSpecular} pointerEvents="none" />
-
-      {/* Inner-edge LED track (dock meets video at its top edge) */}
-      <View style={styles.ledTopEdge}>
-        <LedFlowTrack lightOpacity={lightOpacity} darkOpacity={darkOpacity} />
-      </View>
-
-      <View style={styles.dockContent} pointerEvents="box-none">
-        {/* Metadata Section */}
-        <View style={styles.metadataSection}>
-          <View style={styles.titleRow}>
-            <View style={styles.titleTextWrap}>
-              <Animated.Text
-                style={[styles.videoTitle, titleAnimatedStyle]}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {video.video_title || video.product_name}
-              </Animated.Text>
-            </View>
-
-            {onVolumeToggle && (
-              <TouchableOpacity
-                style={[
-                  styles.volumeButton,
-                  {
-                    backgroundColor: mode === 'titanium' ? 'rgba(0,242,255,0.18)' : 'rgba(168,85,247,0.18)',
-                  },
-                ]}
-                onPress={onVolumeToggle}
-                activeOpacity={0.8}
-                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-              >
-                <Text style={styles.speakerIcon}>{isMuted ? '🔇' : '🔊'}</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.curatorRow}>
-            <View style={styles.identityCluster}>
-              <Animated.Text style={[styles.curatorName, curatorAnimatedStyle]} numberOfLines={1}>
-                {video.curator_id || video.creator_name}
-              </Animated.Text>
-              <View style={styles.stashScoreContainer}>
-                <Ionicons name="star" size={11} color={starTint} />
-                <Animated.Text style={[styles.stashScore, stashAnimatedStyle]}>
-                  {video.stash_score}
-                </Animated.Text>
-              </View>
-            </View>
-          </View>
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.body,
+          {
+            paddingHorizontal: tokens.space.md,
+            paddingTop: tokens.space.sm,
+            paddingBottom: Math.max(insets.bottom, tokens.space.sm),
+            gap: tokens.space.xs,
+          },
+        ]}
+      >
+        <View style={[styles.titleRow, { gap: tokens.space.sm }]} pointerEvents="box-none">
+          <Text
+            style={[styles.title, { color: tokens.color.text, fontSize: tokens.fontSize.title }]}
+            numberOfLines={1}
+          >
+            {video.video_title || video.product_name}
+          </Text>
         </View>
 
-        {/* Product chips: horizontal scroll + always-visible View More → product list with embed */}
-        {showProductDock ? (
+        <View style={[styles.identityRow, { gap: tokens.space.xs }]}>
+          {username ? (
+            <Pressable
+              onPress={() => router.push(creatorPath(username) as Href)}
+              accessibilityRole="link"
+              accessibilityLabel={`View ${displayName} profile`}
+              style={styles.identityPress}
+            >
+              {creatorAvatarUrl ? (
+                <Image
+                  source={{ uri: creatorAvatarUrl }}
+                  style={styles.avatar}
+                  contentFit="cover"
+                />
+              ) : null}
+              <Text
+                style={[
+                  styles.creator,
+                  { color: tokens.color.textMuted, fontSize: tokens.fontSize.bodyStrong },
+                ]}
+                numberOfLines={1}
+              >
+                {displayName}
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.identityPress}>
+              {creatorAvatarUrl ? (
+                <Image
+                  source={{ uri: creatorAvatarUrl }}
+                  style={styles.avatar}
+                  contentFit="cover"
+                />
+              ) : null}
+              <Text
+                style={[
+                  styles.creator,
+                  { color: tokens.color.textMuted, fontSize: tokens.fontSize.bodyStrong },
+                ]}
+                numberOfLines={1}
+              >
+                {displayName}
+              </Text>
+            </View>
+          )}
+          {follow ? (
+            <FollowControl
+              size="compact"
+              isFollowing={follow.isFollowing}
+              pending={follow.pending}
+              onPress={follow.onPress}
+            />
+          ) : null}
+        </View>
+
+        {products.length > 0 || collectionId ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            style={styles.productScroll}
-            contentContainerStyle={styles.productScrollContent}
             nestedScrollEnabled
+            directionalLockEnabled
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={[styles.rail, { gap: tokens.space.xs, paddingVertical: tokens.space.xxs }]}
           >
             {products.map((product) => (
-              <View key={product.id} style={styles.productScrollItem}>
-                <ProductCardFrame product={product} lightOpacity={lightOpacity} darkOpacity={darkOpacity} />
-              </View>
+              <ProductChip
+                key={product.id}
+                product={product}
+                tokens={tokens}
+                onPress={(next) => onProductPress?.(next)}
+              />
             ))}
-
-            <TouchableOpacity
-              style={styles.viewMoreCell}
-              onPress={handleViewAll}
-              activeOpacity={0.8}
-            >
-              <View style={styles.viewAllContainer}>
-                <Animated.View
-                  style={[styles.viewAllTitanium, styles.layerFill, { opacity: lightOpacity }]}
-                  pointerEvents={mode === 'titanium' ? 'auto' : 'none'}
+            {collectionId ? (
+              <Pressable
+                onPress={handleViewCollection}
+                accessibilityRole="button"
+                accessibilityLabel="View collection"
+                style={[
+                  styles.chip,
+                  {
+                    borderColor: tokens.color.border,
+                    backgroundColor: tokens.color.surface,
+                    borderRadius: tokens.radius.md,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.chipImage,
+                    styles.collectionChipIcon,
+                    { backgroundColor: tokens.color.overlay },
+                  ]}
                 >
-                  <LinearGradient
-                    colors={['#FDFDFD', '#D1D1D1']}
-                    style={StyleSheet.absoluteFill}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0, y: 1 }}
-                  />
-                  <View style={styles.viewAllPressedInner} />
-                  <Text style={styles.viewAllTextTitanium}>View More</Text>
-                </Animated.View>
-
-                <Animated.View
-                  style={[styles.viewAllNebula, styles.layerFill, { opacity: darkOpacity }]}
-                  pointerEvents={mode === 'nebula' ? 'auto' : 'none'}
+                  <Ionicons name="albums-outline" size={22} color={tokens.color.icon} />
+                </View>
+                <Text
+                  style={[styles.chipPrice, { color: tokens.color.text, fontSize: tokens.fontSize.caption }]}
+                  numberOfLines={1}
                 >
-                  <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-                  <View style={styles.viewAllPortalBorder} />
-                  <Text style={styles.viewAllTextNebula}>View More</Text>
-                </Animated.View>
-              </View>
-            </TouchableOpacity>
+                  View
+                </Text>
+              </Pressable>
+            ) : null}
           </ScrollView>
         ) : null}
       </View>
@@ -338,251 +281,73 @@ export default function BottomDock({
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
+  wrap: {
     position: 'absolute',
-    bottom: 0,
     left: 0,
     right: 0,
-    height: DOCK_HEIGHT,
+    bottom: 0,
     zIndex: 10,
   },
-  titaniumBg: {
-    ...StyleSheet.absoluteFillObject,
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+    width: '100%',
   },
-  nebulaBg: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  dockTopSpecular: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: '#FFFFFF',
-    opacity: 0.95,
-  },
-  ledTopEdge: {
-    position: 'absolute',
-    top: 1,
-    left: 0,
-    right: 0,
-    height: 2,
-  },
-  ledOuter: {
-    flex: 1,
-  },
-  ledBaseLight: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: 'rgba(176,181,187,0.95)',
-  },
-  ledBaseNebula: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,0.30)',
-  },
-  fullLengthLed: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 2,
-    borderRadius: 0,
-    overflow: 'hidden',
-    shadowColor: '#00F2FF',
-  },
-  dockContent: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 14,
-  },
-  metadataSection: {
-    paddingBottom: 8,
+  body: {
+    width: '100%',
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
-    gap: 0,
   },
-  titleTextWrap: {
+  title: {
     flex: 1,
-    minWidth: 0,
-    marginRight: 10,
+    fontWeight: '700',
   },
-  videoTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  volumeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  speakerIcon: {
-    fontSize: 16,
-    color: '#0A0E14',
-  },
-  curatorRow: {
+  identityRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  identityCluster: {
+  identityPress: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexShrink: 1,
+    minWidth: 0,
+    minHeight: FEED_MIN_HIT_TARGET,
   },
-  curatorName: {
-    fontSize: 14,
-    fontWeight: '600',
-    maxWidth: SCREEN_WIDTH * 0.56,
-  },
-  stashScoreContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  avatar: {
+    width: 24,
+    height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.06)',
+    flexShrink: 0,
   },
-  stashScore: {
-    fontSize: 12,
-    fontWeight: 'bold',
+  creator: {
+    fontWeight: '600',
+    flexShrink: 1,
   },
-  productScroll: {
-    maxHeight: 92,
-    marginTop: 2,
-  },
-  productScrollContent: {
+  rail: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    gap: 10,
-    paddingRight: 4,
-    paddingVertical: 2,
   },
-  productScrollItem: {
-    width: PRODUCT_DOCK_CARD_WIDTH,
-    minHeight: 82,
-  },
-  viewMoreCell: {
-    width: VIEW_MORE_CELL_WIDTH,
-    minHeight: 82,
-  },
-  productCardColumn: {
-    width: '100%',
-    minHeight: 82,
-    position: 'relative',
-  },
-  layerFill: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  cardContent: {
-    flex: 1,
+  chip: {
+    width: CHIP_WIDTH,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 8,
     alignItems: 'center',
-    justifyContent: 'center',
+    minHeight: FEED_MIN_HIT_TARGET,
   },
-  productImage: {
+  chipImage: {
     width: 48,
     height: 48,
     borderRadius: 8,
     marginBottom: 4,
   },
-  productPrice: {
-    fontSize: 12,
+  collectionChipIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipPrice: {
     fontWeight: '700',
     textAlign: 'center',
   },
-  titaniumCardFrame: {
-    backgroundColor: 'rgba(255,255,255,0.60)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#B0B5BB',
-    padding: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  nebulaCardFrame: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    overflow: 'hidden',
-    padding: 8,
-  },
-  nebulaCardInner: {
-    paddingHorizontal: 2,
-  },
-  viewAllContainer: {
-    flex: 1,
-    position: 'relative',
-    minHeight: 82,
-  },
-  viewAllTitanium: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#B0B5BB',
-    padding: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    flex: 1,
-  },
-  viewAllPressedInner: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.7)',
-    borderBottomWidth: 2,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
-  },
-  viewAllTextTitanium: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1A1A1B',
-  },
-  viewAllNebula: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    padding: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    shadowColor: '#A855F7',
-    shadowOpacity: 0.35,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 6 },
-    flex: 1,
-  },
-  viewAllPortalBorder: {
-    position: 'absolute',
-    top: 1,
-    bottom: 1,
-    left: 1,
-    right: 1,
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: 'rgba(168,85,247,0.25)',
-  },
-  viewAllTextNebula: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#F8FAFC',
-    textShadowColor: '#A855F7',
-    textShadowRadius: 10,
-    textShadowOffset: { width: 0, height: 0 },
-  },
 });
-

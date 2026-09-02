@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { CollectionViewModel } from '@/src/types/collection';
 import { useThemeMode } from '@/contexts/ThemeContext';
@@ -17,12 +18,13 @@ export function CollectionTile({ collection, onPress }: Props) {
   const creatorLabel =
     collection.creator.displayName?.trim() ||
     (collection.creator.username ? `@${collection.creator.username}` : 'Creator');
+  const views = Math.max(0, Math.floor(collection.counters?.views ?? 0));
 
   return (
     <Pressable
       onPress={() => onPress(collection)}
       accessibilityRole="button"
-      accessibilityLabel={`${title} by ${creatorLabel}`}
+      accessibilityLabel={`${title} by ${creatorLabel}, ${views} view${views === 1 ? '' : 's'}`}
       style={({ pressed }) => [
         styles.tile,
         {
@@ -32,21 +34,27 @@ export function CollectionTile({ collection, onPress }: Props) {
         },
       ]}
     >
-      {collection.heroThumbnailUrl ? (
-        <Image
-          source={{ uri: collection.heroThumbnailUrl }}
-          style={styles.thumb}
-          contentFit="cover"
-        />
-      ) : (
-        <View
-          style={[
-            styles.thumb,
-            styles.thumbFallback,
-            { backgroundColor: tokens.color.canvasEnd },
-          ]}
-        />
-      )}
+      <View>
+        {collection.heroThumbnailUrl ? (
+          <Image
+            source={{ uri: collection.heroThumbnailUrl }}
+            style={styles.thumb}
+            contentFit="cover"
+          />
+        ) : (
+          <View
+            style={[
+              styles.thumb,
+              styles.thumbFallback,
+              { backgroundColor: tokens.color.canvasEnd },
+            ]}
+          />
+        )}
+        <View style={styles.viewsBadge} accessibilityElementsHidden>
+          <Ionicons name="eye-outline" size={12} color="#F8FAFC" />
+          <Text style={styles.viewsText}>{views}</Text>
+        </View>
+      </View>
       <View style={styles.body}>
         <Text style={[styles.title, { color: tokens.color.text }]} numberOfLines={2}>
           {title}
@@ -75,6 +83,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#111',
   },
   thumbFallback: {},
+  viewsBadge: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  viewsText: {
+    color: '#F8FAFC',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   body: {
     padding: 10,
     gap: 2,
