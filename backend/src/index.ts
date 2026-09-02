@@ -25,6 +25,7 @@ import { registerEngagementRoutes } from './engagement/routes';
 import { logSearchRuntime } from './search/factory';
 import { registerSearchRoutes } from './search/routes';
 import { registerCartRoutes } from './cart/routes';
+import { registerProductAiReviewRoutes } from './ai-review/routes';
 
 if (typeof globalThis.btoa !== 'function') {
   Object.assign(globalThis, {
@@ -46,6 +47,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/products/:id/redirect', createProductRedirectHandler(createSupabaseAdmin()));
+registerProductAiReviewRoutes(app, createSupabaseAdmin());
 
 registerCollectionRoutes(app);
 registerUserRoutes(app);
@@ -675,6 +677,9 @@ if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
       }
       startProductResolveWorker(createSupabaseAdmin());
       logger.info('embedded product-resolve worker started');
+      const { startProductAiReviewWorker } = await import('./ai-review/jobs/productAiReviewQueue');
+      startProductAiReviewWorker(createSupabaseAdmin());
+      logger.info('embedded product-ai-review worker started');
     } catch (e) {
       logger.warn({ err: e }, 'embedded product-resolve worker failed to start');
     }
