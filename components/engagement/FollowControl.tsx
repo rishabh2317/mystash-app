@@ -16,6 +16,8 @@ type Props = {
   disabled?: boolean;
   /** Compact chip for inline placement beside a name. */
   size?: 'default' | 'compact';
+  /** White-on-dark styling for controls resting on media (reel overlays). */
+  immersive?: boolean;
   /** @deprecated Colors come from ThemeMode tokens. */
   isLight?: boolean;
   labelOverride?: string;
@@ -27,6 +29,7 @@ export function FollowControl({
   pending = false,
   disabled = false,
   size = 'default',
+  immersive = false,
   labelOverride,
   onPress,
 }: Props) {
@@ -43,9 +46,12 @@ export function FollowControl({
   const label = labelOverride ?? (isFollowing ? 'Following' : 'Follow');
   /** Compact (Home identity) stays secondary; Collection keeps the filled CTA. */
   const onAccent = !isFollowing && !labelOverride && !compact;
-  const spinnerColor = onAccent ? tokens.color.textOnAccent : tokens.color.text;
-  const labelColor = onAccent ? tokens.color.textOnAccent : tokens.color.text;
+  const restingText = immersive ? tokens.immersive.text : tokens.color.text;
+  const spinnerColor = onAccent ? tokens.color.textOnAccent : restingText;
+  const labelColor = onAccent ? tokens.color.textOnAccent : restingText;
   const labelSize = compact ? tokens.fontSize.caption : tokens.fontSize.body;
+  const surface = immersive ? tokens.immersive.control : tokens.color.overlay;
+  const surfaceBorder = immersive ? tokens.immersive.borderStrong : tokens.color.border;
 
   return (
     <Pressable
@@ -62,8 +68,8 @@ export function FollowControl({
         {
           borderRadius: compact ? tokens.radius.sm : tokens.radius.md,
           borderWidth: tokens.stroke.hairline,
-          backgroundColor: onAccent ? tokens.color.text : tokens.color.overlay,
-          borderColor: onAccent ? 'transparent' : tokens.color.border,
+          backgroundColor: onAccent ? tokens.color.text : surface,
+          borderColor: onAccent ? 'transparent' : surfaceBorder,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },
       ]}

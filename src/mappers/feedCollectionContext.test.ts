@@ -21,6 +21,7 @@ function stub(overrides?: Partial<CollectionAggregateDto['collection']>): Collec
       originPlatform: 'youtube',
       viewsCount: 9,
       savesCount: 3,
+      sharesCount: 12,
       ...overrides,
     },
     media: [],
@@ -36,6 +37,7 @@ describe('mapAggregateToFeedCollectionContext', () => {
     assert.equal(ctx.creator.username, 'ada');
     assert.equal(ctx.creator.avatarUrl, 'https://cdn.example/a.jpg');
     assert.equal(ctx.title, 'Summer');
+    assert.deepEqual(ctx.counters, { views: 9, saves: 3, shares: 12 });
   });
 
   it('keeps a missing public username as null', () => {

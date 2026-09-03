@@ -9,6 +9,8 @@ import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 type Props = {
   /** @deprecated Colors come from ThemeMode tokens. */
   isLight?: boolean;
+  /** White-on-dark styling for feed reel action rail. */
+  immersive?: boolean;
   disabled?: boolean;
   pending?: boolean;
   accessibilityLabel?: string;
@@ -19,6 +21,7 @@ type Props = {
 export function ShareControl({
   disabled = false,
   pending = false,
+  immersive = false,
   accessibilityLabel = 'Share',
   onPress,
 }: Props) {
@@ -39,12 +42,17 @@ export function ShareControl({
       style={[
         styles.btn,
         {
-          backgroundColor: tokens.color.overlay,
+          backgroundColor: immersive ? tokens.immersive.control : tokens.color.overlay,
+          borderRadius: tokens.radius.pill,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },
       ]}
     >
-      <Ionicons name="paper-plane-outline" size={20} color={tokens.color.icon} />
+      <Ionicons
+        name="paper-plane-outline"
+        size={20}
+        color={immersive ? tokens.immersive.icon : tokens.color.icon}
+      />
     </Pressable>
   );
 }
@@ -53,7 +61,6 @@ const styles = StyleSheet.create({
   btn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

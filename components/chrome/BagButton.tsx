@@ -26,7 +26,7 @@ export function BagButton({ mode = 'page' }: Props) {
   const cart = useCartOptional();
   const count = bagBadgeCount(Boolean(user), cart?.itemCount ?? 0);
   const immersive = mode === 'immersive';
-  const iconColor = immersive ? '#F8FAFC' : tokens.color.text;
+  const iconColor = immersive ? tokens.immersive.icon : tokens.color.icon;
 
   return (
     <Pressable
@@ -36,13 +36,23 @@ export function BagButton({ mode = 'page' }: Props) {
       hitSlop={hitSlopToMinTarget(40)}
       style={[
         styles.btn,
-        { backgroundColor: immersive ? 'rgba(0,0,0,0.45)' : tokens.color.overlay },
+        {
+          backgroundColor: immersive ? tokens.immersive.controlStrong : tokens.color.overlay,
+          borderRadius: tokens.radius.pill,
+        },
       ]}
     >
       <Ionicons name="cart-outline" size={20} color={iconColor} />
       {count > 0 ? (
-        <View style={[styles.badge, { backgroundColor: tokens.color.danger }]}>
-          <Text style={styles.badgeText}>{formatBagBadgeText(count)}</Text>
+        <View
+          style={[
+            styles.badge,
+            { backgroundColor: tokens.color.danger, borderRadius: tokens.radius.pill },
+          ]}
+        >
+          <Text style={[styles.badgeText, { color: tokens.color.dangerOn }]}>
+            {formatBagBadgeText(count)}
+          </Text>
         </View>
       ) : null}
     </Pressable>
@@ -53,7 +63,6 @@ const styles = StyleSheet.create({
   btn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -63,13 +72,11 @@ const styles = StyleSheet.create({
     right: -2,
     minWidth: 16,
     height: 16,
-    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
   },
   badgeText: {
-    color: '#fff',
     fontSize: 9,
     fontWeight: '800',
   },

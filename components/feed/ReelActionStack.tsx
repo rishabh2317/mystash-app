@@ -1,28 +1,46 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SaveControl } from '@/components/engagement/SaveControl';
 import { ShareControl } from '@/components/engagement/ShareControl';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import {
-  FEED_MIN_HIT_TARGET,
-  hitSlopToMinTarget,
-} from '@/src/ui/feedA11y';
-import type { BottomDockSave, BottomDockShare } from '@/components/BottomDock';
+import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { formatEngagementCount } from '@/src/ui/formatEngagementCount';
+import { FEED_MIN_HIT_TARGET } from '@/src/ui/feedA11y';
+import type { FeedReelSave, FeedReelShare } from '@/src/ui/feedReelTypes';
 
 type Props = {
   onVolumeToggle?: () => void;
   isMuted?: boolean;
-  save?: BottomDockSave | null;
-  share?: BottomDockShare | null;
-  /** Distance from stage bottom to align with BottomDock title-row band. */
+  save?: FeedReelSave | null;
+  share?: FeedReelShare | null;
+  /** Distance from stage bottom to the bottom of the action rail. */
   bottomOffset: number;
 };
 
+function CountLabel({ value }: { value: number }) {
+  const { tokens } = useThemeMode();
+  return (
+    <Text
+      style={[
+        styles.count,
+        {
+          color: tokens.immersive.text,
+          fontSize: tokens.fontSize.micro,
+          fontWeight: tokens.fontWeight.bold,
+        },
+      ]}
+      numberOfLines={1}
+    >
+      {formatEngagementCount(value)}
+    </Text>
+  );
+}
+
 /**
- * Floating Sound → Save → Share rail over the media stage.
- * Sibling of BottomDock — not part of the lower mask.
+ * Floating action rail (mute · save · share) with engagement counts.
  */
 export function ReelActionStack({
   onVolumeToggle,
@@ -42,41 +60,58 @@ export function ReelActionStack({
         {
           right: tokens.space.md,
           bottom: Math.max(bottomOffset, tokens.space.xl),
-          gap: tokens.space.xs,
+          gap: tokens.space.sm,
         },
       ]}
     >
       {onVolumeToggle ? (
-        <Pressable
-          onPress={onVolumeToggle}
-          accessibilityRole="button"
-          accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
-          hitSlop={hitSlopToMinTarget(FEED_MIN_HIT_TARGET)}
-          style={[
-            styles.volumeBtn,
-            {
-              backgroundColor: tokens.color.overlay,
-              borderRadius: tokens.radius.pill,
-            },
-          ]}
-        >
-          <Ionicons
-            name={isMuted ? 'volume-mute' : 'volume-high'}
-            size={18}
-            color={tokens.color.icon}
-          />
-        </Pressable>
+        <View style={[styles.actionCol, { gap: tokens.space.xxs }]}>
+          <Pressable
+            onPress={onVolumeToggle}
+            accessibilityRole="button"
+            accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
+            accessibilityState={{ selected: isMuted }}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              {
+                backgroundColor: tokens.immersive.control,
+                borderRadius: tokens.radius.pill,
+                opacity: controlOpacity(
+                  resolveControlPhase({ pressed }),
+                  tokens.motion.pressOpacity,
+                ),
+              },
+            ]}
+          >
+            <Ionicons
+              name={isMuted ? 'volume-mute' : 'volume-high'}
+              size={22}
+              color={tokens.immersive.icon}
+            />
+          </Pressable>
+        </View>
       ) : null}
       {save ? (
-        <SaveControl
-          isSaved={save.isSaved}
-          pending={save.pending}
-          iconOnly
-          onPress={save.onPress}
-        />
+        <View style={[styles.actionCol, { gap: tokens.space.xxs }]}>
+          <SaveControl
+            isSaved={save.isSaved}
+            pending={save.pending}
+            iconOnly
+            immersive
+            onPress={save.onPress}
+          />
+          <CountLabel value={save.count} />
+        </View>
       ) : null}
       {share ? (
-        <ShareControl onPress={share.onPress} accessibilityLabel={share.accessibilityLabel} />
+        <View style={[styles.actionCol, { gap: tokens.space.xxs }]}>
+          <ShareControl
+            immersive
+            onPress={share.onPress}
+            accessibilityLabel={share.accessibilityLabel}
+          />
+          <CountLabel value={share.count} />
+        </View>
       ) : null}
     </View>
   );
@@ -88,10 +123,21 @@ const styles = StyleSheet.create({
     zIndex: 20,
     alignItems: 'center',
   },
-  volumeBtn: {
+  actionCol: {
+    alignItems: 'center',
+    minWidth: FEED_MIN_HIT_TARGET,
+  },
+  iconBtn: {
     width: FEED_MIN_HIT_TARGET,
     height: FEED_MIN_HIT_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  count: {
+    textAlign: 'center',
+    textShadowColor: IMMERSIVE_TOKENS.textShadow,
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    minWidth: FEED_MIN_HIT_TARGET,
   },
 });

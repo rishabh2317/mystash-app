@@ -14,7 +14,10 @@ export function FeedTeachHint({ visible, onDismiss }: Props) {
   if (!visible) return null;
 
   return (
-    <View pointerEvents="box-none" style={styles.wrap}>
+    <View
+      pointerEvents="box-none"
+      style={[styles.wrap, { left: tokens.space.md, right: tokens.space.md }]}
+    >
       <Pressable
         onPress={onDismiss}
         accessibilityRole="button"
@@ -44,7 +47,7 @@ export function FeedTeachHint({ visible, onDismiss }: Props) {
         </Text>
         <Text
           style={{
-            color: tokens.color.accent,
+            color: tokens.color.primary,
             fontSize: tokens.fontSize.bodyStrong,
             fontWeight: tokens.fontWeight.bold,
           }}
@@ -56,12 +59,13 @@ export function FeedTeachHint({ visible, onDismiss }: Props) {
   );
 }
 
+/** Clears the immersive TopBar row on every supported device. */
+const TOP_BAR_CLEARANCE = 96;
+
 const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
-    top: 96,
-    left: 16,
-    right: 16,
+    top: TOP_BAR_CLEARANCE,
     zIndex: 25,
   },
   card: {

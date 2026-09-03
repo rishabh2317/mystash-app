@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
 import { useAuth } from '@/contexts/AuthContext';
-import { mapAggregateToFeedCollectionContext } from '@/src/mappers/feedCollectionContext';
+import {
+  mapAggregateToFeedCollectionContext,
+  type FeedCollectionCounters,
+} from '@/src/mappers/feedCollectionContext';
 import type { FeedCollectionContext } from '@/src/mappers/feedCollectionContext';
 import type { Video } from '@/src/mocks/videos';
 import { fetchCollectionById } from '@/src/services/collectionApi';
@@ -17,6 +20,14 @@ import {
 } from '@/src/ui/feedCreatorIdentity';
 
 const contextCache = new Map<string, FeedCollectionContext>();
+
+function bumpCounter(
+  counters: FeedCollectionCounters,
+  key: keyof FeedCollectionCounters,
+  delta: number,
+): FeedCollectionCounters {
+  return { ...counters, [key]: Math.max(0, counters[key] + delta) };
+}
 
 /**
  * Lazy per-active-reel Collection identity for Home / Search Reel.
@@ -107,6 +118,20 @@ export function useFeedReelEngagement(
   const avatarUrl = context?.creator.avatarUrl ?? null;
   const isSelf = Boolean(user && creatorId && user.id === creatorId);
 
+  const counters = context?.counters ?? { views: 0, saves: 0, shares: 0 };
+
+  const patchCounters = useCallback(
+    (patch: (prev: FeedCollectionCounters) => FeedCollectionCounters) => {
+      setContext((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, counters: patch(prev.counters) };
+        contextCache.set(prev.collectionId, next);
+        return next;
+      });
+    },
+    [],
+  );
+
   const saveHandler = useCollectionSaveHandler({
     collectionId,
     creatorId: creatorId || null,
@@ -114,10 +139,12 @@ export function useFeedReelEngagement(
     onOptimisticSave: (next) => {
       setSavePending(true);
       setIsSaved(next);
+      patchCounters((c) => bumpCounter(c, 'saves', next ? 1 : -1));
     },
     onRollback: (previous) => {
       setIsSaved(previous);
       setSavePending(false);
+      patchCounters((c) => bumpCounter(c, 'saves', previous ? 1 : -1));
     },
   });
 
@@ -161,16 +188,27 @@ export function useFeedReelEngagement(
   const onSharePress = useCallback(async () => {
     if (!collectionId) return;
     try {
-      await shareCollection({
+      const shared = await shareCollection({
         collectionId,
         title: context?.title ?? video?.video_title ?? video?.product_name ?? null,
         creatorId: creatorId || null,
         surface: engagementSurface,
       });
+      if (shared) {
+        patchCounters((c) => bumpCounter(c, 'shares', 1));
+      }
     } catch (e) {
       Alert.alert('Share', e instanceof Error ? e.message : 'Could not share collection.');
     }
-  }, [collectionId, context?.title, creatorId, engagementSurface, video?.product_name, video?.video_title]);
+  }, [
+    collectionId,
+    context?.title,
+    creatorId,
+    engagementSurface,
+    patchCounters,
+    video?.product_name,
+    video?.video_title,
+  ]);
 
   return {
     collectionId,
@@ -187,5 +225,8 @@ export function useFeedReelEngagement(
     savePending,
     onSavePress,
     onSharePress,
+    savesCount: counters.saves,
+    sharesCount: counters.shares,
+    viewsCount: counters.views,
   };
 }

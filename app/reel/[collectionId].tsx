@@ -261,9 +261,11 @@ export default function FocusedReelHost() {
         save={{
           isSaved,
           pending: savePending,
+          count: detail.counters.saves,
           onPress: () => void onSavePress(),
         }}
         share={{
+          count: 0,
           onPress: () => void onSharePress(),
           accessibilityLabel: 'Share collection',
         }}

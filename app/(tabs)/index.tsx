@@ -21,6 +21,7 @@ import {
   shouldShowFeedTeach,
 } from '@/src/ui/feedA11y';
 import { feedItemLayout, nextFeedThumbnailUrl, preserveFeedIndex } from '@/src/ui/feedViewport';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Image } from 'expo-image';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -37,6 +38,7 @@ const WINDOW_HEIGHT = Dimensions.get('window').height;
 
 export default function HomeScreen() {
   const { tokens } = useThemeMode();
+  const tabBarHeight = useBottomTabBarHeight();
   const [activeIndex, setActiveIndex] = useState(0);
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
@@ -199,6 +201,7 @@ export default function HomeScreen() {
             video={item}
             isActive={active}
             onProductPress={(product) => handleProductPress(item, product)}
+            bottomChromeInset={tabBarHeight}
             follow={
               active && engagement.showFollow
                 ? {
@@ -213,6 +216,7 @@ export default function HomeScreen() {
                 ? {
                     isSaved: engagement.isSaved,
                     pending: engagement.savePending,
+                    count: engagement.savesCount,
                     onPress: () => void engagement.onSavePress(),
                   }
                 : null
@@ -220,6 +224,7 @@ export default function HomeScreen() {
             share={
               active && engagement.canSaveShare
                 ? {
+                    count: engagement.sharesCount,
                     onPress: () => void engagement.onSharePress(),
                     accessibilityLabel: 'Share collection',
                   }
@@ -244,10 +249,13 @@ export default function HomeScreen() {
       engagement.onSavePress,
       engagement.onSharePress,
       engagement.savePending,
+      engagement.savesCount,
+      engagement.sharesCount,
       engagement.showFollow,
       engagement.username,
       handleProductPress,
       itemHeight,
+      tabBarHeight,
     ],
   );
 
@@ -326,12 +334,12 @@ export default function HomeScreen() {
         maxToRenderPerBatch={2}
         windowSize={3}
         initialNumToRender={1}
-        extraData={`${activeIndex}:${itemHeight}:${engagement.showFollow}:${engagement.isFollowing}:${engagement.isSaved}`}
+        extraData={`${activeIndex}:${itemHeight}:${engagement.showFollow}:${engagement.isFollowing}:${engagement.isSaved}:${engagement.savesCount}:${engagement.sharesCount}`}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={tokens.color.accent}
+            tintColor={tokens.color.primary}
           />
         }
         getItemLayout={getItemLayout}

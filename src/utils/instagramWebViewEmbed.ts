@@ -8,14 +8,25 @@ const CROP_PRESETS: Record<
   InstagramEmbedCrop,
   { scale: number; translateY: string; embedPct: number }
 > = {
-  feed: { scale: 1.1, translateY: '-50%', embedPct: 110 },
+  /** Home feed — slightly oversized so IG letterbox never shows on any phone width. */
+  feed: { scale: 1.34, translateY: '-50%', embedPct: 145 },
   inline: { scale: 2.35, translateY: '-56%', embedPct: 240 },
   fullWidth: { scale: 2.65, translateY: '-58%', embedPct: 270 },
 };
 
+function resolveInstagramPermalink(embedUrl: string): string {
+  const match = embedUrl.match(/instagram\.com\/(?:reel|reels|p|tv)\/([^/?#]+)/i);
+  const id = match?.[1];
+  if (!id) return embedUrl.replace(/\/embed\/?.*$/i, '');
+  const isReel = /instagram\.com\/reels?\//i.test(embedUrl);
+  return isReel
+    ? `https://www.instagram.com/reel/${id}/`
+    : `https://www.instagram.com/p/${id}/`;
+}
+
 /**
  * Full-page Instagram embed document used by the home feed WebView.
- * `embedUrl` should be an instagram.com URL containing `/p/{postId}/` (e.g. from transformToReviewEmbedUrl).
+ * `embedUrl` should be an instagram.com URL containing `/p/{postId}/` or `/reel/{id}/`.
  */
 export function buildInstagramEmbedHtml(
   embedUrl: string,
@@ -23,8 +34,7 @@ export function buildInstagramEmbedHtml(
 ): string {
   const crop = options.crop ?? 'feed';
   const preset = CROP_PRESETS[crop];
-  const postId = embedUrl.match(/instagram\.com\/p\/([^/]+)/)?.[1];
-  const originalUrl = postId ? `https://www.instagram.com/p/${postId}/` : embedUrl;
+  const originalUrl = resolveInstagramPermalink(embedUrl);
 
   return `
       <!DOCTYPE html>
@@ -60,33 +70,13 @@ export function buildInstagramEmbedHtml(
             min-height: ${preset.embedPct}% !important;
             width: ${preset.embedPct}% !important;
             height: ${preset.embedPct}% !important;
+            max-width: none !important;
+            max-height: none !important;
             border: none !important;
             box-shadow: none !important;
             background: black !important;
             margin: 0 !important;
             pointer-events: auto !important;
-          }
-          .instagram-media::after {
-            content: '';
-            position: absolute !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) !important;
-            width: 80px !important;
-            height: 80px !important;
-            z-index: 1000 !important;
-            pointer-events: auto !important;
-          }
-          .instagram-media::before {
-            content: '';
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            bottom: 0 !important;
-            z-index: 999 !important;
-            pointer-events: none !important;
-            background: rgba(0,0,0,0.9) !important;
           }
           .EmbedHeader, .EmbedFooter, .Feedback, .SocialProof, .HoverCard, .Caption,
           .Header, .Footer, .Comments, .Likes, .ShareButton, .FollowButton, .MoreButton,
@@ -101,124 +91,182 @@ export function buildInstagramEmbedHtml(
             border: none !important;
             background: black !important;
             margin: 0 !important;
+            max-width: none !important;
           }
           iframe {
             border: none !important;
             background: black !important;
+            max-width: none !important;
+            width: 100% !important;
+            height: 100% !important;
+            min-width: 100% !important;
+            min-height: 100% !important;
           }
         </style>
       </head>
       <body>
         <div class="crop-container">
-          <blockquote 
-            class="instagram-media" 
-            data-instgrm-captioned 
-            data-instgrm-permalink="${originalUrl}" 
-            data-instgrm-version="14" 
-            style=" background:#FFF; border:0; border-radius:3px; box-shadow:0 0 1px 0 rgba(0,0,0,0.5),0 1px 10px 0 rgba(0,0,0,0.15); margin: 1px; max-width:540px; min-width:326px; padding:0; width:99.375%; width:-webkit-calc(100% - 2px); width:calc(100% - 2px);">
+          <blockquote
+            class="instagram-media"
+            data-instgrm-permalink="${originalUrl}"
+            data-instgrm-version="14"
+            style="background:#000; border:0; margin:0; max-width:none; min-width:100%; padding:0; width:100%;">
           </blockquote>
         </div>
         <script async src="//www.instagram.com/embed.js"></script>
         <script>
           window.__mystashPendingMuted = true;
+          var mystashBaseScale = ${preset.scale};
+          var mystashTranslateY = '${preset.translateY}';
+          var mystashEmbedPct = ${preset.embedPct};
 
-          function mystashApplyInstagramMuted(muted) {
-            document.querySelectorAll('video').forEach(function(v) {
-              try {
-                v.muted = muted;
-                if (!muted) v.play().catch(function() {});
-              } catch (e) {}
+          /** Cover viewport on any device — IG embeds letterbox; scale just enough to bleed past sides. */
+          function mystashCoverScale() {
+            var vw = Math.max(window.innerWidth || 0, 1);
+            var vh = Math.max(window.innerHeight || 0, 1);
+            var aspect = vw / vh;
+            // Wider / shorter screens need a bit more horizontal bleed.
+            var boost = aspect >= 0.56 ? 1.08 : aspect >= 0.5 ? 1.04 : 1.0;
+            return Math.min(1.55, Math.max(mystashBaseScale, mystashBaseScale * boost));
+          }
+
+          function mystashApplyCover() {
+            var scale = mystashCoverScale();
+            var pct = Math.round(mystashEmbedPct * (scale / mystashBaseScale));
+            document.querySelectorAll('.instagram-media, .Embed').forEach(function(el) {
+              el.style.setProperty('max-width', 'none', 'important');
+              el.style.setProperty('max-height', 'none', 'important');
+              el.style.setProperty('width', pct + '%', 'important');
+              el.style.setProperty('height', pct + '%', 'important');
+              el.style.setProperty('min-width', pct + '%', 'important');
+              el.style.setProperty('min-height', pct + '%', 'important');
+              el.style.setProperty(
+                'transform',
+                'translate(-50%, ' + mystashTranslateY + ') scale(' + scale + ')',
+                'important',
+              );
+              el.style.setProperty('transform-origin', 'center center', 'important');
             });
+            document.querySelectorAll('iframe').forEach(function(frame) {
+              frame.style.setProperty('max-width', 'none', 'important');
+              frame.style.setProperty('width', '100%', 'important');
+              frame.style.setProperty('height', '100%', 'important');
+              frame.style.setProperty('min-width', '100%', 'important');
+              frame.style.setProperty('min-height', '100%', 'important');
+            });
+          }
+
+          function mystashForEachVideo(fn) {
+            document.querySelectorAll('video').forEach(fn);
             document.querySelectorAll('iframe').forEach(function(frame) {
               try {
                 var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
                 if (!doc) return;
-                doc.querySelectorAll('video').forEach(function(v) {
-                  v.muted = muted;
-                  if (!muted) v.play().catch(function() {});
-                });
+                doc.querySelectorAll('video').forEach(fn);
               } catch (e) {}
             });
           }
 
+          function mystashPrimeVideo(v) {
+            try {
+              v.muted = window.__mystashPendingMuted !== false;
+              v.defaultMuted = v.muted;
+              v.playsInline = true;
+              v.setAttribute('playsinline', '');
+              v.setAttribute('webkit-playsinline', '');
+              v.autoplay = true;
+              v.loop = true;
+              v.play().catch(function() {});
+            } catch (e) {}
+          }
+
+          function mystashApplyInstagramMuted(muted) {
+            mystashForEachVideo(function(v) {
+              try {
+                v.muted = muted;
+                v.defaultMuted = muted;
+                if (!muted) v.play().catch(function() {});
+              } catch (e) {}
+            });
+          }
+
+          function mystashHideWatchCta() {
+            var nodes = document.querySelectorAll('a, button, span, p, div');
+            for (var i = 0; i < nodes.length; i++) {
+              var el = nodes[i];
+              if (el.children && el.children.length > 2) continue;
+              var t = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+              if (!t || t.length > 48) continue;
+              if (/watch on instagram/i.test(t)) {
+                el.style.display = 'none';
+                el.style.visibility = 'hidden';
+                el.style.pointerEvents = 'none';
+                if (el.parentElement && (el.parentElement.textContent || '').trim().length < 64) {
+                  el.parentElement.style.display = 'none';
+                }
+              }
+            }
+          }
+
+          function mystashTapPlay() {
+            var cx = Math.round(window.innerWidth / 2);
+            var cy = Math.round(window.innerHeight / 2);
+            var target = document.elementFromPoint(cx, cy);
+            if (!target) return;
+            ['pointerdown', 'mousedown', 'mouseup', 'click', 'touchstart', 'touchend'].forEach(function(type) {
+              try {
+                target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+              } catch (e) {}
+            });
+          }
+
+          window.__mystashKickPlayback = function() {
+            mystashApplyCover();
+            mystashForEachVideo(mystashPrimeVideo);
+            mystashHideWatchCta();
+            var playing = false;
+            mystashForEachVideo(function(v) {
+              if (!v.paused && v.readyState >= 2) playing = true;
+            });
+            if (!playing) mystashTapPlay();
+          };
+
           window.__mystashSetMuted = function(muted) {
             window.__mystashPendingMuted = muted;
             mystashApplyInstagramMuted(muted);
-            if (!muted) {
-              var cx = Math.round(window.innerWidth / 2);
-              var cy = Math.round(window.innerHeight / 2);
-              var target = document.elementFromPoint(cx, cy);
-              if (target) {
-                ['mousedown', 'mouseup', 'click', 'touchstart', 'touchend'].forEach(function(type) {
-                  try {
-                    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
-                  } catch (e) {}
-                });
-              }
-            }
+            if (!muted) mystashTapPlay();
           };
 
           window.addEventListener('load', function() {
+            mystashApplyCover();
+            window.__mystashKickPlayback();
             setTimeout(function() {
               window.__mystashSetMuted(window.__mystashPendingMuted);
+              window.__mystashKickPlayback();
               if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage('videoReady');
-            }, 1500);
+            }, 600);
           });
-          
-          document.addEventListener('message', function(event) {
-            if (event.data === 'pause') {
-              return;
-            }
-          });
-          
-          setTimeout(function() {
-            var embedPct = ${preset.embedPct};
-            var hideUI = setInterval(function() {
-              mystashApplyInstagramMuted(window.__mystashPendingMuted);
 
-              var selectors = [
-                '.EmbedHeader', '.EmbedFooter', '.Feedback', '.SocialProof', '.HoverCard', '.Caption',
-                '.Header', '.Footer', '.Comments', '.Likes', '.ShareButton', '.FollowButton', '.MoreButton',
-                '.Username', '.Timestamp', '.Location', '.Description', '.ActionBar',
-                'header', 'footer', 'nav', 'button', 'a[href*="instagram.com"]'
-              ];
-              
-              selectors.forEach(function(selector) {
-                var elements = document.querySelectorAll(selector);
-                elements.forEach(function(el) {
-                  el.style.display = 'none !important';
-                  el.style.visibility = 'hidden !important';
-                  el.style.opacity = '0 !important';
-                  el.style.pointerEvents = 'none !important';
-                });
-              });
-              
-              var embeds = document.querySelectorAll('.instagram-media, .Embed');
-              embeds.forEach(function(el) {
-                el.style.padding = '0 !important';
-                el.style.border = 'none !important';
-                el.style.background = 'black !important';
-                el.style.margin = '0 !important';
-                el.style.minWidth = embedPct + '% !important';
-                el.style.minHeight = embedPct + '% !important';
-                el.style.width = embedPct + '% !important';
-                el.style.height = embedPct + '% !important';
-              });
-              
-              var textElements = document.querySelectorAll('span, p, h1, h2, h3, h4, h5, h6');
-              textElements.forEach(function(el) {
-                if (el.textContent.length < 100) {
-                  el.style.display = 'none !important';
-                }
-              });
-            }, 50);
-            
-            setTimeout(function() {
-              clearInterval(hideUI);
-            }, 15000);
-          }, 2000);
+          window.addEventListener('resize', function() {
+            mystashApplyCover();
+          });
+
+          var observer = new MutationObserver(function() {
+            mystashApplyCover();
+            window.__mystashKickPlayback();
+          });
+          observer.observe(document.documentElement, { childList: true, subtree: true });
+
+          var kickUntil = Date.now() + 12000;
+          var kickTimer = setInterval(function() {
+            mystashApplyCover();
+            window.__mystashKickPlayback();
+            if (Date.now() > kickUntil) clearInterval(kickTimer);
+          }, 350);
         </script>
       </body>
       </html>
     `;
 }
+
+export { resolveInstagramPermalink };

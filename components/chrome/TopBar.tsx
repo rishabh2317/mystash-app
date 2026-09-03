@@ -33,7 +33,7 @@ export function TopBar({
   const insets = useSafeAreaInsets();
   const { tokens } = useThemeMode();
   const immersive = mode === 'immersive';
-  const textColor = immersive ? '#F8FAFC' : tokens.color.text;
+  const textColor = immersive ? tokens.immersive.text : tokens.color.text;
 
   const row = (
     <View

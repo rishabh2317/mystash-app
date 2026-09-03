@@ -19,7 +19,7 @@ export function BackButton({
 }: Props) {
   const router = useRouter();
   const { tokens } = useThemeMode();
-  const color = tokens.color.text;
+  const immersive = mode === 'immersive';
 
   return (
     <Pressable
@@ -37,10 +37,17 @@ export function BackButton({
       accessibilityLabel={accessibilityLabel}
       style={[
         styles.btn,
-        { backgroundColor: mode === 'immersive' ? 'rgba(0,0,0,0.45)' : tokens.color.overlay },
+        {
+          backgroundColor: immersive ? tokens.immersive.controlStrong : tokens.color.overlay,
+          borderRadius: tokens.radius.pill,
+        },
       ]}
     >
-      <Ionicons name="chevron-back" size={22} color={mode === 'immersive' ? '#F8FAFC' : color} />
+      <Ionicons
+        name="chevron-back"
+        size={22}
+        color={immersive ? tokens.immersive.icon : tokens.color.icon}
+      />
     </Pressable>
   );
 }
@@ -49,7 +56,6 @@ const styles = StyleSheet.create({
   btn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

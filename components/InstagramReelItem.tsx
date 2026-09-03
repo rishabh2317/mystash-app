@@ -1,4 +1,5 @@
 import { Video } from '@/src/mocks/videos';
+import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
 import { buildInstagramEmbedHtml } from '@/src/utils/instagramWebViewEmbed';
 import { Image } from 'expo-image';
 import React, { useEffect, useRef, useState } from 'react';
@@ -13,12 +14,19 @@ interface InstagramReelItemProps {
   video: Video;
   isActive: boolean;
   fadeMs?: number;
+  webViewRef?: React.RefObject<any>;
 }
 
-export default function InstagramReelItem({ video, isActive, fadeMs = 300 }: InstagramReelItemProps) {
+export default function InstagramReelItem({
+  video,
+  isActive,
+  fadeMs = 300,
+  webViewRef: externalWebViewRef,
+}: InstagramReelItemProps) {
   const [showWebView, setShowWebView] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const webViewRef = useRef<WebView>(null);
+  const internalWebViewRef = useRef<WebView>(null);
+  const webViewRef = externalWebViewRef || internalWebViewRef;
 
   useEffect(() => {
     if (isActive && video.embed_url) {
@@ -66,6 +74,7 @@ export default function InstagramReelItem({ video, isActive, fadeMs = 300 }: Ins
                 baseUrl: 'https://www.instagram.com',
               }}
               style={styles.webView}
+              originWhitelist={['*']}
               javaScriptEnabled
               domStorageEnabled
               allowsInlineMediaPlayback
@@ -76,6 +85,16 @@ export default function InstagramReelItem({ video, isActive, fadeMs = 300 }: Ins
               showsVerticalScrollIndicator={false}
               bounces={false}
               androidLayerType="hardware"
+              injectedJavaScript={`
+                (function() {
+                  try {
+                    if (typeof window.__mystashKickPlayback === 'function') {
+                      window.__mystashKickPlayback();
+                    }
+                  } catch (e) {}
+                  true;
+                })();
+              `}
               userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
               onError={(error) => {
                 if (__DEV__) console.warn('Instagram WebView:', error.nativeEvent);
@@ -92,7 +111,7 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     flex: 1,
-    backgroundColor: 'black',
+    backgroundColor: IMMERSIVE_TOKENS.stage,
   },
   videoContainer: {
     flex: 1,

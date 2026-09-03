@@ -1,5 +1,11 @@
 import type { CollectionAggregateDto } from '@/src/types/collectionAggregate';
 
+export type FeedCollectionCounters = {
+  views: number;
+  saves: number;
+  shares: number;
+};
+
 /** Slim Collection identity for Home Follow/Save/Share — not a catalog hydrate. */
 export type FeedCollectionContext = {
   collectionId: string;
@@ -10,6 +16,7 @@ export type FeedCollectionContext = {
     displayName: string | null;
     avatarUrl: string | null;
   };
+  counters: FeedCollectionCounters;
 };
 
 export function mapAggregateToFeedCollectionContext(
@@ -25,6 +32,11 @@ export function mapAggregateToFeedCollectionContext(
       username,
       displayName: collection.creatorName?.trim() || null,
       avatarUrl: collection.creatorAvatar?.trim() || null,
+    },
+    counters: {
+      views: collection.viewsCount ?? 0,
+      saves: collection.savesCount ?? 0,
+      shares: collection.sharesCount ?? 0,
     },
   };
 }

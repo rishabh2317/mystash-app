@@ -17,6 +17,8 @@ type Props = {
   disabled?: boolean;
   /** Icon-only control (matches ShareControl sizing). */
   iconOnly?: boolean;
+  /** White-on-dark styling for feed reel action rail. */
+  immersive?: boolean;
   /** @deprecated Colors come from ThemeMode tokens. Kept so call sites stay stable. */
   isLight?: boolean;
   onPress: () => void;
@@ -28,6 +30,7 @@ export function SaveControl({
   pending = false,
   disabled = false,
   iconOnly = false,
+  immersive = false,
   onPress,
 }: Props) {
   const { tokens } = useThemeMode();
@@ -38,7 +41,12 @@ export function SaveControl({
     success: isSaved,
     pressed,
   });
-  const color = tokens.color.text;
+  const color = immersive ? tokens.immersive.text : tokens.color.text;
+  const iconColor = immersive
+    ? tokens.immersive.icon
+    : iconOnly
+      ? tokens.color.icon
+      : color;
   const label = isSaved ? 'Saved' : 'Save';
 
   return (
@@ -54,8 +62,8 @@ export function SaveControl({
       style={[
         iconOnly ? styles.iconBtn : styles.btn,
         {
-          backgroundColor: tokens.color.overlay,
-          borderRadius: iconOnly ? 20 : tokens.radius.md,
+          backgroundColor: immersive ? tokens.immersive.control : tokens.color.overlay,
+          borderRadius: iconOnly ? tokens.radius.pill : tokens.radius.md,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },
       ]}
@@ -67,7 +75,7 @@ export function SaveControl({
           <Ionicons
             name={isSaved ? 'bookmark' : 'bookmark-outline'}
             size={iconOnly ? 20 : 18}
-            color={iconOnly ? tokens.color.icon : color}
+            color={iconOnly ? iconColor : color}
           />
           {iconOnly ? null : (
             <Text style={[styles.label, { color, fontSize: tokens.fontSize.bodyStrong }]}>{label}</Text>

@@ -43,6 +43,7 @@ export type CollectionAggregateDto = {
     originPlatform: string | null;
     viewsCount: number;
     savesCount: number;
+    sharesCount?: number;
   };
   media: CollectionAggregateMediaDto[];
   tags: CollectionAggregateTagDto[];

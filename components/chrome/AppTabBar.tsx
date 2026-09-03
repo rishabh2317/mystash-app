@@ -1,31 +1,54 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { Tabs, usePathname } from 'expo-router';
+import React, { useMemo } from 'react';
+import { StyleSheet } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { APP_TAB_ITEMS } from '@/src/ui/chrome';
+import { APP_TAB_ITEMS, isImmersiveTabRoute } from '@/src/ui/chrome';
 
 /**
  * Canonical tab bar: Home · Search · Create · Profile.
- * ThemeMode drives colors. HapticTab preserves existing press haptics.
+ * One implementation; immersive routes only switch the surface variant.
  */
 export function AppTabBar() {
   const { tokens } = useThemeMode();
+  const immersive = isImmersiveTabRoute(usePathname());
+
+  const screenOptions = useMemo(
+    () => ({
+      /** Immersive surfaces are already on the redesigned `primary`. */
+      tabBarActiveTintColor: immersive ? tokens.color.primary : tokens.color.accent,
+      tabBarInactiveTintColor: immersive
+        ? tokens.immersive.tabInactive
+        : tokens.color.tabInactive,
+      tabBarStyle: immersive
+        ? {
+            position: 'absolute' as const,
+            backgroundColor: tokens.immersive.surface,
+            borderTopColor: tokens.immersive.divider,
+            borderTopWidth: StyleSheet.hairlineWidth,
+          }
+        : {
+            backgroundColor: tokens.color.tabBar,
+            borderTopColor: tokens.color.border,
+          },
+      headerShown: false,
+      tabBarButton: HapticTab,
+    }),
+    [
+      immersive,
+      tokens.color.accent,
+      tokens.color.border,
+      tokens.color.primary,
+      tokens.color.tabBar,
+      tokens.color.tabInactive,
+      tokens.immersive,
+    ],
+  );
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: tokens.color.accent,
-        tabBarInactiveTintColor: tokens.color.tabInactive,
-        tabBarStyle: {
-          backgroundColor: tokens.color.tabBar,
-          borderTopColor: tokens.color.border,
-        },
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}
-    >
+    <Tabs screenOptions={screenOptions}>
       <Tabs.Screen
         name={APP_TAB_ITEMS[0].name}
         options={{

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { getThemeTokens, pageCanvasGradient, softCanvasGradient } from './tokens';
+import {
+  getThemeTokens,
+  mediaScrimGradient,
+  pageCanvasGradient,
+  softCanvasGradient,
+} from './tokens';
 
 describe('theme tokens', () => {
   it('exposes the same semantic keys for Titanium and Nebula', () => {
@@ -30,5 +35,34 @@ describe('theme tokens', () => {
     const t = getThemeTokens('titanium');
     assert.deepEqual(pageCanvasGradient(t), ['#F3F4F6', '#E5E7EB']);
     assert.deepEqual(softCanvasGradient(t), ['#FDFDFD', '#E8E8E8']);
+  });
+
+  it('keeps the primary colour identical in both modes', () => {
+    const t = getThemeTokens('titanium');
+    const n = getThemeTokens('nebula');
+    assert.equal(t.color.primary, n.color.primary);
+    assert.equal(t.color.onPrimary, n.color.onPrimary);
+    assert.notEqual(t.color.primary, t.color.onPrimary);
+  });
+
+  it('keeps immersive on-media tokens mode-invariant', () => {
+    const t = getThemeTokens('titanium');
+    const n = getThemeTokens('nebula');
+    assert.deepEqual(t.immersive, n.immersive);
+    /** Content on media is always light; it must not flip with the theme. */
+    assert.equal(t.immersive.text, '#FFFFFF');
+    assert.equal(t.immersive.icon, '#FFFFFF');
+    assert.notEqual(t.immersive.surface, t.color.surface);
+  });
+
+  it('exposes the scales the immersive feed depends on', () => {
+    const t = getThemeTokens('titanium');
+    assert.equal(t.fontSize.micro, 11);
+    assert.equal(t.fontSize.label, 13);
+    assert.equal(t.radius.xxl, 22);
+    assert.equal(t.stroke.strong, 2);
+    const scrim = mediaScrimGradient();
+    assert.equal(scrim.colors.length, scrim.locations.length);
+    assert.equal(scrim.colors[0], 'transparent');
   });
 });

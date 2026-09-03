@@ -11,6 +11,22 @@ export const APP_TAB_ITEMS = [
 ] as const;
 
 /**
+ * Routes whose tab bar sits on media and therefore uses the immersive
+ * treatment. The tab bar itself is never forked — only its variant changes.
+ */
+export function isImmersiveTabRoute(pathname: string | null | undefined): boolean {
+  const path = pathname?.trim();
+  if (!path) return false;
+  return (
+    path === '/' ||
+    path === '/index' ||
+    path === '/(tabs)' ||
+    path === '/(tabs)/index' ||
+    path.endsWith('/(tabs)/index')
+  );
+}
+
+/**
  * Badge count for BagButton.
  * Unsigned users never see a count (cart may still exist internally).
  */

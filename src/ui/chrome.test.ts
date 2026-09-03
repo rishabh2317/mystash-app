@@ -8,6 +8,7 @@ import {
   bagButtonAccessibilityLabel,
   bagScreenTitle,
   formatBagBadgeText,
+  isImmersiveTabRoute,
 } from './chrome';
 
 describe('UX-B.2 chrome contracts', () => {
@@ -32,5 +33,15 @@ describe('UX-B.2 chrome contracts', () => {
     assert.equal(bagScreenTitle(3), 'Bag · 3');
     assert.equal(formatBagBadgeText(100), '99+');
     assert.equal(BAG_COPY.continueDiscovering, 'Continue discovering');
+  });
+
+  it('marks only the Home feed route as immersive chrome', () => {
+    assert.ok(isImmersiveTabRoute('/'));
+    assert.ok(isImmersiveTabRoute('/(tabs)/index'));
+    assert.ok(isImmersiveTabRoute('/index'));
+    assert.ok(!isImmersiveTabRoute('/search'));
+    assert.ok(!isImmersiveTabRoute('/(tabs)/profile'));
+    assert.ok(!isImmersiveTabRoute(''));
+    assert.ok(!isImmersiveTabRoute(null));
   });
 });

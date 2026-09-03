@@ -27,23 +27,25 @@ export async function shareCollection(input: {
   title?: string | null;
   creatorId?: string | null;
   surface?: string | null;
-}): Promise<void> {
-  const url = buildCollectionShareUrl(input.collectionId);
+}): Promise<boolean> {
   const title = input.title?.trim() || 'Collection on Mystash';
+  const url = buildCollectionShareUrl(input.collectionId);
   const result = await Share.share({
     message: `${title}\n${url}`,
     url,
     title,
   });
-  if (result.action !== Share.sharedAction) return;
+  if (result.action !== Share.sharedAction) return false;
   try {
     await recordCollectionShare({
       collectionId: input.collectionId,
       creatorId: input.creatorId,
       surface: input.surface ?? 'native_share',
     });
+    return true;
   } catch {
     // Share already completed for the user; analytics must not fail the UX.
+    return true;
   }
 }
 

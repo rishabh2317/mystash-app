@@ -282,6 +282,7 @@ export default function SearchReelFeedHost() {
                   ? {
                       isSaved: engagement.isSaved,
                       pending: engagement.savePending,
+                      count: engagement.savesCount,
                       onPress: () => void engagement.onSavePress(),
                     }
                   : null
@@ -289,6 +290,7 @@ export default function SearchReelFeedHost() {
               share={
                 active && engagement.canSaveShare
                   ? {
+                      count: engagement.sharesCount,
                       onPress: () => void engagement.onSharePress(),
                       accessibilityLabel: 'Share collection',
                     }
@@ -330,6 +332,8 @@ export default function SearchReelFeedHost() {
       engagement.onSavePress,
       engagement.onSharePress,
       engagement.savePending,
+      engagement.savesCount,
+      engagement.sharesCount,
       engagement.showFollow,
       engagement.username,
       handleProductPress,
@@ -391,7 +395,7 @@ export default function SearchReelFeedHost() {
         windowSize={3}
         initialNumToRender={1}
         initialScrollIndex={activeIndex}
-        extraData={`${activeIndex}:${itemHeight}:${Object.keys(videos).length}:${engagement.isFollowing}:${engagement.isSaved}`}
+        extraData={`${activeIndex}:${itemHeight}:${Object.keys(videos).length}:${engagement.isFollowing}:${engagement.isSaved}:${engagement.savesCount}:${engagement.sharesCount}`}
         getItemLayout={getItemLayout}
         onScrollToIndexFailed={({ index }) => {
           listRef.current?.scrollToOffset({

@@ -1,4 +1,5 @@
 import { Video } from '@/src/mocks/videos';
+import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
 import {
   buildYoutubeWebHtml,
   extractYoutubeVideoIdFromUrl,
@@ -123,7 +124,7 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     flex: 1,
-    backgroundColor: 'black',
+    backgroundColor: IMMERSIVE_TOKENS.stage,
   },
   videoContainer: {
     flex: 1,
