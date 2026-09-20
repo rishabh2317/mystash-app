@@ -277,6 +277,16 @@ export default function SearchReelFeedHost() {
                     }
                   : null
               }
+              like={
+                active
+                  ? {
+                      isLiked: engagement.isLiked,
+                      pending: engagement.likePending,
+                      count: engagement.likeCount,
+                      onPress: () => void engagement.onLikePress(),
+                    }
+                  : null
+              }
               save={
                 active && engagement.canSaveShare
                   ? {
@@ -299,6 +309,7 @@ export default function SearchReelFeedHost() {
               creatorAvatarUrl={active ? engagement.avatarUrl : undefined}
               creatorUsername={active ? engagement.username : undefined}
               creatorDisplayName={active ? engagement.displayName : undefined}
+              moreFromCreator={active ? engagement.moreFromCreator : null}
             />
           ) : (
             <View style={styles.placeholder}>
@@ -327,7 +338,11 @@ export default function SearchReelFeedHost() {
       engagement.displayName,
       engagement.followPending,
       engagement.isFollowing,
+      engagement.isLiked,
       engagement.isSaved,
+      engagement.likeCount,
+      engagement.likePending,
+      engagement.onLikePress,
       engagement.onFollowPress,
       engagement.onSavePress,
       engagement.onSharePress,
@@ -336,6 +351,7 @@ export default function SearchReelFeedHost() {
       engagement.sharesCount,
       engagement.showFollow,
       engagement.username,
+      engagement.moreFromCreator,
       handleProductPress,
       itemHeight,
       videos,
@@ -395,7 +411,7 @@ export default function SearchReelFeedHost() {
         windowSize={3}
         initialNumToRender={1}
         initialScrollIndex={activeIndex}
-        extraData={`${activeIndex}:${itemHeight}:${Object.keys(videos).length}:${engagement.isFollowing}:${engagement.isSaved}:${engagement.savesCount}:${engagement.sharesCount}`}
+        extraData={`${activeIndex}:${itemHeight}:${Object.keys(videos).length}:${engagement.isFollowing}:${engagement.isLiked}:${engagement.likeCount}:${engagement.isSaved}:${engagement.savesCount}:${engagement.sharesCount}:${engagement.moreFromCreator?.collectionId ?? ''}`}
         getItemLayout={getItemLayout}
         onScrollToIndexFailed={({ index }) => {
           listRef.current?.scrollToOffset({

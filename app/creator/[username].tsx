@@ -20,6 +20,7 @@ import { useThemeMode } from '@/contexts/ThemeContext';
 import { mapCreatorProductToCatalogViewModel } from '@/src/mappers/creatorProductMapper';
 import { pageCanvasGradient } from '@/src/theme/tokens';
 import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import { reconcilePublicCollectionCount } from '@/src/ui/publicCreatorProfile';
 import {
   listCreatorCollections,
   listCreatorProducts,
@@ -121,7 +122,22 @@ export default function CreatorProfileScreen() {
           limit: 20,
           cursor: cursor ?? null,
         });
-        setCollections((prev) => (append ? [...prev, ...page.collections] : page.collections));
+        setCollections((prev) => {
+          const merged = append ? [...prev, ...page.collections] : page.collections;
+          const loadedCount = merged.length;
+          setCreator((current) =>
+            current
+              ? {
+                  ...current,
+                  collectionCount: reconcilePublicCollectionCount(
+                    current.collectionCount,
+                    loadedCount,
+                  ),
+                }
+              : current,
+          );
+          return merged;
+        });
         setCollectionsCursor(page.nextCursor);
       } catch (e) {
         setCollectionsError(e instanceof Error ? e.message : 'Could not load collections');

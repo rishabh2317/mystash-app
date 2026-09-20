@@ -1,4 +1,5 @@
 export { AddToBagButton, AddToCartButton } from './AddToCartButton';
+export { BagItemCard } from './BagItemCard';
 export { ProductCard } from './ProductCard';
 export { ProductDetailsSheet } from './ProductDetailsSheet';
 export { ProductHeroImage } from './ProductHeroImage';

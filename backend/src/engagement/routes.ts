@@ -211,6 +211,65 @@ export function registerEngagementRoutes(app: Express): void {
     }
   });
 
+  app.get('/engagement/reels/:id/like', async (req, res) => {
+    try {
+      const userId = await optionalUserId(req);
+      const summary = await engagement.getReelLikeSummary(req.params.id, userId);
+      res.json({
+        liked: summary.liked,
+        like_count: summary.likeCount,
+      });
+    } catch (e) {
+      if (e instanceof EngagementServiceError) {
+        res.status(e.statusCode).json({ error: e.message });
+        return;
+      }
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  app.post('/engagement/reels/:id/like', async (req, res) => {
+    try {
+      const userId = await requireUserId(req, res);
+      if (!userId) return;
+      const body = (req.body ?? {}) as { event_id?: string; surface?: string };
+      const result = await engagement.likeReel({
+        eventId: body.event_id,
+        userId,
+        reelId: req.params.id,
+        surface: body.surface ?? null,
+      });
+      res.json({ liked: result.liked, like_count: result.likeCount });
+    } catch (e) {
+      if (e instanceof EngagementServiceError) {
+        res.status(e.statusCode).json({ error: e.message });
+        return;
+      }
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  app.delete('/engagement/reels/:id/like', async (req, res) => {
+    try {
+      const userId = await requireUserId(req, res);
+      if (!userId) return;
+      const body = (req.body ?? {}) as { event_id?: string; surface?: string };
+      const result = await engagement.unlikeReel({
+        eventId: body.event_id,
+        userId,
+        reelId: req.params.id,
+        surface: body.surface ?? null,
+      });
+      res.json({ liked: result.liked, like_count: result.likeCount });
+    } catch (e) {
+      if (e instanceof EngagementServiceError) {
+        res.status(e.statusCode).json({ error: e.message });
+        return;
+      }
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   app.get('/engagement/creators/:id/follow', async (req, res) => {
     try {
       const userId = await requireUserId(req, res);

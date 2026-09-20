@@ -115,7 +115,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
   async upsertActiveEdge(input: {
     userId: string;
     edgeType: EdgeType;
-    objectType: 'creator' | 'collection' | 'catalog_product';
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
     sourceEventId?: string | null;
     privacyClass?: PrivacyClass;
@@ -176,6 +176,10 @@ export class SupabaseEngagementRepository implements EngagementRepository {
       })
       .select('*')
       .single();
+    if (error?.code === '23505') {
+      const concurrent = await this.getActiveEdge(input);
+      if (concurrent) return concurrent;
+    }
     if (error || !data) throw new Error(error?.message ?? 'edge insert failed');
     return mapEdge(data as Row);
   }
@@ -183,7 +187,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
   async removeEdge(input: {
     userId: string;
     edgeType: EdgeType;
-    objectType: 'creator' | 'collection' | 'catalog_product';
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
   }): Promise<RelationshipEdge | null> {
     const existing = await this.getActiveEdge(input);
@@ -201,7 +205,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
   async getActiveEdge(input: {
     userId: string;
     edgeType: EdgeType;
-    objectType: 'creator' | 'collection' | 'catalog_product';
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
   }): Promise<RelationshipEdge | null> {
     const { data } = await this.admin
@@ -230,6 +234,22 @@ export class SupabaseEngagementRepository implements EngagementRepository {
       .order('updated_at', { ascending: false })
       .limit(input.limit ?? 100);
     return (data ?? []).map((r) => mapEdge(r as Row));
+  }
+
+  async countActiveEdges(input: {
+    edgeType: EdgeType;
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
+    objectId: string;
+  }): Promise<number> {
+    const { count, error } = await this.admin
+      .from('engagement_relationship_edges')
+      .select('id', { count: 'exact', head: true })
+      .eq('edge_type', input.edgeType)
+      .eq('object_type', input.objectType)
+      .eq('object_id', input.objectId)
+      .eq('state', 'ACTIVE');
+    if (error) throw new Error(error.message);
+    return count ?? 0;
   }
 
   async incrementCounter(input: {

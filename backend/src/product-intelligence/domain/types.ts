@@ -273,4 +273,34 @@ export type ResolveDraftResult = {
   enqueueBackground: boolean;
   specificityScore?: number;
   pdpClassifierScore?: number | null;
+  /**
+   * User-import path only. Creator resolve never sets this — misses still write catalog.
+   * Payload is extracted/enriched data only; persistence is the caller's job.
+   */
+  discovered?: DiscoveredProductDraft | null;
+};
+
+/** Non-promoting miss payload. Not a catalog_products row. */
+export type DiscoveredProductDraft = {
+  name: string;
+  brand: string | null;
+  model: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  price: string | null;
+  currency: string | null;
+  merchant: string | null;
+  merchantUrl: string | null;
+  identityKey: string;
+  metadata: Record<string, unknown>;
+  matchConfidence: number | null;
+  completeness: number | null;
+};
+
+export type ResolveIngestOptions = {
+  /**
+   * Creator default true: miss writes UNVERIFIED/UNRESOLVED catalog_products.
+   * User import false: miss returns `discovered` and never writes catalog.
+   */
+  promoteOnMiss?: boolean;
 };

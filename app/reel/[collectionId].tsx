@@ -14,6 +14,7 @@ import { useRecordCollectionView } from '@/src/services/collectionViewTracking';
 import { useCreatorFollowHandler } from '@/src/services/creatorFollowOrchestration';
 import { isCollectionSaved, isFollowingCreator } from '@/src/services/engagementApi';
 import { shareCollection } from '@/src/services/shareLinks';
+import { useReelLikeEngagement } from '@/src/services/reelLikeEngagement';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
 import type { Product } from '@/src/mocks/videos';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -119,6 +120,7 @@ export default function FocusedReelHost() {
     if (!detail) return null;
     return mapReelViewModelToVideo(mapCollectionDetailToReelViewModel(detail));
   }, [detail]);
+  const reelLike = useReelLikeEngagement(reelVideo ?? undefined, 'focused_reel');
 
   const saveHandler = useCollectionSaveHandler({
     collectionId: detail?.collectionId ?? '',
@@ -258,6 +260,12 @@ export default function FocusedReelHost() {
               }
             : null
         }
+        like={{
+          isLiked: reelLike.liked,
+          pending: reelLike.likePending,
+          count: reelLike.likeCount,
+          onPress: () => void reelLike.onLikePress(),
+        }}
         save={{
           isSaved,
           pending: savePending,

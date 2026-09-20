@@ -491,6 +491,23 @@ export class InMemoryCollectionRepository implements CollectionRepository {
     return sum;
   }
 
+  async countPublishedPublicCollections(creatorId: string): Promise<number> {
+    let n = 0;
+    for (const c of this.collections.values()) {
+      if (
+        c.creatorId === creatorId &&
+        !c.deletedAt &&
+        c.status === 'published' &&
+        c.visibility === 'public' &&
+        c.moderationState === 'clear' &&
+        c.publishedAt != null
+      ) {
+        n += 1;
+      }
+    }
+    return n;
+  }
+
   async listPublishedCreatorProductTagRows(
     creatorId: string,
     opts: { limit: number; afterCatalogProductId?: string | null },

@@ -17,8 +17,12 @@ export type ThemeColorTokens = {
   canvasSoftEnd: string;
   surface: string;
   surfaceRaised: string;
+  /** Recessed surface for rows/tiles nested inside a `surface` card. */
+  surfaceSubtle: string;
   border: string;
   borderStrong: string;
+  /** Hairline separator inside a surface (quieter than `border`). */
+  divider: string;
   overlay: string;
   overlayPressed: string;
   /**
@@ -28,6 +32,10 @@ export type ThemeColorTokens = {
   primary: string;
   /** Content laid on top of a `primary` fill. */
   onPrimary: string;
+  /** Tinted primary container for prominent-but-calm CTAs and selected states. */
+  primarySurface: string;
+  /** Content laid on top of a `primarySurface` fill. */
+  onPrimarySurface: string;
   /** Mode-specific accent. Screens still on the pre-redesign palette use this. */
   accent: string;
   /** Existing Buy CTA (titanium sky / nebula violet). */
@@ -96,6 +104,20 @@ export type ThemeTokens = {
     title: number;
     section: number;
     display: number;
+    /** Editorial page title (Collection / Product headline). */
+    headline: number;
+  };
+  /** Paired with `fontSize`; same keys so a type step is chosen once. */
+  lineHeight: {
+    micro: number;
+    caption: number;
+    label: number;
+    body: number;
+    bodyStrong: number;
+    title: number;
+    section: number;
+    display: number;
+    headline: number;
   };
   fontWeight: {
     regular: '400';
@@ -154,6 +176,18 @@ const SHARED_TYPE = {
     title: 17,
     section: 20,
     display: 22,
+    headline: 25,
+  },
+  lineHeight: {
+    micro: 14,
+    caption: 16,
+    label: 18,
+    body: 22,
+    bodyStrong: 20,
+    title: 22,
+    section: 26,
+    display: 28,
+    headline: 31,
   },
   fontWeight: {
     regular: '400' as const,
@@ -243,12 +277,16 @@ const TITANIUM_COLOR: ThemeColorTokens = {
   canvasSoftEnd: '#E8E8E8',
   surface: 'rgba(255,255,255,0.95)',
   surfaceRaised: 'rgba(255,255,255,0.82)',
+  surfaceSubtle: 'rgba(0,0,0,0.04)',
   border: 'rgba(0,0,0,0.08)',
-  borderStrong: '#0F172A',
+  borderStrong: '#1A1A1B',
+  divider: 'rgba(0,0,0,0.07)',
   overlay: 'rgba(0,0,0,0.06)',
   overlayPressed: 'rgba(0,0,0,0.10)',
   primary: PRIMARY,
   onPrimary: ON_PRIMARY,
+  primarySurface: '#D9F1F4',
+  onPrimarySurface: '#04494F',
   accent: '#00AFC0',
   cta: '#0EA5E9',
   success: '#059669',
@@ -261,22 +299,33 @@ const TITANIUM_COLOR: ThemeColorTokens = {
   icon: '#1A1A1B',
 };
 
+/**
+ * Dark mode is neutral near-black, matching the redesigned Home. Every surface
+ * here is white-alpha, so these few opaque values decide the whole theme's hue:
+ * when they were navy every card layered over them read navy too.
+ */
 const NEBULA_COLOR: ThemeColorTokens = {
-  text: '#F8FAFC',
-  textMuted: '#AEB8C5',
+  text: '#FFFFFF',
+  textMuted: '#A0A0A6',
   textOnAccent: '#1A1A1B',
-  canvas: '#020617',
-  canvasEnd: '#0F172A',
-  canvasSoft: '#0D111F',
-  canvasSoftEnd: '#020408',
+  canvas: '#08080A',
+  canvasEnd: '#101012',
+  // Chrome sits a hair above the canvas and fades into it, so the top bar
+  // reads as raised without leaving a visible band across the page.
+  canvasSoft: '#0C0C0E',
+  canvasSoftEnd: '#08080A',
   surface: 'rgba(255,255,255,0.06)',
   surfaceRaised: 'rgba(255,255,255,0.08)',
+  surfaceSubtle: 'rgba(255,255,255,0.035)',
   border: 'rgba(255,255,255,0.12)',
-  borderStrong: '#F8FAFC',
+  borderStrong: '#FFFFFF',
+  divider: 'rgba(255,255,255,0.08)',
   overlay: 'rgba(255,255,255,0.1)',
   overlayPressed: 'rgba(255,255,255,0.16)',
   primary: PRIMARY,
   onPrimary: ON_PRIMARY,
+  primarySurface: '#12414C',
+  onPrimarySurface: '#E6FAFC',
   accent: '#A855F7',
   cta: '#A855F7',
   success: '#10B981',
@@ -284,9 +333,9 @@ const NEBULA_COLOR: ThemeColorTokens = {
   warning: '#FBBF24',
   danger: '#FCA5A5',
   dangerOn: '#FFFFFF',
-  tabBar: '#0D111F',
-  tabInactive: '#AEB8C5',
-  icon: '#F8FAFC',
+  tabBar: '#0C0C0E',
+  tabInactive: '#A0A0A6',
+  icon: '#FFFFFF',
 };
 
 export function getThemeTokens(mode: ThemeModeName): ThemeTokens {

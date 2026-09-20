@@ -10,10 +10,15 @@ export class InMemoryCartRepository implements CartRepository {
   items = new Map<string, CartItemRecord>(); // id → record
 
   private userProductKey(userId: string, catalogProductId: string): string {
-    return `${userId}|${catalogProductId}`;
+    return `${userId}|c|${catalogProductId}`;
   }
 
-  private byUserProduct = new Map<string, string>(); // user|product → id
+  private userDiscoveredKey(userId: string, discoveredProductId: string): string {
+    return `${userId}|d|${discoveredProductId}`;
+  }
+
+  private byUserProduct = new Map<string, string>();
+  private byUserDiscovered = new Map<string, string>();
 
   async listByUser(userId: string): Promise<CartItemRecord[]> {
     return [...this.items.values()]
@@ -30,6 +35,15 @@ export class InMemoryCartRepository implements CartRepository {
     return this.items.get(id) ?? null;
   }
 
+  async findByUserAndDiscovered(
+    userId: string,
+    discoveredProductId: string,
+  ): Promise<CartItemRecord | null> {
+    const id = this.byUserDiscovered.get(this.userDiscoveredKey(userId, discoveredProductId));
+    if (!id) return null;
+    return this.items.get(id) ?? null;
+  }
+
   async insert(
     row: Omit<CartItemRecord, 'id' | 'addedAt' | 'updatedAt' | 'schemaVersion'> & {
       id?: string;
@@ -38,27 +52,48 @@ export class InMemoryCartRepository implements CartRepository {
       schemaVersion?: number;
     },
   ): Promise<CartItemRecord> {
-    const key = this.userProductKey(row.userId, row.catalogProductId);
-    if (this.byUserProduct.has(key)) {
-      const err = new Error('duplicate cart item') as Error & { code?: string };
-      err.code = '23505';
-      throw err;
+    if (row.catalogProductId) {
+      const key = this.userProductKey(row.userId, row.catalogProductId);
+      if (this.byUserProduct.has(key)) {
+        const err = new Error('duplicate cart item') as Error & { code?: string };
+        err.code = '23505';
+        throw err;
+      }
+    }
+    if (row.discoveredProductId) {
+      const key = this.userDiscoveredKey(row.userId, row.discoveredProductId);
+      if (this.byUserDiscovered.has(key)) {
+        const err = new Error('duplicate cart item') as Error & { code?: string };
+        err.code = '23505';
+        throw err;
+      }
     }
     const ts = now();
     const record: CartItemRecord = {
       id: row.id ?? randomUUID(),
       userId: row.userId,
-      catalogProductId: row.catalogProductId,
+      catalogProductId: row.catalogProductId ?? null,
+      discoveredProductId: row.discoveredProductId ?? null,
       addedAt: row.addedAt ?? ts,
       updatedAt: row.updatedAt ?? ts,
       sourceCollectionId: row.sourceCollectionId,
       sourceCreatorId: row.sourceCreatorId,
       sourceCollectionProductTagId: row.sourceCollectionProductTagId,
-      sourceSurface: row.sourceSurface as CartSourceSurface | null,
+      sourceSurface: (row.sourceSurface as CartSourceSurface | null) ?? null,
+      sourceContentSourceId: row.sourceContentSourceId ?? null,
+      sourceUserImportId: row.sourceUserImportId ?? null,
       schemaVersion: row.schemaVersion ?? 1,
     };
     this.items.set(record.id, record);
-    this.byUserProduct.set(key, record.id);
+    if (record.catalogProductId) {
+      this.byUserProduct.set(this.userProductKey(record.userId, record.catalogProductId), record.id);
+    }
+    if (record.discoveredProductId) {
+      this.byUserDiscovered.set(
+        this.userDiscoveredKey(record.userId, record.discoveredProductId),
+        record.id,
+      );
+    }
     return { ...record };
   }
 
@@ -66,7 +101,24 @@ export class InMemoryCartRepository implements CartRepository {
     const key = this.userProductKey(userId, catalogProductId);
     const id = this.byUserProduct.get(key);
     if (!id) return false;
+    const record = this.items.get(id);
     this.byUserProduct.delete(key);
+    if (record?.discoveredProductId) {
+      this.byUserDiscovered.delete(this.userDiscoveredKey(userId, record.discoveredProductId));
+    }
+    this.items.delete(id);
+    return true;
+  }
+
+  async deleteByUserAndDiscovered(userId: string, discoveredProductId: string): Promise<boolean> {
+    const key = this.userDiscoveredKey(userId, discoveredProductId);
+    const id = this.byUserDiscovered.get(key);
+    if (!id) return false;
+    const record = this.items.get(id);
+    this.byUserDiscovered.delete(key);
+    if (record?.catalogProductId) {
+      this.byUserProduct.delete(this.userProductKey(userId, record.catalogProductId));
+    }
     this.items.delete(id);
     return true;
   }

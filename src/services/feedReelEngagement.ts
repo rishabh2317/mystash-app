@@ -8,16 +8,18 @@ import {
 } from '@/src/mappers/feedCollectionContext';
 import type { FeedCollectionContext } from '@/src/mappers/feedCollectionContext';
 import type { Video } from '@/src/mocks/videos';
-import { fetchCollectionById } from '@/src/services/collectionApi';
+import { fetchCollectionById, listCreatorCollections } from '@/src/services/collectionApi';
 import { useCollectionSaveHandler } from '@/src/services/collectionSaveOrchestration';
 import { useCreatorFollowHandler } from '@/src/services/creatorFollowOrchestration';
 import { isCollectionSaved, isFollowingCreator } from '@/src/services/engagementApi';
 import { shareCollection } from '@/src/services/shareLinks';
+import { useReelLikeEngagement } from '@/src/services/reelLikeEngagement';
 import {
   creatorDisplayNameFromFeed,
   creatorUsernameFromFeed,
   shouldShowFeedFollow,
 } from '@/src/ui/feedCreatorIdentity';
+import { creatorMoreReelTarget, type CreatorMoreReelTarget } from '@/src/ui/collectionCreatorMore';
 
 const contextCache = new Map<string, FeedCollectionContext>();
 
@@ -39,12 +41,14 @@ export function useFeedReelEngagement(
 ) {
   const engagementSurface = opts?.surface ?? 'home_reel';
   const { user } = useAuth();
+  const reelLike = useReelLikeEngagement(video, engagementSurface);
   const collectionId = video?.collection_id?.trim() || '';
   const [context, setContext] = useState<FeedCollectionContext | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [savePending, setSavePending] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followPending, setFollowPending] = useState(false);
+  const [moreFromCreator, setMoreFromCreator] = useState<CreatorMoreReelTarget | null>(null);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -92,6 +96,25 @@ export function useFeedReelEngagement(
   }, [collectionId, user]);
 
   const creatorId = context?.creator.id?.trim() || '';
+
+  useEffect(() => {
+    if (!creatorId || !collectionId) {
+      setMoreFromCreator(null);
+      return;
+    }
+    let cancelled = false;
+    void listCreatorCollections(creatorId, { limit: 4 })
+      .then((page) => {
+        if (cancelled) return;
+        setMoreFromCreator(creatorMoreReelTarget(page.collections, collectionId));
+      })
+      .catch(() => {
+        if (!cancelled) setMoreFromCreator(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [creatorId, collectionId]);
 
   useEffect(() => {
     if (!user || !creatorId) {
@@ -220,6 +243,10 @@ export function useFeedReelEngagement(
     isFollowing,
     followPending,
     onFollowPress,
+    isLiked: reelLike.liked,
+    likeCount: reelLike.likeCount,
+    likePending: reelLike.likePending,
+    onLikePress: reelLike.onLikePress,
     canSaveShare: Boolean(collectionId),
     isSaved,
     savePending,
@@ -228,5 +255,6 @@ export function useFeedReelEngagement(
     savesCount: counters.saves,
     sharesCount: counters.shares,
     viewsCount: counters.views,
+    moreFromCreator,
   };
 }

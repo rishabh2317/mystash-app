@@ -743,4 +743,114 @@ describe('ProductResolver', () => {
       | undefined;
     assert.notEqual(verification?.decision, 'created_metadata_only');
   });
+
+  it('resolveForUserImport reuses a VERIFIED catalog product and does not write catalog', async () => {
+    const existing = catalogStub({
+      id: 'cat-reuse',
+      name: 'PlayStation VR Bundle',
+      merchantUrl: 'https://www.amazon.com/dp/B0747YTV7B',
+      verificationStatus: 'VERIFIED',
+    });
+    const store = { created: [] as CreateCatalogInput[], existing, updates: [] as Array<Record<string, unknown>> };
+    let searched = false;
+    const draftWrites: unknown[] = [];
+    const resolver = new ProductResolver(
+      catalogService(store),
+      {
+        async search() {
+          searched = true;
+          return { kind: 'Succeeded', provider: 'mock', candidates: [] };
+        },
+      },
+      {
+        async updateResolution(u) {
+          draftWrites.push(u);
+        },
+      },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true },
+      null,
+      'user-import',
+    );
+    const [result] = await resolver.resolveForUserImport([
+      {
+        draftId: 'csp-1',
+        externalId: 'e1',
+        name: 'PlayStation VR Bundle',
+        brand: 'Sony',
+        confidence: 0.95,
+        merchantUrl: existing.merchantUrl,
+      },
+    ]);
+    assert.equal(searched, false);
+    assert.equal(result?.catalogProductId, 'cat-reuse');
+    assert.equal(result?.decision, 'local_hit');
+    assert.equal(result?.discovered, undefined);
+    assert.equal(store.created.length, 0);
+    assert.equal(store.updates?.length ?? 0, 0);
+    assert.equal(draftWrites.length, 0);
+  });
+
+  it('resolveForUserImport stores a discovered payload on miss and never writes catalog', async () => {
+    const store = { created: [] as CreateCatalogInput[] };
+    const enqueued: unknown[] = [];
+    const resolver = new ProductResolver(
+      catalogService(store),
+      {
+        async search(): Promise<SearchResult> {
+          return { kind: 'Succeeded', provider: 'mock', candidates: [] };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), backgroundResolve: true },
+      {
+        async enqueue(j) {
+          enqueued.push(j);
+        },
+      },
+      'user-import',
+    );
+    const [result] = await resolver.resolveForUserImport([
+      {
+        draftId: 'csp-2',
+        externalId: 'e2',
+        name: 'Mystery Gadget',
+        brand: 'Acme',
+        model: 'GX1',
+        confidence: 0.7,
+      },
+    ]);
+    assert.equal(store.created.length, 0);
+    assert.equal(result?.catalogProductId, null);
+    assert.ok(result?.discovered);
+    assert.equal(result?.discovered?.name, 'Mystery Gadget');
+    assert.match(result?.discovered?.identityKey ?? '', /^(m_|n_)/);
+    assert.equal(result?.enqueueBackground, false);
+    assert.equal(enqueued.length, 0);
+  });
+
+  it('creator resolveIngest still writes UNVERIFIED catalog on empty search', async () => {
+    const store = { created: [] as CreateCatalogInput[] };
+    const resolver = new ProductResolver(
+      catalogService(store),
+      {
+        async search(): Promise<SearchResult> {
+          return { kind: 'Succeeded', provider: 'mock', candidates: [] };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      getProductIntelligenceConfig(),
+      null,
+      'ingest-1',
+    );
+    const [result] = await resolver.resolveIngest([
+      { draftId: 'd1', externalId: 'e1', name: 'Mystery Gadget', confidence: 0.7 },
+    ]);
+    assert.equal(result?.resolutionStatus, 'UNVERIFIED');
+    assert.ok(result?.catalogProductId);
+    assert.equal(store.created.length, 1);
+    assert.equal(result?.discovered, undefined);
+  });
 });

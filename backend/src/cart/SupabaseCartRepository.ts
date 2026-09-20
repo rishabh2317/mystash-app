@@ -5,13 +5,16 @@ import type { CartItemRecord, CartSourceSurface } from './domain/types';
 type CartItemRow = {
   id: string;
   user_id: string;
-  catalog_product_id: string;
+  catalog_product_id: string | null;
+  discovered_product_id: string | null;
   added_at: string;
   updated_at: string;
   source_collection_id: string | null;
   source_creator_id: string | null;
   source_collection_product_tag_id: string | null;
   source_surface: string | null;
+  source_content_source_id: string | null;
+  source_user_import_id: string | null;
   schema_version: number;
 };
 
@@ -20,12 +23,15 @@ function mapRow(row: CartItemRow): CartItemRecord {
     id: row.id,
     userId: row.user_id,
     catalogProductId: row.catalog_product_id,
+    discoveredProductId: row.discovered_product_id,
     addedAt: row.added_at,
     updatedAt: row.updated_at,
     sourceCollectionId: row.source_collection_id,
     sourceCreatorId: row.source_creator_id,
     sourceCollectionProductTagId: row.source_collection_product_tag_id,
     sourceSurface: (row.source_surface as CartSourceSurface | null) ?? null,
+    sourceContentSourceId: row.source_content_source_id,
+    sourceUserImportId: row.source_user_import_id,
     schemaVersion: row.schema_version,
   };
 }
@@ -57,6 +63,20 @@ export class SupabaseCartRepository implements CartRepository {
     return data ? mapRow(data as CartItemRow) : null;
   }
 
+  async findByUserAndDiscovered(
+    userId: string,
+    discoveredProductId: string,
+  ): Promise<CartItemRecord | null> {
+    const { data, error } = await this.admin
+      .from('cart_items')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('discovered_product_id', discoveredProductId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapRow(data as CartItemRow) : null;
+  }
+
   async insert(
     row: Omit<CartItemRecord, 'id' | 'addedAt' | 'updatedAt' | 'schemaVersion'> & {
       id?: string;
@@ -68,10 +88,13 @@ export class SupabaseCartRepository implements CartRepository {
     const payload: Record<string, unknown> = {
       user_id: row.userId,
       catalog_product_id: row.catalogProductId,
+      discovered_product_id: row.discoveredProductId,
       source_collection_id: row.sourceCollectionId,
       source_creator_id: row.sourceCreatorId,
       source_collection_product_tag_id: row.sourceCollectionProductTagId,
       source_surface: row.sourceSurface,
+      source_content_source_id: row.sourceContentSourceId,
+      source_user_import_id: row.sourceUserImportId,
       schema_version: row.schemaVersion ?? 1,
     };
     if (row.id) payload.id = row.id;
@@ -93,6 +116,17 @@ export class SupabaseCartRepository implements CartRepository {
       .delete()
       .eq('user_id', userId)
       .eq('catalog_product_id', catalogProductId)
+      .select('id');
+    if (error) throw error;
+    return (data?.length ?? 0) > 0;
+  }
+
+  async deleteByUserAndDiscovered(userId: string, discoveredProductId: string): Promise<boolean> {
+    const { data, error } = await this.admin
+      .from('cart_items')
+      .delete()
+      .eq('user_id', userId)
+      .eq('discovered_product_id', discoveredProductId)
       .select('id');
     if (error) throw error;
     return (data?.length ?? 0) > 0;

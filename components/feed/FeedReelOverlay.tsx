@@ -8,6 +8,7 @@ import { FeedProductShelf } from './FeedProductShelf';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import type { Product, Video } from '@/src/mocks/videos';
 import { IMMERSIVE_TOKENS, mediaScrimGradient } from '@/src/theme/tokens';
+import type { CreatorMoreReelTarget } from '@/src/ui/collectionCreatorMore';
 import type { FeedReelFollow } from '@/src/ui/feedReelTypes';
 import { getVideoUrlInfo } from '@/src/utils/videoUtils';
 
@@ -25,6 +26,7 @@ type Props = {
   username?: string | null;
   avatarUrl?: string | null;
   follow?: FeedReelFollow | null;
+  moreFromCreator?: CreatorMoreReelTarget | null;
   onProductPress?: (product: Product) => void;
   onOverlayHeightChange?: (height: number) => void;
   /**
@@ -40,6 +42,7 @@ export function FeedReelOverlay({
   username,
   avatarUrl,
   follow,
+  moreFromCreator,
   onProductPress,
   onOverlayHeightChange,
   bottomChromeInset = 0,
@@ -97,6 +100,7 @@ export function FeedReelOverlay({
           avatarUrl={avatarUrl}
           title={title}
           follow={follow}
+          moreFromCreator={moreFromCreator}
         />
         <FeedProductShelf
           products={products}

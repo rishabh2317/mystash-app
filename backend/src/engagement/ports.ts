@@ -1,6 +1,16 @@
 /**
  * Peer denorm ports — Collection/User own the denorm fields; Engagement writes via contract.
  */
+export type EligibleReel = {
+  reelId: string;
+  collectionId: string;
+  creatorId: string;
+};
+
+export type ReelEligibilityPort = {
+  getEligiblePublicReel(reelId: string): Promise<EligibleReel | null>;
+};
+
 export type CollectionCounterDenormPort = {
   applyCollectionCounters(
     collectionId: string,
@@ -30,4 +40,10 @@ export const noopCollectionCounterDenorm: CollectionCounterDenormPort = {
 
 export const noopUserCounterDenorm: UserCounterDenormPort = {
   async applyUserCounters() {},
+};
+
+export const denyAllReelEligibility: ReelEligibilityPort = {
+  async getEligiblePublicReel() {
+    return null;
+  },
 };

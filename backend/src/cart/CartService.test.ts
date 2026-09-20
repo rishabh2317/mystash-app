@@ -3,9 +3,11 @@ import { describe, it } from 'node:test';
 import { CatalogService } from '../catalog/CatalogService';
 import { InMemoryCatalogRepository } from '../catalog/InMemoryCatalogRepository';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
+import { DiscoveredProductService } from '../discovered/DiscoveredProductService';
+import { InMemoryDiscoveredProductRepository } from '../discovered/InMemoryDiscoveredProductRepository';
 import { CartService, CartServiceError } from './CartService';
 import { InMemoryCartRepository } from './InMemoryCartRepository';
-import type { CatalogCartPort } from './ports';
+import type { CatalogCartPort, DiscoveredCartPort } from './ports';
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
@@ -15,6 +17,9 @@ const PRODUCT_DISCONTINUED = '550e8400-e29b-41d4-a716-446655440003';
 const PRODUCT_MERGED = '550e8400-e29b-41d4-a716-446655440004';
 const PRODUCT_SURVIVOR = '550e8400-e29b-41d4-a716-446655440005';
 const PRODUCT_NO_DEST = '550e8400-e29b-41d4-a716-446655440006';
+const DISCOVERED_A = '660e8400-e29b-41d4-a716-446655440001';
+const SOURCE_CS = '770e8400-e29b-41d4-a716-446655440001';
+const SOURCE_IMPORT = '880e8400-e29b-41d4-a716-446655440001';
 
 function baseProduct(partial: Partial<CatalogProduct> & Pick<CatalogProduct, 'id' | 'name' | 'status'>): CatalogProduct {
   return {
@@ -112,11 +117,32 @@ function createHarness() {
     },
   };
 
-  const repo = new InMemoryCartRepository();
-  const events: Array<{ name: string; payload: unknown }> = [];
-  const cart = new CartService(repo, catalogPort);
+  const discoveredRepo = new InMemoryDiscoveredProductRepository();
+  discoveredRepo.seed({
+    id: DISCOVERED_A,
+    identityKey: 'n_testdiscoveredproduct0001',
+    name: 'Imported Widget',
+    brand: 'Acme',
+    model: 'W1',
+    category: 'gadgets',
+    imageUrl: 'https://cdn.example/w.jpg',
+    price: '20',
+    currency: 'USD',
+    merchant: 'Shop',
+    merchantUrl: 'https://shop.example/w',
+    metadata: { completeness: 0.4 },
+    matchConfidence: 0.3,
+    completeness: 0.4,
+    processorVersion: 'test',
+  });
+  const discoveredPort: DiscoveredCartPort = {
+    getById: (id) => new DiscoveredProductService(discoveredRepo).getById(id),
+  };
 
-  return { cart, repo, catalogRepo, events };
+  const repo = new InMemoryCartRepository();
+  const cart = new CartService(repo, catalogPort, discoveredPort);
+
+  return { cart, repo, catalogRepo, discoveredRepo };
 }
 
 describe('CartService', () => {
@@ -169,10 +195,13 @@ describe('CartService', () => {
         repo.insert({
           userId: USER_A,
           catalogProductId: PRODUCT_ACTIVE,
+          discoveredProductId: null,
           sourceCollectionId: null,
           sourceCreatorId: null,
           sourceCollectionProductTagId: null,
           sourceSurface: null,
+          sourceContentSourceId: null,
+          sourceUserImportId: null,
         }),
       (err: unknown) => isUniqueLike(err),
     );
@@ -263,20 +292,26 @@ describe('CartService', () => {
     await repo.insert({
       userId: USER_A,
       catalogProductId: PRODUCT_MERGED,
+      discoveredProductId: null,
       sourceCollectionId: null,
       sourceCreatorId: null,
       sourceCollectionProductTagId: null,
       sourceSurface: null,
+      sourceContentSourceId: null,
+      sourceUserImportId: null,
     });
     // Remap MERGED → SURVIVOR; also add survivor for another user path
     await cart.addItem(USER_B, { catalogProductId: PRODUCT_SURVIVOR });
     await repo.insert({
       userId: USER_B,
       catalogProductId: PRODUCT_MERGED,
+      discoveredProductId: null,
       sourceCollectionId: null,
       sourceCreatorId: null,
       sourceCollectionProductTagId: null,
       sourceSurface: null,
+      sourceContentSourceId: null,
+      sourceUserImportId: null,
     });
 
     const result = await cart.remapAfterCatalogMerge(PRODUCT_MERGED, PRODUCT_SURVIVOR);
@@ -292,6 +327,53 @@ describe('CartService', () => {
     await assert.rejects(
       () => cart.getCart(''),
       (e: unknown) => e instanceof CartServiceError && e.statusCode === 401,
+    );
+  });
+
+  it('adds a discovered product without a discovered label on the projection', async () => {
+    const { cart } = createHarness();
+    const result = await cart.addItem(USER_A, {
+      discoveredProductId: DISCOVERED_A,
+      source: {
+        surface: 'USER_IMPORT',
+        contentSourceId: SOURCE_CS,
+        userImportId: SOURCE_IMPORT,
+      },
+    });
+    assert.equal(result.created, true);
+    assert.equal(result.item.discoveredProductId, DISCOVERED_A);
+    assert.equal(result.item.catalogProductId, null);
+    const view = await cart.getCart(USER_A);
+    assert.equal(view.itemCount, 1);
+    assert.equal(view.items[0]?.discoveredProductId, DISCOVERED_A);
+    assert.equal(view.items[0]?.product?.title, 'Imported Widget');
+    assert.equal(view.items[0]?.product?.metadataCompleteness, null);
+    assert.equal(view.items[0]?.source?.surface, 'USER_IMPORT');
+    assert.equal(view.items[0]?.source?.contentSourceId, SOURCE_CS);
+    assert.doesNotMatch(JSON.stringify(view.items[0]?.product), /discovered/i);
+  });
+
+  it('is idempotent for the same user and discovered product', async () => {
+    const { cart } = createHarness();
+    const first = await cart.addItem(USER_A, { discoveredProductId: DISCOVERED_A });
+    const second = await cart.addItem(USER_A, {
+      discoveredProductId: DISCOVERED_A,
+      source: { surface: 'USER_IMPORT', contentSourceId: SOURCE_CS },
+    });
+    assert.equal(second.created, false);
+    assert.equal(second.item.id, first.item.id);
+    assert.equal((await cart.getCart(USER_A)).itemCount, 1);
+  });
+
+  it('rejects providing both catalog and discovered ids', async () => {
+    const { cart } = createHarness();
+    await assert.rejects(
+      () =>
+        cart.addItem(USER_A, {
+          catalogProductId: PRODUCT_ACTIVE,
+          discoveredProductId: DISCOVERED_A,
+        }),
+      (e: unknown) => e instanceof CartServiceError && e.statusCode === 400,
     );
   });
 });

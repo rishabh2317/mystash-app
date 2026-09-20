@@ -47,7 +47,8 @@
         }
       ],
       "expo-video",
-      "expo-sqlite"
+      "expo-sqlite",
+      "./plugins/withAndroidShareIntent"
     ],
     "experiments": {
       "typedRoutes": true,

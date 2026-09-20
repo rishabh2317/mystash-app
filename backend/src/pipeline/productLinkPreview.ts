@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getEnv } from '../env';
 import { tavilyExtractCanonicalUrl } from '../services/tavily';
@@ -9,8 +8,12 @@ import {
   type CurrencyEvidenceSource,
 } from './CommercePriceEvidence';
 import { ingestLog } from './ingestLog';
+import { safeFetch } from './safeHttp';
 import { createOpenAIClient } from './openaiClient';
 import { openaiCompletionWithRateLimit } from './openaiRateLimit';
+import { canonicalizeProductUrl, externalIdForProductUrl } from './urlCanonicalization';
+
+export { canonicalizeProductUrl, externalIdForProductUrl } from './urlCanonicalization';
 
 const FETCH_TIMEOUT_MS = 18_000;
 const MAX_HTML_BYTES = 900_000;
@@ -21,73 +24,6 @@ const CURRENT_EXTRACTION_SOURCES = new Set([
 ]);
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
-const TRACKING_QUERY_KEYS = new Set(
-  [
-    'gclid',
-    'fbclid',
-    'msclkid',
-    'dclid',
-    'ref',
-    'referrer',
-    'source',
-    's_kwcid',
-    'mc_cid',
-    'mc_eid',
-    'igshid',
-    'mkt_tok',
-    'mkwid',
-    'affiliate',
-    'partner',
-    'tag',
-    'cmpid',
-    'ad_id',
-    'campaign_id',
-    'otracker',
-    'trkid',
-    'afftrack',
-    'si',
-    '_ga',
-    '_gl',
-    'gbraid',
-    'wbraid',
-    'yclid',
-    'ymclid',
-    'eud',
-    'spm',
-    'ved',
-    'usg',
-    'ocid',
-    'cvid',
-    'sca_esv',
-  ].map((k) => k.toLowerCase()),
-);
-
-/**
- * Strips hash, UTM (`utm_*`), and common tracking query params so the same product URL dedupes in cache.
- */
-export function canonicalizeProductUrl(raw: string): string {
-  try {
-    const u = new URL(raw.trim());
-    u.hash = '';
-    const keys = [...u.searchParams.keys()];
-    for (const k of keys) {
-      const kl = k.toLowerCase();
-      if (kl.startsWith('utm_') || TRACKING_QUERY_KEYS.has(kl)) {
-        u.searchParams.delete(k);
-      }
-    }
-    return u.href;
-  } catch {
-    return raw.trim();
-  }
-}
-
-export function externalIdForProductUrl(raw: string): string {
-  const canonical = canonicalizeProductUrl(raw);
-  const h = createHash('sha256').update(canonical).digest('hex').slice(0, 28);
-  return `m_${h}`;
-}
 
 function decodeBasicEntities(s: string): string {
   return s
@@ -488,24 +424,16 @@ async function manualScrapeProductPage(merchantUrl: string): Promise<{
     throw new Error('Product URL must be http(s)');
   }
 
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(merchantUrl, {
-      redirect: 'follow',
-      signal: ac.signal,
-      headers: {
-        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'User-Agent': UA,
-      },
+    res = await safeFetch(merchantUrl, {
+      timeoutMs: FETCH_TIMEOUT_MS,
+      maxBytes: MAX_HTML_BYTES,
+      headers: { 'User-Agent': UA },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`Could not fetch product page: ${msg}`);
-  } finally {
-    clearTimeout(t);
   }
 
   if (!res.ok) {
@@ -521,8 +449,7 @@ async function manualScrapeProductPage(merchantUrl: string): Promise<{
   }
 
   const buf = await res.arrayBuffer();
-  const slice = buf.byteLength > MAX_HTML_BYTES ? buf.slice(0, MAX_HTML_BYTES) : buf;
-  const html = new TextDecoder('utf-8', { fatal: false }).decode(slice);
+  const html = new TextDecoder('utf-8', { fatal: false }).decode(buf);
 
   let price = extractPriceString(html);
   if (price && !/\d/.test(price)) price = null;

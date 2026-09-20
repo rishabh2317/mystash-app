@@ -18,7 +18,12 @@ import type {
   RemoveCartItemReason,
 } from './domain/types';
 import { emitCartEvent } from './observability';
-import { mapCatalogToCartProjection, type CatalogCartPort } from './ports';
+import {
+  mapCatalogToCartProjection,
+  mapDiscoveredToCartProjection,
+  type CatalogCartPort,
+  type DiscoveredCartPort,
+} from './ports';
 
 export class CartServiceError extends Error {
   constructor(
@@ -43,6 +48,7 @@ export class CartService {
   constructor(
     private readonly repo: CartRepository,
     private readonly catalog: CatalogCartPort,
+    private readonly discovered: DiscoveredCartPort | null = null,
   ) {}
 
   async getCart(userId: string): Promise<CartView> {
@@ -54,12 +60,25 @@ export class CartService {
 
   async addItem(userId: string, input: AddCartItemInput): Promise<AddCartItemResult> {
     if (!userId) throw new CartServiceError('userId required', 401);
-    const catalogProductId = normalizeCatalogProductId(input.catalogProductId);
-    if (!catalogProductId) {
+    const catalogProductId = input.catalogProductId
+      ? normalizeCatalogProductId(input.catalogProductId)
+      : null;
+    const discoveredProductId = input.discoveredProductId
+      ? normalizeCatalogProductId(input.discoveredProductId)
+      : null;
+
+    if (catalogProductId && discoveredProductId) {
+      throw new CartServiceError('Provide exactly one of catalogProductId or discoveredProductId', 400);
+    }
+    if (!catalogProductId && !discoveredProductId) {
       throw new CartServiceError('Invalid catalogProductId', 400);
     }
 
-    const resolved = await this.catalog.resolveActiveProduct(catalogProductId);
+    if (discoveredProductId) {
+      return this.addDiscoveredItem(userId, discoveredProductId, input);
+    }
+
+    const resolved = await this.catalog.resolveActiveProduct(catalogProductId!);
     if (!resolved) {
       throw new CartServiceError('Product not found', 404);
     }
@@ -88,10 +107,13 @@ export class CartService {
       const item = await this.repo.insert({
         userId,
         catalogProductId: survivorId,
+        discoveredProductId: null,
         sourceCollectionId: source?.sourceCollectionId ?? null,
         sourceCreatorId: source?.sourceCreatorId ?? null,
         sourceCollectionProductTagId: source?.sourceCollectionProductTagId ?? null,
         sourceSurface: source?.sourceSurface ?? null,
+        sourceContentSourceId: source?.sourceContentSourceId ?? null,
+        sourceUserImportId: source?.sourceUserImportId ?? null,
       });
       emitCartEvent(
         'CartItemAdded',
@@ -170,9 +192,96 @@ export class CartService {
           source: before ? sourceFromRecord(before) : null,
         }),
       );
+      return { removed: true, catalogProductId };
     }
 
-    return { removed, catalogProductId };
+    const discoveredBefore = await this.repo.findByUserAndDiscovered(userId, catalogProductId);
+    const discoveredRemoved = await this.repo.deleteByUserAndDiscovered(userId, catalogProductId);
+    if (discoveredRemoved) {
+      emitCartEvent(
+        'CartItemRemoved',
+        buildCartEventPayload({
+          userId,
+          catalogProductId: '',
+          cartItemId: discoveredBefore?.id ?? null,
+          reason,
+          source: discoveredBefore ? sourceFromRecord(discoveredBefore) : null,
+        }),
+      );
+      return { removed: true, catalogProductId };
+    }
+
+    return { removed: false, catalogProductId };
+  }
+
+  private async addDiscoveredItem(
+    userId: string,
+    discoveredProductId: string,
+    input: AddCartItemInput,
+  ): Promise<AddCartItemResult> {
+    if (!this.discovered) {
+      throw new CartServiceError('Product not found', 404);
+    }
+    const product = await this.discovered.getById(discoveredProductId);
+    if (!product || product.internalStatus !== 'ACTIVE') {
+      throw new CartServiceError('Product not found', 404);
+    }
+
+    const existing = await this.repo.findByUserAndDiscovered(userId, discoveredProductId);
+    if (existing) {
+      emitCartEvent(
+        'CartItemAdded',
+        buildCartEventPayload({
+          userId,
+          catalogProductId: existing.catalogProductId ?? '',
+          cartItemId: existing.id,
+          created: false,
+          source: sourceFromRecord(existing),
+        }),
+      );
+      return { item: existing, created: false };
+    }
+
+    const source = normalizeCartSource(input.source);
+    try {
+      const item = await this.repo.insert({
+        userId,
+        catalogProductId: null,
+        discoveredProductId,
+        sourceCollectionId: source?.sourceCollectionId ?? null,
+        sourceCreatorId: source?.sourceCreatorId ?? null,
+        sourceCollectionProductTagId: source?.sourceCollectionProductTagId ?? null,
+        sourceSurface: source?.sourceSurface ?? null,
+        sourceContentSourceId: source?.sourceContentSourceId ?? null,
+        sourceUserImportId: source?.sourceUserImportId ?? null,
+      });
+      emitCartEvent(
+        'CartItemAdded',
+        buildCartEventPayload({
+          userId,
+          catalogProductId: '',
+          cartItemId: item.id,
+          created: true,
+          source: sourceFromRecord(item),
+        }),
+      );
+      return { item, created: true };
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      const raced = await this.repo.findByUserAndDiscovered(userId, discoveredProductId);
+      if (!raced) throw err;
+      emitCartEvent(
+        'CartItemAdded',
+        buildCartEventPayload({
+          userId,
+          catalogProductId: '',
+          cartItemId: raced.id,
+          created: false,
+          source: sourceFromRecord(raced),
+        }),
+      );
+      return { item: raced, created: false };
+    }
   }
 
   async remapAfterCatalogMerge(
@@ -183,13 +292,30 @@ export class CartService {
   }
 
   private async toItemView(row: CartItemRecord): Promise<CartItemView> {
-    const resolved = await this.catalog.resolveActiveProduct(row.catalogProductId);
+    if (row.discoveredProductId) {
+      const discovered = this.discovered
+        ? await this.discovered.getById(row.discoveredProductId)
+        : null;
+      return {
+        cartItemId: row.id,
+        catalogProductId: null,
+        discoveredProductId: row.discoveredProductId,
+        addedAt: row.addedAt,
+        source: sourceFromRecord(row),
+        availability: discovered?.merchantUrl ? 'AVAILABLE' : 'NO_DESTINATION',
+        product: discovered ? mapDiscoveredToCartProjection(discovered) : null,
+      };
+    }
+
+    const resolved = row.catalogProductId
+      ? await this.catalog.resolveActiveProduct(row.catalogProductId)
+      : null;
     const availability = this.deriveAvailability(resolved);
     const product = resolved ? mapCatalogToCartProjection(resolved) : null;
     return {
       cartItemId: row.id,
-      // Prefer survivor id when resolve succeeds so FE Buy uses shopping identity.
       catalogProductId: resolved?.id ?? row.catalogProductId,
+      discoveredProductId: null,
       addedAt: row.addedAt,
       source: sourceFromRecord(row),
       availability,

@@ -6,6 +6,10 @@ export type CartRepository = {
     userId: string,
     catalogProductId: string,
   ): Promise<CartItemRecord | null>;
+  findByUserAndDiscovered(
+    userId: string,
+    discoveredProductId: string,
+  ): Promise<CartItemRecord | null>;
   insert(
     row: Omit<CartItemRecord, 'id' | 'addedAt' | 'updatedAt' | 'schemaVersion'> & {
       id?: string;
@@ -15,6 +19,7 @@ export type CartRepository = {
     },
   ): Promise<CartItemRecord>;
   deleteByUserAndProduct(userId: string, catalogProductId: string): Promise<boolean>;
+  deleteByUserAndDiscovered(userId: string, discoveredProductId: string): Promise<boolean>;
   /**
    * Remap all lines from source catalog id → target.
    * On unique collision (user already has target), delete the source row.

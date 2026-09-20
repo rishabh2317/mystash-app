@@ -7,6 +7,8 @@ export type EngagementEventName =
   | 'CollectionShared'
   | 'CollectionCompleted'
   | 'CollectionViewInvalidated'
+  | 'ReelLiked'
+  | 'ReelUnliked'
   | 'CreatorFollowed'
   | 'CreatorUnfollowed'
   | 'CreatorProfileViewed'

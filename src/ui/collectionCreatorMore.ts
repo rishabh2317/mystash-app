@@ -20,3 +20,20 @@ export function shouldShowCreatorCollectionsViewAll(input: {
   if (!input.creatorUsername?.trim()) return false;
   return input.hasNextCursor || input.totalOthers > input.previewLimit;
 }
+
+/** First other Collection from this creator — used as the Home play-chip destination. */
+export type CreatorMoreReelTarget = {
+  collectionId: string;
+  title: string;
+};
+
+export function creatorMoreReelTarget(
+  collections: CollectionViewModel[],
+  currentCollectionId: string,
+): CreatorMoreReelTarget | null {
+  const next = filterCreatorCollectionsPreview(collections, currentCollectionId, 1)[0];
+  if (!next) return null;
+  const title = next.title?.trim() || next.slug.trim();
+  if (!next.collectionId.trim() || !title) return null;
+  return { collectionId: next.collectionId, title };
+}

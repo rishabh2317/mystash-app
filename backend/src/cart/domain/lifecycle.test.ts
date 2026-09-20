@@ -37,6 +37,24 @@ describe('cart lifecycle', () => {
       sourceCreatorId: null,
       sourceCollectionProductTagId: null,
       sourceSurface: 'COLLECTION',
+      sourceContentSourceId: null,
+      sourceUserImportId: null,
+    });
+  });
+
+  it('normalizes USER_IMPORT source attribution', () => {
+    const normalized = normalizeCartSource({
+      surface: 'USER_IMPORT',
+      contentSourceId: '550e8400-e29b-41d4-a716-446655440010',
+      userImportId: '550e8400-e29b-41d4-a716-446655440011',
+    });
+    assert.deepEqual(normalized, {
+      sourceCollectionId: null,
+      sourceCreatorId: null,
+      sourceCollectionProductTagId: null,
+      sourceSurface: 'USER_IMPORT',
+      sourceContentSourceId: '550e8400-e29b-41d4-a716-446655440010',
+      sourceUserImportId: '550e8400-e29b-41d4-a716-446655440011',
     });
   });
 

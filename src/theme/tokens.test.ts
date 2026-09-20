@@ -8,6 +8,12 @@ import {
   softCanvasGradient,
 } from './tokens';
 
+/** RGB channels of a `#rrggbb` token value. */
+function channels(hex: string): [number, number, number] {
+  const value = Number.parseInt(hex.replace('#', ''), 16);
+  return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
+}
+
 describe('theme tokens', () => {
   it('exposes the same semantic keys for Titanium and Nebula', () => {
     const t = getThemeTokens('titanium');
@@ -55,10 +61,34 @@ describe('theme tokens', () => {
     assert.notEqual(t.immersive.surface, t.color.surface);
   });
 
+  it('keeps dark mode neutral near-black so pages match the immersive feed', () => {
+    const n = getThemeTokens('nebula');
+    // Surfaces are white-alpha, so these opaque values decide the theme's hue.
+    // Any colour cast here tints every card layered on top of them.
+    for (const [name, value] of [
+      ['canvas', n.color.canvas],
+      ['canvasEnd', n.color.canvasEnd],
+      ['canvasSoft', n.color.canvasSoft],
+      ['canvasSoftEnd', n.color.canvasSoftEnd],
+      ['tabBar', n.color.tabBar],
+    ] as const) {
+      const [r, g, b] = channels(value);
+      assert.ok(
+        Math.max(r, g, b) - Math.min(r, g, b) <= 4,
+        `${name} (${value}) must be neutral, not tinted`,
+      );
+      assert.ok(Math.max(r, g, b) <= 0x1a, `${name} (${value}) must be near-black`);
+    }
+    assert.equal(n.color.text, '#FFFFFF');
+    assert.equal(n.color.icon, '#FFFFFF');
+  });
+
   it('exposes the scales the immersive feed depends on', () => {
     const t = getThemeTokens('titanium');
     assert.equal(t.fontSize.micro, 11);
     assert.equal(t.fontSize.label, 13);
+    assert.ok(t.fontSize.caption < t.fontSize.bodyStrong);
+    assert.ok(t.fontSize.section < t.fontSize.display);
     assert.equal(t.radius.xxl, 22);
     assert.equal(t.stroke.strong, 2);
     const scrim = mediaScrimGradient();

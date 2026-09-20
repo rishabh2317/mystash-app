@@ -1,9 +1,15 @@
 import type { CatalogProduct } from '../product-intelligence/domain/types';
+import { merchantUrlsMatch } from '../product-intelligence/search/directUrlIdentity';
 import { logger } from '../logger';
 import { AffiliateService } from './AffiliateService';
 import { classifyShoppingProvider } from './shoppingPriorityConfig';
 import { resolveShoppingSelectionForProduct } from './ShoppingConfiguration';
+import { catalogShoppingSource, findStoredShoppingDestination } from './storedDestinations';
 import { validHttpUrl } from './urlValidation';
+
+export type ShoppingResolveOptions = {
+  offerId?: string | null;
+};
 
 export type ShoppingDestinationType = 'configured' | 'affiliate' | 'preferred' | 'merchant';
 
@@ -28,7 +34,29 @@ export type ShoppingResolution = {
 export class ShoppingResolver {
   constructor(private readonly affiliateService: AffiliateService) {}
 
-  resolve(product: CatalogProduct): ShoppingResolution | null {
+  resolve(product: CatalogProduct, options?: ShoppingResolveOptions): ShoppingResolution | null {
+    const offerId = options?.offerId?.trim();
+    if (offerId) {
+      const dest = findStoredShoppingDestination(catalogShoppingSource(product), offerId);
+      if (!dest) {
+        logger.warn({ productId: product.id, offerId }, 'shopping.url.offer_unknown');
+        return null;
+      }
+      const fallback = this.resolveDefault(product);
+      if (fallback && merchantUrlsMatch(fallback.url, dest.url)) {
+        return fallback;
+      }
+      return this.selected(product, {
+        url: dest.url,
+        destinationType: dest.destinationType,
+        shoppingProvider: dest.shoppingProvider,
+        affiliateProvider: null,
+      });
+    }
+    return this.resolveDefault(product);
+  }
+
+  private resolveDefault(product: CatalogProduct): ShoppingResolution | null {
     const resolved = resolveShoppingSelectionForProduct(product.id, product.metadata);
     const configured = validHttpUrl(resolved.selection.configuredBuyingUrl ?? null);
     if (configured) {

@@ -8,6 +8,7 @@ const SURFACES = new Set<CartSourceSurface>([
   'SEARCH',
   'PRODUCT_DETAILS',
   'OTHER',
+  'USER_IMPORT',
 ]);
 
 export function isValidCatalogProductId(id: string): boolean {
@@ -37,12 +38,16 @@ export function normalizeCartSource(
   sourceCreatorId: string | null;
   sourceCollectionProductTagId: string | null;
   sourceSurface: CartSourceSurface | null;
+  sourceContentSourceId: string | null;
+  sourceUserImportId: string | null;
 } | null {
   if (!source) return null;
 
   const sourceCollectionId = asUuid(source.collectionId);
   const sourceCreatorId = asUuid(source.creatorId);
   const sourceCollectionProductTagId = asUuid(source.collectionProductTagId);
+  const sourceContentSourceId = asUuid(source.contentSourceId);
+  const sourceUserImportId = asUuid(source.userImportId);
   const surfaceRaw =
     typeof source.surface === 'string' ? source.surface.trim().toUpperCase() : null;
   const sourceSurface =
@@ -54,7 +59,9 @@ export function normalizeCartSource(
     !sourceCollectionId &&
     !sourceCreatorId &&
     !sourceCollectionProductTagId &&
-    !sourceSurface
+    !sourceSurface &&
+    !sourceContentSourceId &&
+    !sourceUserImportId
   ) {
     return null;
   }
@@ -64,6 +71,8 @@ export function normalizeCartSource(
     sourceCreatorId,
     sourceCollectionProductTagId,
     sourceSurface,
+    sourceContentSourceId,
+    sourceUserImportId,
   };
 }
 
@@ -72,12 +81,16 @@ export function sourceFromRecord(record: {
   sourceCreatorId: string | null;
   sourceCollectionProductTagId: string | null;
   sourceSurface: CartSourceSurface | null;
+  sourceContentSourceId?: string | null;
+  sourceUserImportId?: string | null;
 }): CartItemSource | null {
   if (
     !record.sourceCollectionId &&
     !record.sourceCreatorId &&
     !record.sourceCollectionProductTagId &&
-    !record.sourceSurface
+    !record.sourceSurface &&
+    !record.sourceContentSourceId &&
+    !record.sourceUserImportId
   ) {
     return null;
   }
@@ -86,6 +99,8 @@ export function sourceFromRecord(record: {
     creatorId: record.sourceCreatorId,
     collectionProductTagId: record.sourceCollectionProductTagId,
     surface: record.sourceSurface,
+    contentSourceId: record.sourceContentSourceId ?? null,
+    userImportId: record.sourceUserImportId ?? null,
   };
 }
 

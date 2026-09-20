@@ -2,6 +2,8 @@ import { Linking, Platform } from 'react-native';
 
 export type ShoppingClickContext = {
   catalogProductId: string;
+  /** Server-issued offer id. Never a merchant URL. */
+  offerId?: string | null;
   /** Preferred Engagement attribution dim for MerchantClicked. */
   collectionId?: string | null;
   /** Legacy Home Reel video id — optional; do not pass collectionId as videoId. */
@@ -22,6 +24,7 @@ function shoppingApiBase(): string {
 /** Opens only the backend redirect; destination selection never happens in the client. */
 export async function openProductShopping(context: ShoppingClickContext): Promise<void> {
   const query = new URLSearchParams();
+  if (context.offerId?.trim()) query.set('offerId', context.offerId.trim());
   if (context.collectionId) query.set('collectionId', context.collectionId);
   if (context.videoId) query.set('videoId', context.videoId);
   if (context.creatorId) query.set('creatorId', context.creatorId);

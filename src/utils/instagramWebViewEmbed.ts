@@ -1,4 +1,4 @@
-export type InstagramEmbedCrop = 'feed' | 'inline' | 'fullWidth';
+export type InstagramEmbedCrop = 'feed' | 'inline' | 'collection' | 'fullWidth';
 
 type BuildInstagramEmbedHtmlOptions = {
   crop?: InstagramEmbedCrop;
@@ -11,6 +11,13 @@ const CROP_PRESETS: Record<
   /** Home feed — slightly oversized so IG letterbox never shows on any phone width. */
   feed: { scale: 1.34, translateY: '-50%', embedPct: 145 },
   inline: { scale: 2.35, translateY: '-56%', embedPct: 240 },
+  /**
+   * Collection editorial frame. The official IG widget is a tall card
+   * (video + caption + "Watch on Instagram"); we zoom into the video at the
+   * top and clip the chrome. translateY is less negative than centre so the
+   * footer sits below the clip, not inside it.
+   */
+  collection: { scale: 2.9, translateY: '-40%', embedPct: 290 },
   fullWidth: { scale: 2.65, translateY: '-58%', embedPct: 270 },
 };
 
@@ -197,7 +204,7 @@ export function buildInstagramEmbedHtml(
               if (el.children && el.children.length > 2) continue;
               var t = (el.textContent || '').replace(/\\s+/g, ' ').trim();
               if (!t || t.length > 48) continue;
-              if (/watch on instagram/i.test(t)) {
+              if (/watch on instagram|more on instagram|view more on instagram/i.test(t)) {
                 el.style.display = 'none';
                 el.style.visibility = 'hidden';
                 el.style.pointerEvents = 'none';
@@ -235,6 +242,15 @@ export function buildInstagramEmbedHtml(
             window.__mystashPendingMuted = muted;
             mystashApplyInstagramMuted(muted);
             if (!muted) mystashTapPlay();
+          };
+
+          window.__mystashSetPlaying = function(playing) {
+            mystashForEachVideo(function(v) {
+              try {
+                if (playing) v.play().catch(function() {});
+                else v.pause();
+              } catch (e) {}
+            });
           };
 
           window.addEventListener('load', function() {

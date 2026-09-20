@@ -10,5 +10,10 @@ describe('catalogProductInBag', () => {
     assert.equal(catalogProductInBag(items, 'cat-9'), false);
     assert.equal(catalogProductInBag(items, null), false);
     assert.equal(catalogProductInBag(items, '  '), false);
+    assert.equal(
+      catalogProductInBag([{ catalogProductId: null }, { catalogProductId: 'cat-1' }], 'cat-1'),
+      true,
+    );
+    assert.equal(catalogProductInBag([{ catalogProductId: null }], 'disc-1'), false);
   });
 });

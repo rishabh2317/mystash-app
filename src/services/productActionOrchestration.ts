@@ -5,9 +5,10 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartOptional } from '@/contexts/CartContext';
 import { buildAddToCartLoginHref } from '@/src/navigation/authIntent';
-import { requestAddToCart } from '@/src/services/cartBoundary';
+import { requestAddToCart, requestRemoveFromCart } from '@/src/services/cartBoundary';
 import { openProductShopping } from '@/src/services/shoppingClick';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
+import { catalogProductInBag } from '@/src/ui/bagMembership';
 
 /**
  * Parent/orchestration helpers for Product callbacks.
@@ -28,11 +29,12 @@ export function useProductBuyHandler() {
   }, []);
 }
 
-export type AddToCartOutcome = 'added' | 'login' | 'unavailable';
+export type AddToCartOutcome = 'added' | 'removed' | 'login' | 'unavailable';
 
 /**
  * Auth-gated Add to Bag boundary (Cart API internally).
  * Authenticated → Cart API via boundary / CartContext.
+ * Already in Bag → remove (same control toggles).
  * Unauthenticated → Login with route intent (OD-12).
  * Does not Alert on success; callers own pending → success | error visuals.
  */
@@ -48,7 +50,12 @@ export function useProductAddToCartHandler() {
       }
       if (user) {
         const id = product.catalogProductId;
+        const inBag = catalogProductInBag(cart?.items ?? [], id);
         try {
+          if (inBag) {
+            await (cart ? cart.removeItem(id, 'user_remove') : requestRemoveFromCart(id));
+            return 'removed';
+          }
           await (cart ? cart.addItem(id) : requestAddToCart(id));
           return 'added';
         } catch {

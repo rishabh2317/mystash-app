@@ -4,9 +4,12 @@ import { useRouter, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { FollowControl } from '@/components/engagement/FollowControl';
+import { ContentPlayChip } from '@/components/ui/ContentPlayChip';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { creatorPath } from '@/src/services/sharePaths';
 import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
+import type { CreatorMoreReelTarget } from '@/src/ui/collectionCreatorMore';
+import { collectionTilePressPath } from '@/src/ui/collectionLayout';
 import type { FeedReelFollow } from '@/src/ui/feedReelTypes';
 
 const AVATAR_SIZE = 28;
@@ -21,6 +24,8 @@ type Props = {
   avatarUrl?: string | null;
   title: string;
   follow?: FeedReelFollow | null;
+  /** Another published Collection from this creator. Hidden when null. */
+  moreFromCreator?: CreatorMoreReelTarget | null;
 };
 
 export function FeedCreatorBlock({
@@ -29,6 +34,7 @@ export function FeedCreatorBlock({
   avatarUrl,
   title,
   follow,
+  moreFromCreator,
 }: Props) {
   const router = useRouter();
   const { tokens } = useThemeMode();
@@ -92,17 +98,28 @@ export function FeedCreatorBlock({
       </View>
       <Text
         style={[
-          styles.title,
+          styles.caption,
           {
-            color: tokens.immersive.text,
-            fontSize: tokens.fontSize.title,
-            fontWeight: tokens.fontWeight.extraBold,
+            color: tokens.immersive.textMuted,
+            fontSize: tokens.fontSize.caption,
+            lineHeight: tokens.lineHeight.caption,
+            fontWeight: tokens.fontWeight.semibold,
           },
         ]}
         numberOfLines={2}
+        ellipsizeMode="tail"
       >
         {title}
       </Text>
+      {moreFromCreator ? (
+        <ContentPlayChip
+          immersive
+          label={moreFromCreator.title}
+          onPress={() =>
+            router.push(collectionTilePressPath(moreFromCreator.collectionId) as Href)
+          }
+        />
+      ) : null}
     </View>
   );
 }
@@ -137,10 +154,9 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  title: {
-    lineHeight: 22,
+  caption: {
     textShadowColor: IMMERSIVE_TOKENS.textShadow,
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    textShadowRadius: 3,
   },
 });

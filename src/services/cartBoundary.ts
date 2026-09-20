@@ -4,7 +4,9 @@
  */
 import {
   addCartItem,
+  removeCartItem,
   type CartItemSource,
+  type RemoveCartItemReason,
 } from '@/src/services/cartApi';
 
 type CartRefresh = () => Promise<void>;
@@ -28,6 +30,23 @@ export async function requestAddToCart(
     return;
   }
   await addCartItem(id, source);
+  if (refreshHandler) {
+    await refreshHandler();
+  }
+}
+
+export async function requestRemoveFromCart(
+  catalogProductId: string,
+  reason: RemoveCartItemReason = 'user_remove',
+): Promise<void> {
+  const id = catalogProductId.trim();
+  if (!id) {
+    if (__DEV__) {
+      console.warn('[cart-boundary] refused empty catalogProductId');
+    }
+    return;
+  }
+  await removeCartItem(id, reason);
   if (refreshHandler) {
     await refreshHandler();
   }

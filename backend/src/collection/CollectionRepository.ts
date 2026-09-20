@@ -148,6 +148,9 @@ export interface CollectionRepository {
   /** Sum saves_count for published+public+clear+not-deleted Collections. */
   sumPublishedCollectionSaves(creatorId: string): Promise<number>;
 
+  /** Count published+public+clear+not-deleted Collections (public profile grid). */
+  countPublishedPublicCollections(creatorId: string): Promise<number>;
+
   /**
    * Publish-surface product tags on published+public+clear Collections for a creator.
    * Ordered by catalog_product_id ASC. Keyset: catalog_product_id > afterCatalogProductId.

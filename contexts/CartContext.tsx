@@ -133,7 +133,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (!id) return;
       const previous = items;
       const previousCount = itemCount;
-      setItems((curr) => curr.filter((line) => line.catalogProductId !== id));
+      setItems((curr) => curr.filter((line) => line.productId !== id));
       setItemCount((c) => Math.max(0, c - 1));
       try {
         await removeCartItem(id, reason);

@@ -4,6 +4,13 @@ export type FeedReelFollow = {
   onPress: () => void;
 };
 
+export type FeedReelLike = {
+  isLiked: boolean;
+  pending?: boolean;
+  count: number;
+  onPress: () => void;
+};
+
 export type FeedReelSave = {
   isSaved: boolean;
   pending?: boolean;

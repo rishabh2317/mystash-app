@@ -16,7 +16,7 @@ type PublicUserProfileDto = {
     followersCount: number;
     followingCount: number;
     collectionCount: number;
-    savesCount?: number;
+    totalReelLikesReceived?: number;
   };
 };
 
@@ -39,7 +39,7 @@ export function mapPublicUserToCreatorViewModel(
     followersCount: user.publicStats?.followersCount ?? 0,
     followingCount: user.publicStats?.followingCount ?? 0,
     collectionCount: user.publicStats?.collectionCount ?? 0,
-    savesCount: user.publicStats?.savesCount ?? 0,
+    totalReelLikesReceived: user.publicStats?.totalReelLikesReceived ?? 0,
     isFollowing: opts?.isFollowing,
   };
 }

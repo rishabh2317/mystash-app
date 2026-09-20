@@ -1,22 +1,26 @@
 import type { Video } from '@/src/mocks/videos';
-import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type {
   CollectionDetailViewModel,
   CollectionMediaPlatform,
 } from '@/src/types/collectionDetail';
-
-/** Featured rail only when the Collection has enough products to browse twice. */
-export const FEATURED_RAIL_MIN = 4;
-export const FEATURED_RAIL_COUNT = 3;
 
 export const ORIGINAL_REEL_LABEL = 'Original Reel';
 
 /** Horizontal padding on Collection scroll content. */
 export const COLLECTION_SCROLL_HORIZONTAL_PADDING = 16;
 
-/** Compact portrait player width — editorial, not full-screen. */
-export const COLLECTION_INLINE_PLAYER_MAX_WIDTH = 240;
-export const COLLECTION_INLINE_PLAYER_MIN_WIDTH = 200;
+/** Source Reels are portrait; Collection never crops them to landscape. */
+export const COLLECTION_MEDIA_ASPECT = 9 / 16;
+/**
+ * Share of viewport height the editorial media frame may occupy. Tuned so a
+ * portrait reel nearly fills the content column on a typical phone — the
+ * evidence should dominate the page — while the next section still peeks.
+ */
+export const COLLECTION_MEDIA_MAX_HEIGHT_RATIO = 0.66;
+/** Fallback frame width for the frames before the viewport height is measured. */
+export const COLLECTION_MEDIA_MIN_WIDTH = 200;
+/** Crop applied to the Collection YouTube iframe so native title/end-screen chrome stays off-frame. */
+export const COLLECTION_YOUTUBE_CROP_SCALE = 1.38;
 
 export type CollectionMediaReferenceModel = {
   collectionId: string;
@@ -39,19 +43,6 @@ export function collectionReelPath(collectionId: string): string {
 /** Primary tap target for Collection tiles/cards (Focused Reel, not Collection page). */
 export function collectionTilePressPath(collectionId: string): string {
   return collectionReelPath(collectionId);
-}
-
-export function splitCollectionProducts(products: CatalogProductViewModel[]): {
-  featured: CatalogProductViewModel[];
-  shopAll: CatalogProductViewModel[];
-} {
-  if (products.length < FEATURED_RAIL_MIN) {
-    return { featured: [], shopAll: products };
-  }
-  return {
-    featured: products.slice(0, FEATURED_RAIL_COUNT),
-    shopAll: products,
-  };
 }
 
 export function collectionMediaReference(
@@ -115,15 +106,25 @@ export function collectionMediaWatchLinkLabel(platform: CollectionMediaPlatform 
   return null;
 }
 
-export function collectionInlinePlayerWidth(screenWidth: number): number {
-  const target = Math.round(screenWidth * 0.58);
-  return Math.max(
-    COLLECTION_INLINE_PLAYER_MIN_WIDTH,
-    Math.min(COLLECTION_INLINE_PLAYER_MAX_WIDTH, target),
-  );
-}
-
-export function collectionReelPlayerSize(screenWidth: number): { width: number; height: number } {
-  const width = collectionInlinePlayerWidth(screenWidth);
-  return { width, height: Math.round(width * (16 / 9)) };
+/**
+ * Editorial media frame: as wide as the content column allows while keeping the
+ * source Reel's portrait framing and staying within the viewport.
+ */
+export function collectionMediaFrameSize(input: {
+  screenWidth: number;
+  screenHeight: number;
+  gutter?: number;
+}): { width: number; height: number } {
+  const gutter = input.gutter ?? COLLECTION_SCROLL_HORIZONTAL_PADDING;
+  const contentWidth = Math.max(0, input.screenWidth - gutter * 2);
+  const heightBudget = Math.max(0, input.screenHeight) * COLLECTION_MEDIA_MAX_HEIGHT_RATIO;
+  // The content column and the height the page can spare are both hard limits:
+  // a short viewport shortens the frame rather than cropping the portrait
+  // source. Until the viewport is measured there is no budget to divide.
+  const widthFromHeight =
+    heightBudget > 0
+      ? heightBudget * COLLECTION_MEDIA_ASPECT
+      : Math.min(COLLECTION_MEDIA_MIN_WIDTH, contentWidth);
+  const width = Math.round(Math.min(contentWidth, widthFromHeight));
+  return { width, height: Math.round(width / COLLECTION_MEDIA_ASPECT) };
 }

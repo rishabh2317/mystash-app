@@ -26,7 +26,8 @@ async function requireUserId(req: Request, res: Response): Promise<string | null
 
 function mapItemJson(item: {
   cartItemId: string;
-  catalogProductId: string;
+  catalogProductId: string | null;
+  discoveredProductId: string | null;
   addedAt: string;
   source: CartItemSource | null;
   availability: string;
@@ -35,6 +36,7 @@ function mapItemJson(item: {
   return {
     cartItemId: item.cartItemId,
     catalogProductId: item.catalogProductId,
+    discoveredProductId: item.discoveredProductId,
     addedAt: item.addedAt,
     source: item.source,
     availability: item.availability,

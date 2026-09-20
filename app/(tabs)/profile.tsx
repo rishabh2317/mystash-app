@@ -15,12 +15,10 @@ import {
 } from 'react-native';
 
 import { TopBar } from '@/components/chrome/TopBar';
-import { ProductDetailsSheet } from '@/components/commerce';
-import { CreatorProfile } from '@/components/creator/CreatorProfile';
-import type { CreatorProfileTab } from '@/components/creator/CreatorProfileHeader';
+import { EditProfileSheet } from '@/components/profile/EditProfileSheet';
+import { PersonalProfile } from '@/components/profile/PersonalProfile';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { mapCreatorProductToCatalogViewModel } from '@/src/mappers/creatorProductMapper';
 import {
   parseAddToCartIntent,
   parseAuthIntent,
@@ -28,19 +26,13 @@ import {
   parseSaveCollectionIntent,
 } from '@/src/navigation/authIntent';
 import { requestAddToCart } from '@/src/services/cartBoundary';
-import {
-  listCreatorCollections,
-  listCreatorProducts,
-} from '@/src/services/collectionApi';
+import { listCreatorCollections } from '@/src/services/collectionApi';
 import { followCreator, saveCollection } from '@/src/services/engagementApi';
-import {
-  useProductAddToCartHandler,
-  useProductBuyHandler,
-} from '@/src/services/productActionOrchestration';
+import { loadSavedCollections } from '@/src/services/personalProfileContent';
 import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import { reconcilePublicCollectionCount } from '@/src/ui/publicCreatorProfile';
 import { pageCanvasGradient } from '@/src/theme/tokens';
-import { ensureMe } from '@/src/services/userApi';
-import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
+import { ensureMe, updateMyProfile } from '@/src/services/userApi';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CreatorViewModel } from '@/src/types/creator';
 
@@ -68,23 +60,14 @@ export default function ProfileScreen() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<CreatorProfileTab>('collections');
   const [collections, setCollections] = useState<CollectionViewModel[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
-  const [collectionsLoadingMore, setCollectionsLoadingMore] = useState(false);
-  const [collectionsError, setCollectionsError] = useState<string | null>(null);
-  const [collectionsCursor, setCollectionsCursor] = useState<string | null>(null);
 
-  const [products, setProducts] = useState<CatalogProductViewModel[]>([]);
-  const [productsLoading, setProductsLoading] = useState(false);
-  const [productsLoadingMore, setProductsLoadingMore] = useState(false);
-  const [productsError, setProductsError] = useState<string | null>(null);
-  const [productsCursor, setProductsCursor] = useState<string | null>(null);
-  const [productsLoaded, setProductsLoaded] = useState(false);
+  const [saved, setSaved] = useState<CollectionViewModel[]>([]);
+  const [savedLoading, setSavedLoading] = useState(false);
 
-  const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
-  const onAddToCart = useProductAddToCartHandler();
-  const onBuy = useProductBuyHandler();
+  const [editVisible, setEditVisible] = useState(false);
+  const [editPending, setEditPending] = useState(false);
   const loadGen = useRef(0);
 
   // OD-12: resume ADD_TO_CART / FOLLOW_CREATOR / SAVE_COLLECTION after successful auth.
@@ -156,10 +139,6 @@ export default function ProfileScreen() {
     const gen = ++loadGen.current;
     setProfileLoading(true);
     setProfileError(null);
-    setActiveTab('collections');
-    setProducts([]);
-    setProductsLoaded(false);
-    setProductsCursor(null);
     try {
       const me = await ensureMe();
       if (gen !== loadGen.current) return;
@@ -173,61 +152,46 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  const loadCollections = useCallback(
-    async (creatorId: string, cursor?: string | null, append = false) => {
-      if (append) setCollectionsLoadingMore(true);
-      else {
-        setCollectionsLoading(true);
-        setCollectionsError(null);
-      }
-      try {
-        const page = await listCreatorCollections(creatorId, {
-          limit: 20,
-          cursor: cursor ?? null,
-        });
-        setCollections((prev) => (append ? [...prev, ...page.collections] : page.collections));
-        setCollectionsCursor(page.nextCursor);
-      } catch (e) {
-        setCollectionsError(e instanceof Error ? e.message : 'Could not load collections');
-      } finally {
-        setCollectionsLoading(false);
-        setCollectionsLoadingMore(false);
-      }
-    },
-    [],
-  );
+  const loadCollections = useCallback(async (creatorId: string) => {
+    setCollectionsLoading(true);
+    try {
+      const page = await listCreatorCollections(creatorId, { limit: 20 });
+      setCollections(page.collections);
+      setCreator((current) =>
+        current
+          ? {
+              ...current,
+              collectionCount: reconcilePublicCollectionCount(
+                current.collectionCount,
+                page.collections.length,
+              ),
+            }
+          : current,
+      );
+    } catch {
+      setCollections([]);
+    } finally {
+      setCollectionsLoading(false);
+    }
+  }, []);
 
-  const loadProducts = useCallback(
-    async (creatorId: string, cursor?: string | null, append = false) => {
-      if (append) setProductsLoadingMore(true);
-      else {
-        setProductsLoading(true);
-        setProductsError(null);
-      }
-      try {
-        const page = await listCreatorProducts(creatorId, {
-          limit: 20,
-          cursor: cursor ?? null,
-        });
-        const mapped = page.products.map(mapCreatorProductToCatalogViewModel);
-        setProducts((prev) => (append ? [...prev, ...mapped] : mapped));
-        setProductsCursor(page.nextCursor);
-        setProductsLoaded(true);
-      } catch (e) {
-        setProductsError(e instanceof Error ? e.message : 'Could not load products');
-      } finally {
-        setProductsLoading(false);
-        setProductsLoadingMore(false);
-      }
-    },
-    [],
-  );
+  const loadSaved = useCallback(async () => {
+    setSavedLoading(true);
+    try {
+      const page = await loadSavedCollections();
+      setSaved(page.items);
+    } catch {
+      setSaved([]);
+    } finally {
+      setSavedLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!user || loading) {
       setCreator(null);
       setCollections([]);
-      setProducts([]);
+      setSaved([]);
       return;
     }
     void loadProfile();
@@ -236,12 +200,8 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (!creator?.userId) return;
     void loadCollections(creator.userId);
-  }, [creator?.userId, loadCollections]);
-
-  useEffect(() => {
-    if (!creator?.userId || activeTab !== 'products' || productsLoaded) return;
-    void loadProducts(creator.userId);
-  }, [activeTab, creator?.userId, loadProducts, productsLoaded]);
+    void loadSaved();
+  }, [creator?.userId, loadCollections, loadSaved]);
 
   const onPressCollection = useCallback(
     (collection: CollectionViewModel) => {
@@ -250,38 +210,24 @@ export default function ProfileScreen() {
     [router],
   );
 
-  const onEndReached = useCallback(() => {
-    if (!creator) return;
-    if (activeTab === 'collections') {
-      if (!collectionsCursor || collectionsLoadingMore) return;
-      void loadCollections(creator.userId, collectionsCursor, true);
-      return;
-    }
-    if (!productsCursor || productsLoadingMore) return;
-    void loadProducts(creator.userId, productsCursor, true);
-  }, [
-    activeTab,
-    collectionsCursor,
-    collectionsLoadingMore,
-    creator,
-    loadCollections,
-    loadProducts,
-    productsCursor,
-    productsLoadingMore,
-  ]);
-
-  const onRetry = useCallback(() => {
-    if (!creator) {
-      void loadProfile();
-      return;
-    }
-    if (activeTab === 'collections') {
-      void loadCollections(creator.userId);
-      return;
-    }
-    setProductsLoaded(false);
-    void loadProducts(creator.userId);
-  }, [activeTab, creator, loadCollections, loadProducts, loadProfile]);
+  const onSaveProfile = useCallback(
+    async (patch: { displayName: string; bio: string }) => {
+      setEditPending(true);
+      try {
+        const next = await updateMyProfile({
+          displayName: patch.displayName || null,
+          bio: patch.bio || null,
+        });
+        setCreator(next);
+        setEditVisible(false);
+      } catch (e) {
+        Alert.alert('Couldn’t save profile', e instanceof Error ? e.message : 'Try again.');
+      } finally {
+        setEditPending(false);
+      }
+    },
+    [],
+  );
 
   const onSubmitAuth = async () => {
     if (!email.trim() || !password.trim()) {
@@ -467,18 +413,29 @@ export default function ProfileScreen() {
       <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
       <TopBar
         mode="page"
-        title={creator ? `@${creator.username}` : 'Profile'}
+        title=""
         showBag={false}
         trailing={
-          <Pressable
-            onPress={() => router.push('/settings')}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Open Settings and Analytics"
-            style={styles.menuBtn}
-          >
-            <Ionicons name="menu" size={24} color={text} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <Pressable
+              onPress={() => router.push('/settings')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Notifications"
+              style={styles.menuBtn}
+            >
+              <Ionicons name="notifications-outline" size={22} color={text} />
+            </Pressable>
+            <Pressable
+              onPress={() => router.push('/settings')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Open Settings and Analytics"
+              style={styles.menuBtn}
+            >
+              <Ionicons name="settings-outline" size={22} color={text} />
+            </Pressable>
+          </View>
         }
       />
 
@@ -495,35 +452,28 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
       ) : creator ? (
-        <CreatorProfile
+        <PersonalProfile
           creator={creator}
           collections={collections}
-          products={products}
-          isLight={isLight}
-          isSelf
-          activeTab={activeTab}
+          saved={saved}
           collectionsLoading={collectionsLoading}
-          collectionsLoadingMore={collectionsLoadingMore}
-          collectionsError={collectionsError}
-          productsLoading={productsLoading}
-          productsLoadingMore={productsLoadingMore}
-          productsError={productsError}
-          onFollowPress={() => {}}
-          onTabChange={setActiveTab}
+          savedLoading={savedLoading}
+          onEditPress={() => setEditVisible(true)}
           onPressCollection={onPressCollection}
-          onPressProduct={setDetailsProduct}
-          onEndReached={onEndReached}
-          onRetry={onRetry}
+          onPressStat={(id) => router.push(`/profile/${id}` as Href)}
+          onCreateCollection={() => router.push('/(tabs)/create' as Href)}
         />
       ) : null}
 
-      <ProductDetailsSheet
-        visible={detailsProduct != null}
-        product={detailsProduct}
-        onClose={() => setDetailsProduct(null)}
-        onAddToCart={detailsProduct?.catalogProductId ? onAddToCart : undefined}
-        onBuy={detailsProduct?.catalogProductId ? onBuy : undefined}
-      />
+      {creator ? (
+        <EditProfileSheet
+          visible={editVisible}
+          creator={creator}
+          pending={editPending}
+          onClose={() => setEditVisible(false)}
+          onSave={(patch) => void onSaveProfile(patch)}
+        />
+      ) : null}
     </View>
   );
 }

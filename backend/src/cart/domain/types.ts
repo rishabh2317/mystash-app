@@ -1,24 +1,34 @@
 /** Cart domain types — membership SoT; Catalog remains Product SoT. */
 
-export type CartSourceSurface = 'COLLECTION' | 'SEARCH' | 'PRODUCT_DETAILS' | 'OTHER';
+export type CartSourceSurface =
+  | 'COLLECTION'
+  | 'SEARCH'
+  | 'PRODUCT_DETAILS'
+  | 'OTHER'
+  | 'USER_IMPORT';
 
 export type CartItemSource = {
   collectionId?: string | null;
   creatorId?: string | null;
   collectionProductTagId?: string | null;
   surface?: CartSourceSurface | null;
+  contentSourceId?: string | null;
+  userImportId?: string | null;
 };
 
 export type CartItemRecord = {
   id: string;
   userId: string;
-  catalogProductId: string;
+  catalogProductId: string | null;
+  discoveredProductId: string | null;
   addedAt: string;
   updatedAt: string;
   sourceCollectionId: string | null;
   sourceCreatorId: string | null;
   sourceCollectionProductTagId: string | null;
   sourceSurface: CartSourceSurface | null;
+  sourceContentSourceId: string | null;
+  sourceUserImportId: string | null;
   schemaVersion: number;
 };
 
@@ -40,13 +50,15 @@ export type CartProductProjection = {
   currency: string | null;
   lastVerifiedAt: string | null;
   metadataCompleteness: number | null;
+  category: string | null;
 };
 
 export type CartItemAvailability = 'AVAILABLE' | 'UNAVAILABLE' | 'NO_DESTINATION';
 
 export type CartItemView = {
   cartItemId: string;
-  catalogProductId: string;
+  catalogProductId: string | null;
+  discoveredProductId: string | null;
   addedAt: string;
   source: CartItemSource | null;
   availability: CartItemAvailability;
@@ -59,7 +71,8 @@ export type CartView = {
 };
 
 export type AddCartItemInput = {
-  catalogProductId: string;
+  catalogProductId?: string | null;
+  discoveredProductId?: string | null;
   source?: CartItemSource | null;
 };
 

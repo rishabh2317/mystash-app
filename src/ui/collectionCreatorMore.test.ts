@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import {
   CREATOR_MORE_COLLECTIONS_PREVIEW,
+  creatorMoreReelTarget,
   filterCreatorCollectionsPreview,
   shouldShowCreatorCollectionsViewAll,
 } from '@/src/ui/collectionCreatorMore';
@@ -65,5 +66,28 @@ describe('collectionCreatorMore', () => {
       }),
       false,
     );
+  });
+});
+
+describe('creatorMoreReelTarget', () => {
+  it('returns the first other collection with a real title', () => {
+    const target = creatorMoreReelTarget(
+      [row('current'), row('next-one'), row('next-two')],
+      'current',
+    );
+    assert.deepEqual(target, { collectionId: 'next-one', title: 'next-one' });
+  });
+
+  it('returns null when this is the creator’s only collection', () => {
+    assert.equal(creatorMoreReelTarget([row('only')], 'only'), null);
+    assert.equal(creatorMoreReelTarget([], 'missing'), null);
+  });
+
+  it('returns null when the other collection has no usable id or title', () => {
+    const blank = row('next');
+    blank.collectionId = '  ';
+    blank.title = '';
+    blank.slug = '';
+    assert.equal(creatorMoreReelTarget([row('current'), blank], 'current'), null);
   });
 });

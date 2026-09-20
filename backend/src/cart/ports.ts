@@ -1,3 +1,4 @@
+import type { DiscoveredProductRecord } from '../discovered/domain/types';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
 import type { CartProductProjection } from './domain/types';
 
@@ -10,6 +11,35 @@ export type CatalogCartPort = {
   getById(id: string): Promise<CatalogProduct | null>;
   getProductsByIds(ids: string[]): Promise<Map<string, CatalogProduct>>;
 };
+
+export type DiscoveredCartPort = {
+  getById(id: string): Promise<DiscoveredProductRecord | null>;
+};
+
+export function mapDiscoveredToCartProjection(
+  product: DiscoveredProductRecord,
+): CartProductProjection {
+  return {
+    id: product.id,
+    catalogProductId: product.id,
+    title: product.name,
+    brand: product.brand,
+    merchant: product.merchant,
+    heroImage: product.imageUrl,
+    galleryImages: product.imageUrl ? [product.imageUrl] : [],
+    description: null,
+    shortDescription: null,
+    specifications: {},
+    // Bag UX is "Saved" — do not surface internal verification/completeness.
+    verificationStatus: 'UNVERIFIED',
+    availability: null,
+    price: product.price,
+    currency: product.currency,
+    lastVerifiedAt: null,
+    metadataCompleteness: null,
+    category: product.category,
+  };
+}
 
 export function mapCatalogToCartProjection(product: CatalogProduct): CartProductProjection {
   const specs: Record<string, string> = {};
@@ -48,5 +78,6 @@ export function mapCatalogToCartProjection(product: CatalogProduct): CartProduct
     currency: product.currency,
     lastVerifiedAt: product.lastVerifiedAt,
     metadataCompleteness: completeness,
+    category: product.category ?? null,
   };
 }

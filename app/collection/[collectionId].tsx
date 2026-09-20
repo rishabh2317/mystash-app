@@ -1,16 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 
 import { CollectionPageHeader } from '@/components/collection/CollectionPageHeader';
 import { CollectionScreen } from '@/components/collection/CollectionScreen';
+import { ActionButton } from '@/components/ui/ActionButton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { CollectionApiError } from '@/src/services/collectionApi';
@@ -166,14 +160,23 @@ export default function CollectionPageRoute() {
   }, [detail]);
 
   const text = tokens.color.text;
-  const muted = tokens.color.textMuted;
   const canvas = { backgroundColor: tokens.color.canvas };
+  const centered = {
+    padding: tokens.space.lg,
+    gap: tokens.space.sm,
+  };
+  const message = {
+    color: tokens.color.textMuted,
+    fontSize: tokens.fontSize.body,
+    lineHeight: tokens.lineHeight.body,
+    textAlign: 'center' as const,
+  };
 
   if (loading) {
     return (
       <View style={[styles.root, canvas]}>
         <CollectionPageHeader title="Collection" />
-        <View style={styles.centered}>
+        <View style={[styles.centered, centered]}>
           <ActivityIndicator size="large" color={text} />
         </View>
       </View>
@@ -184,11 +187,9 @@ export default function CollectionPageRoute() {
     return (
       <View style={[styles.root, canvas]}>
         <CollectionPageHeader title="Collection" />
-        <View style={styles.centered}>
-          <Text style={[styles.message, { color: text }]}>Collection not found</Text>
-          <Pressable onPress={() => router.back()} style={styles.retry}>
-            <Text style={{ color: muted, fontWeight: '700' }}>Go back</Text>
-          </Pressable>
+        <View style={[styles.centered, centered]}>
+          <Text style={message}>Collection not found</Text>
+          <ActionButton label="Go back" variant="secondary" onPress={() => router.back()} />
         </View>
       </View>
     );
@@ -198,11 +199,9 @@ export default function CollectionPageRoute() {
     return (
       <View style={[styles.root, canvas]}>
         <CollectionPageHeader title="Collection" />
-        <View style={styles.centered}>
-          <Text style={[styles.message, { color: muted }]}>{error ?? 'Something went wrong'}</Text>
-          <Pressable onPress={() => void load()} style={styles.retry}>
-            <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
-          </Pressable>
+        <View style={[styles.centered, centered]}>
+          <Text style={message}>{error ?? 'Something went wrong'}</Text>
+          <ActionButton label="Retry" variant="secondary" onPress={() => void load()} />
         </View>
       </View>
     );
@@ -230,14 +229,5 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
-    gap: 12,
-  },
-  message: {
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  retry: {
-    padding: 12,
   },
 });

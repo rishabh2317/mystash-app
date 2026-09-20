@@ -1,22 +1,25 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useThemeMode } from '@/contexts/ThemeContext';
 
 type Props = {
   specifications: Record<string, string>;
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. */
+  isLight?: boolean;
 };
 
-export function SpecificationGrid({ specifications, isLight }: Props) {
+export function SpecificationGrid({ specifications }: Props) {
+  const { tokens } = useThemeMode();
   const entries = Object.entries(specifications);
   if (!entries.length) return null;
 
   return (
     <View style={styles.wrap} accessibilityRole="summary">
-      <Text style={[styles.heading, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>Specifications</Text>
+      <Text style={[styles.heading, { color: tokens.color.text }]}>Specifications</Text>
       {entries.map(([key, value]) => (
-        <View key={key} style={[styles.row, { borderBottomColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)' }]}>
-          <Text style={[styles.key, { color: isLight ? '#64748B' : '#94A3B8' }]}>{key}</Text>
-          <Text style={[styles.value, { color: isLight ? '#0F172A' : '#F1F5F9' }]}>{value}</Text>
+        <View key={key} style={[styles.row, { borderBottomColor: tokens.color.divider }]}>
+          <Text style={[styles.key, { color: tokens.color.textMuted }]}>{key}</Text>
+          <Text style={[styles.value, { color: tokens.color.text }]}>{value}</Text>
         </View>
       ))}
     </View>

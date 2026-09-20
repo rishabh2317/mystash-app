@@ -67,6 +67,7 @@ export const BAG_COPY = {
   added: 'Added to Bag',
   view: 'View Bag',
   empty: 'Your Bag is empty',
+  emptyHint: 'Products you save will show up here.',
   continueDiscovering: 'Continue discovering',
   signInTitle: 'Sign in to view your Bag',
   signInBody: 'Sign in to save products to your Bag.',

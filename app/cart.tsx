@@ -1,56 +1,49 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Pressable,
+  SectionList,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
 import { TopBar } from '@/components/chrome/TopBar';
-import { ProductCard, ProductDetailsSheet } from '@/components/commerce';
+import { BagItemCard } from '@/components/commerce/BagItemCard';
 import { CartPurchaseConfirmModal } from '@/components/commerce/CartPurchaseConfirmModal';
+import { SectionHeader } from '@/components/ui/SectionHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import type { ImportShare } from '@/src/services/importShareMap';
+import { fetchImportShares } from '@/src/services/userImportApi';
 import { softCanvasGradient } from '@/src/theme/tokens';
-import { BAG_COPY, displayBagError } from '@/src/ui/contracts';
+import {
+  BAG_PROGRESS_COPY,
+  bagHasInFlightShares,
+  bagItemFromLine,
+  bagProgressBanners,
+  bagSections,
+  type BagItemView,
+} from '@/src/ui/bag';
 import { bagScreenTitle } from '@/src/ui/chrome';
-import type { CartLine } from '@/src/services/cartApi';
-import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
-import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
+import { BAG_COPY, displayBagError } from '@/src/ui/contracts';
+import { productPagePath } from '@/src/ui/productPage';
 
-function placeholderProduct(line: CartLine): CatalogProductViewModel {
-  return (
-    line.product ?? {
-      id: line.catalogProductId,
-      catalogProductId: line.catalogProductId,
-      title: 'Product unavailable',
-      brand: null,
-      merchant: null,
-      heroImage: CATALOG_IMAGE_PLACEHOLDER,
-      galleryImages: [],
-      description: null,
-      shortDescription: null,
-      specifications: {},
-      verificationStatus: 'UNRESOLVED',
-      availability: line.availability,
-      price: null,
-      currency: null,
-      lastVerifiedAt: null,
-      metadataCompleteness: null,
-    }
-  );
+const SHARE_POLL_MS = 4000;
+
+function sharesBecameReady(previous: ImportShare[], next: ImportShare[]): boolean {
+  const prevById = new Map(previous.map((share) => [share.importId, share.state]));
+  return next.some((share) => prevById.get(share.importId) === 'looking' && share.state === 'ready');
 }
 
 export default function CartScreen() {
   const router = useRouter();
-  const { tokens, isLight } = useThemeMode();
+  const { tokens } = useThemeMode();
   const { user, loading: authLoading } = useAuth();
   const {
     items,
@@ -59,81 +52,91 @@ export default function CartScreen() {
     errorMessage,
     refresh,
     removeItem,
-    beginBuy,
     purchaseConfirmVisible,
     awaitingConfirmationProductId,
     resolvePurchaseConfirmation,
   } = useCart();
 
-  const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
-  const [detailsVisible, setDetailsVisible] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [shares, setShares] = useState<ImportShare[]>([]);
+  const [sharesLoaded, setSharesLoaded] = useState(false);
+  const sharesRef = useRef<ImportShare[]>([]);
+
+  const loadShares = useCallback(async () => {
+    if (!user) {
+      sharesRef.current = [];
+      setShares([]);
+      setSharesLoaded(false);
+      return false;
+    }
+    try {
+      const next = await fetchImportShares();
+      if (sharesBecameReady(sharesRef.current, next)) {
+        void refresh();
+      }
+      sharesRef.current = next;
+      setShares(next);
+      setSharesLoaded(true);
+      return bagHasInFlightShares(next);
+    } catch {
+      setSharesLoaded(true);
+      return false;
+    }
+  }, [refresh, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) {
+        sharesRef.current = [];
+        setShares([]);
+        setSharesLoaded(false);
+        return undefined;
+      }
+      let cancelled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const poll = async () => {
+        const looking = await loadShares();
+        if (cancelled || !looking) return;
+        timer = setTimeout(() => {
+          void poll();
+        }, SHARE_POLL_MS);
+      };
+      void poll();
+      return () => {
+        cancelled = true;
+        if (timer) clearTimeout(timer);
+      };
+    }, [loadShares, user]),
+  );
+
+  const bagItems = useMemo(() => items.map(bagItemFromLine), [items]);
+  const sections = useMemo(() => bagSections(bagItems), [bagItems]);
+  const banners = useMemo(() => bagProgressBanners(shares), [shares]);
+  const looking = bagHasInFlightShares(shares);
 
   const confirmTitle = useMemo(() => {
     if (!awaitingConfirmationProductId) return null;
     return (
-      items.find((i) => i.catalogProductId === awaitingConfirmationProductId)?.product?.title ??
+      bagItems.find((item) => item.catalogProductId === awaitingConfirmationProductId)?.title ??
+      bagItems.find((item) => item.productId === awaitingConfirmationProductId)?.title ??
       null
     );
-  }, [awaitingConfirmationProductId, items]);
+  }, [awaitingConfirmationProductId, bagItems]);
 
-  const onBuy = async (product: CatalogProductViewModel) => {
-    try {
-      await beginBuy(product);
-    } catch {
-      Alert.alert('Error', 'Could not open the product link.');
-    }
-  };
-
-  const onRemove = (line: CartLine) => {
-    const title = line.product?.title ?? 'this product';
-    Alert.alert(BAG_COPY.removeFromBag, `Remove ${title} from your Bag?`, [
+  const onRemove = (item: BagItemView) => {
+    Alert.alert(BAG_COPY.removeFromBag, `Remove ${item.title} from your Bag?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
         style: 'destructive',
         onPress: () => {
           setActionError(null);
-          void removeItem(line.catalogProductId, 'user_remove').catch(() => {
+          void removeItem(item.productId, 'user_remove').catch(() => {
             setActionError(BAG_COPY.removeError);
           });
         },
       },
     ]);
-  };
-
-  const renderItem = ({ item }: { item: CartLine }) => {
-    const product = placeholderProduct(item);
-    const canBuy = item.availability === 'AVAILABLE' && !!product.catalogProductId;
-    return (
-      <View style={styles.row}>
-        <ProductCard
-          product={product}
-          isLight={isLight}
-          variant="standard"
-          onPress={(p) => {
-            setDetailsProduct(p);
-            setDetailsVisible(true);
-          }}
-          onBuy={canBuy ? onBuy : undefined}
-        />
-        {item.availability !== 'AVAILABLE' ? (
-          <Text style={[styles.badge, { color: isLight ? '#B45309' : '#FBBF24' }]}>
-            {item.availability === 'NO_DESTINATION'
-              ? 'Shopping link unavailable'
-              : 'Product unavailable'}
-          </Text>
-        ) : null}
-        <Pressable
-          onPress={() => onRemove(item)}
-          style={styles.removeBtn}
-          accessibilityRole="button"
-          accessibilityLabel={`Remove ${product.title} from Bag`}
-        >
-          <Text style={{ color: isLight ? '#B91C1C' : '#FCA5A5', fontWeight: '700' }}>Remove</Text>
-        </Pressable>
-      </View>
-    );
   };
 
   const body = (() => {
@@ -164,7 +167,7 @@ export default function CartScreen() {
       );
     }
 
-    if (status === 'loading' && items.length === 0) {
+    if ((status === 'loading' && items.length === 0 && !looking) || (!sharesLoaded && items.length === 0)) {
       return (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.color.accent} />
@@ -191,15 +194,15 @@ export default function CartScreen() {
       );
     }
 
-    if (itemCount === 0) {
+    if (itemCount === 0 && !looking && banners.length === 0) {
       return (
         <View style={styles.center}>
-          <Ionicons name="cart-outline" size={48} color={isLight ? '#94A3B8' : '#64748B'} />
+          <Ionicons name="bag-outline" size={48} color={tokens.color.textMuted} />
           <Text style={[styles.emptyTitle, { color: tokens.color.text }]}>
             {BAG_COPY.empty}
           </Text>
           <Text style={[styles.emptySub, { color: tokens.color.textMuted }]}>
-            Products you add will show up here.
+            {BAG_COPY.emptyHint}
           </Text>
           <Pressable
             style={[styles.cta, { backgroundColor: tokens.color.cta }]}
@@ -212,45 +215,105 @@ export default function CartScreen() {
     }
 
     return (
-      <FlatList
-        data={items}
-        keyExtractor={(line) => line.cartItemId}
+      <SectionList
+        sections={sections.map((section) => ({
+          key: section.key,
+          title: section.title,
+          data: section.items,
+        }))}
+        keyExtractor={(item) => item.cartItemId}
         contentContainerStyle={styles.list}
-        renderItem={renderItem}
+        stickySectionHeadersEnabled={false}
+        ListHeaderComponent={
+          banners.length ? (
+            <View style={styles.banners}>
+              {banners.map((banner) => (
+                <View
+                  key={banner.key}
+                  style={[
+                    styles.banner,
+                    {
+                      backgroundColor: tokens.color.surface,
+                      borderColor: tokens.color.border,
+                      borderRadius: tokens.radius.lg,
+                    },
+                  ]}
+                >
+                  {banner.tone === 'looking' ? (
+                    <ActivityIndicator color={tokens.color.accent} />
+                  ) : (
+                    <Ionicons
+                      name="alert-circle-outline"
+                      size={18}
+                      color={tokens.color.textMuted}
+                    />
+                  )}
+                  <Text
+                    style={{
+                      flex: 1,
+                      color: tokens.color.text,
+                      fontSize: tokens.fontSize.body,
+                      lineHeight: tokens.lineHeight.body,
+                      fontWeight: tokens.fontWeight.semibold,
+                    }}
+                  >
+                    {banner.message}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : looking && itemCount === 0 ? (
+            <View style={styles.banners}>
+              <ActivityIndicator color={tokens.color.accent} />
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          looking ? (
+            <Text style={[styles.emptySub, { color: tokens.color.textMuted }]}>
+              {BAG_PROGRESS_COPY.looking}
+            </Text>
+          ) : banners.length ? (
+            <Text style={[styles.emptySub, { color: tokens.color.textMuted }]}>
+              {BAG_COPY.emptyHint}
+            </Text>
+          ) : null
+        }
+        renderSectionHeader={({ section }) =>
+          section.title ? (
+            <View style={styles.sectionHeader}>
+              <SectionHeader title={section.title} />
+            </View>
+          ) : null
+        }
+        renderItem={({ item }) => (
+          <BagItemCard
+            item={item}
+            onPress={(next) => {
+              router.push(
+                productPagePath(next.productId, {
+                  contentSourceId: next.contentSourceId,
+                  userImportId: next.userImportId,
+                }) as Href,
+              );
+            }}
+            onRemove={onRemove}
+          />
+        )}
       />
     );
   })();
 
   return (
     <View style={styles.screen}>
-      <LinearGradient
-        colors={[...softCanvasGradient(tokens)]}
-        style={StyleSheet.absoluteFill}
-      />
+      <LinearGradient colors={[...softCanvasGradient(tokens)]} style={StyleSheet.absoluteFill} />
       <TopBar mode="page" title={bagScreenTitle(itemCount)} showBack showBag={false} />
       {actionError ? (
         <Text style={[styles.actionError, { color: tokens.color.danger }]}>{actionError}</Text>
       ) : null}
       {body}
-      <ProductDetailsSheet
-        visible={detailsVisible}
-        product={detailsProduct}
-        isLight={isLight}
-        onClose={() => setDetailsVisible(false)}
-        onBuy={
-          detailsProduct &&
-          items.find((i) => i.catalogProductId === detailsProduct.catalogProductId)
-            ?.availability === 'AVAILABLE'
-            ? async (p) => {
-                setDetailsVisible(false);
-                await onBuy(p);
-              }
-            : undefined
-        }
-      />
       <CartPurchaseConfirmModal
         visible={purchaseConfirmVisible}
-        isLight={isLight}
         productTitle={confirmTitle}
         onYes={() => {
           void resolvePurchaseConfirmation(true).catch(() => {
@@ -267,10 +330,17 @@ export default function CartScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  list: { padding: 16, paddingBottom: 40, gap: 16 },
-  row: { gap: 8 },
-  badge: { fontSize: 12, fontWeight: '700', paddingHorizontal: 4 },
-  removeBtn: { alignSelf: 'flex-start', paddingHorizontal: 4, paddingVertical: 4 },
+  list: { padding: 16, paddingBottom: 40, gap: 12 },
+  banners: { gap: 10, marginBottom: 8 },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  sectionHeader: { paddingTop: 8, paddingBottom: 4 },
   center: {
     flex: 1,
     alignItems: 'center',

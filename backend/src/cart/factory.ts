@@ -4,7 +4,8 @@ import type { CatalogProduct } from '../product-intelligence/domain/types';
 import { CartService } from './CartService';
 import { createCartItemRemapPort } from './catalogRemap';
 import { SupabaseCartRepository } from './SupabaseCartRepository';
-import type { CatalogCartPort } from './ports';
+import { createDiscoveredProductService } from '../discovered/factory';
+import type { CatalogCartPort, DiscoveredCartPort } from './ports';
 
 export function createCatalogCartPort(admin: SupabaseClient): CatalogCartPort {
   const catalog = createCatalogService(admin);
@@ -28,10 +29,15 @@ export function createCatalogCartPort(admin: SupabaseClient): CatalogCartPort {
 export function createCartService(
   admin: SupabaseClient,
   catalogPort?: CatalogCartPort,
+  discoveredPort?: DiscoveredCartPort,
 ): CartService {
+  const discovered = discoveredPort ?? {
+    getById: (id) => createDiscoveredProductService(admin).getById(id),
+  };
   return new CartService(
     new SupabaseCartRepository(admin),
     catalogPort ?? createCatalogCartPort(admin),
+    discovered,
   );
 }
 

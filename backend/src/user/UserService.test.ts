@@ -13,13 +13,16 @@ describe('UserService', () => {
     app_metadata: { provider: 'email' },
   };
 
-  function setup() {
+  function setup(totalReelLikesReceived = 0) {
     const users = new InMemoryUserRepository();
     const collections = new InMemoryCollectionRepository();
     const svc = new UserService(users, {
       hideCreatorCollectionsFromDiscovery: (id) => collections.hideCreatorFromDiscovery(id),
       restoreCreatorCollectionsDiscovery: (id) => collections.restoreCreatorDiscovery(id),
       sumPublishedCollectionSaves: (id) => collections.sumPublishedCollectionSaves(id),
+      countPublishedPublicCollections: (id) => collections.countPublishedPublicCollections(id),
+    }, {
+      sumPublicReelLikesReceived: async () => totalReelLikesReceived,
     });
     return { users, collections, svc };
   }
@@ -122,11 +125,11 @@ describe('UserService', () => {
     assert.equal(settings?.bio, 'Hello');
     assert.equal(settings?.country, 'US');
     assert.equal(settings?.isCreator, false);
-    assert.equal(settings?.publicStats.savesCount, 0);
+    assert.equal(settings?.publicStats.totalReelLikesReceived, 0);
   });
 
-  it('attaches aggregated savesCount on public profile and settings', async () => {
-    const { svc, collections } = setup();
+  it('attaches total Reel likes received and live Collection count', async () => {
+    const { svc, collections } = setup(14);
     await svc.ensureFromAuth(authUser);
     await svc.startCreatorOnboarding(authUser.id);
     await svc.completeCreatorOnboarding(authUser.id);
@@ -140,6 +143,7 @@ describe('UserService', () => {
       status: 'published',
       visibility: 'public',
       moderationState: 'clear',
+      publishedAt: new Date().toISOString(),
       savesCount: 3,
     });
     const b = await collections.insertCollection({
@@ -151,6 +155,7 @@ describe('UserService', () => {
       status: 'published',
       visibility: 'public',
       moderationState: 'clear',
+      publishedAt: new Date().toISOString(),
       savesCount: 7,
     });
     const draft = await collections.insertCollection({
@@ -165,8 +170,12 @@ describe('UserService', () => {
     });
 
     const profile = await svc.getPublicProfile('alice');
-    assert.equal(profile?.publicStats.savesCount, 10);
+    assert.equal(profile?.publicStats.totalReelLikesReceived, 14);
+    assert.equal(profile?.publicStats.collectionCount, 2);
+    assert.equal('savesCount' in (profile?.publicStats ?? {}), false);
     const settings = await svc.getSettings(authUser.id);
-    assert.equal(settings?.publicStats.savesCount, 10);
+    assert.equal(settings?.publicStats.totalReelLikesReceived, 14);
+    assert.equal(settings?.publicStats.collectionCount, 2);
+    assert.equal('savesCount' in (settings?.publicStats ?? {}), false);
   });
 });

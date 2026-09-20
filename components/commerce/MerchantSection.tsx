@@ -1,11 +1,14 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useThemeMode } from '@/contexts/ThemeContext';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { VerificationBadge } from './VerificationBadge';
 
 type Props = {
   product: CatalogProductViewModel;
   isLight: boolean;
+  /** Bag and Discover Anywhere hide verification / last-verified internals. */
+  hideInternalStatus?: boolean;
 };
 
 function formatVerifiedAt(iso: string | null): string {
@@ -21,20 +24,29 @@ function formatVerifiedAt(iso: string | null): string {
   }
 }
 
-export function MerchantSection({ product, isLight }: Props) {
+export function MerchantSection({ product, isLight, hideInternalStatus = false }: Props) {
+  const { tokens } = useThemeMode();
+  const text = { color: tokens.color.text };
+  const muted = { color: tokens.color.textMuted };
+
+  if (hideInternalStatus) {
+    if (!product.merchant) return null;
+    return (
+      <View style={styles.wrap}>
+        <Text style={[styles.heading, text]}>Merchant</Text>
+        <Text style={[styles.label, muted]}>Sold by</Text>
+        <Text style={[styles.value, text]}>{product.merchant}</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.heading, { color: isLight ? '#0F172A' : '#F8FAFC' }]}>Merchant</Text>
-      <Text style={[styles.label, { color: isLight ? '#64748B' : '#94A3B8' }]}>Sold by</Text>
-      <Text style={[styles.value, { color: isLight ? '#0F172A' : '#F1F5F9' }]}>
-        {product.merchant || 'Unknown merchant'}
-      </Text>
-      <Text style={[styles.label, { color: isLight ? '#64748B' : '#94A3B8', marginTop: 10 }]}>
-        Last verified
-      </Text>
-      <Text style={[styles.value, { color: isLight ? '#0F172A' : '#F1F5F9' }]}>
-        {formatVerifiedAt(product.lastVerifiedAt)}
-      </Text>
+      <Text style={[styles.heading, text]}>Merchant</Text>
+      <Text style={[styles.label, muted]}>Sold by</Text>
+      <Text style={[styles.value, text]}>{product.merchant || 'Unknown merchant'}</Text>
+      <Text style={[styles.label, muted, { marginTop: 10 }]}>Last verified</Text>
+      <Text style={[styles.value, text]}>{formatVerifiedAt(product.lastVerifiedAt)}</Text>
       <View style={{ marginTop: 10 }}>
         <VerificationBadge status={product.verificationStatus} isLight={isLight} />
       </View>

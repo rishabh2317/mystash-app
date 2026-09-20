@@ -16,6 +16,7 @@ import {
   CreatorProfileHeader,
   type CreatorProfileTab,
 } from './CreatorProfileHeader';
+import { useThemeMode } from '@/contexts/ThemeContext';
 import { CREATOR_PROFILE_FLATLIST_KEYS } from '@/src/ui/creatorProfileFlatList';
 
 type Props = {
@@ -41,8 +42,7 @@ type Props = {
 };
 
 /**
- * Presentation composition for public Creator Profile / self Profile.
- * No auth / API calls — parents own orchestration.
+ * Public creator storefront only. The logged-in You tab uses PersonalProfile.
  */
 export function CreatorProfile({
   creator,
@@ -65,8 +65,11 @@ export function CreatorProfile({
   onEndReached,
   onRetry,
 }: Props) {
-  const muted = isLight ? '#4E5257' : '#AEB8C5';
-  const text = isLight ? '#1A1A1B' : '#F8FAFC';
+  const { tokens } = useThemeMode();
+  const muted = tokens.color.textMuted;
+  const text = tokens.color.text;
+  const gutter = tokens.space.md;
+  const gap = tokens.space.sm;
 
   const header = (
     <CreatorProfileHeader
@@ -80,25 +83,47 @@ export function CreatorProfile({
     />
   );
 
+  const contentStyle = [
+    styles.content,
+    { paddingHorizontal: gutter, paddingTop: tokens.space.xs },
+  ];
+  const rowStyle = [styles.row, { gap, marginBottom: gap }];
+
+  const empty = (message: string) => (
+    <Text
+      style={{
+        color: muted,
+        marginTop: tokens.space.lg,
+        textAlign: 'center',
+        fontSize: tokens.fontSize.body,
+        lineHeight: tokens.lineHeight.body,
+      }}
+    >
+      {message}
+    </Text>
+  );
+
+  const retry = (
+    <Pressable onPress={onRetry} style={styles.retry}>
+      <Text style={{ color: text, fontWeight: tokens.fontWeight.bold }}>Retry</Text>
+    </Pressable>
+  );
+
   if (activeTab === 'collections') {
     if (collectionsLoading && collections.length === 0) {
       return (
-        <View style={styles.centered}>
+        <View style={[styles.centered, { paddingHorizontal: gutter }]}>
           {header}
-          <ActivityIndicator style={{ marginTop: 24 }} color={text} />
+          <ActivityIndicator style={{ marginTop: tokens.space.lg }} color={text} />
         </View>
       );
     }
     if (collectionsError && collections.length === 0) {
       return (
-        <View style={styles.centered}>
+        <View style={[styles.centered, { paddingHorizontal: gutter }]}>
           {header}
           <Text style={[styles.message, { color: muted }]}>{collectionsError}</Text>
-          {onRetry ? (
-            <Pressable onPress={onRetry} style={styles.retry}>
-              <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
-            </Pressable>
-          ) : null}
+          {onRetry ? retry : null}
         </View>
       );
     }
@@ -108,20 +133,18 @@ export function CreatorProfile({
         data={collections}
         keyExtractor={(item) => item.collectionId}
         numColumns={2}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.content}
+        columnWrapperStyle={rowStyle}
+        contentContainerStyle={contentStyle}
         ListHeaderComponent={header}
-        ListEmptyComponent={
-          <Text style={[styles.message, { color: muted, marginTop: 24 }]}>No collections yet</Text>
-        }
+        ListEmptyComponent={empty('No collections yet')}
         ListFooterComponent={
           collectionsLoadingMore ? (
-            <ActivityIndicator style={{ marginVertical: 16 }} color={text} />
+            <ActivityIndicator style={{ marginVertical: tokens.space.md }} color={text} />
           ) : null
         }
         renderItem={({ item }) => (
           <View style={styles.cell}>
-            <CollectionTile collection={item} isLight={isLight} onPress={onPressCollection} />
+            <CollectionTile collection={item} variant="public" onPress={onPressCollection} />
           </View>
         )}
         onEndReached={onEndReached}
@@ -132,22 +155,18 @@ export function CreatorProfile({
 
   if (productsLoading && products.length === 0) {
     return (
-      <View style={styles.centered}>
+      <View style={[styles.centered, { paddingHorizontal: gutter }]}>
         {header}
-        <ActivityIndicator style={{ marginTop: 24 }} color={text} />
+        <ActivityIndicator style={{ marginTop: tokens.space.lg }} color={text} />
       </View>
     );
   }
   if (productsError && products.length === 0) {
     return (
-      <View style={styles.centered}>
+      <View style={[styles.centered, { paddingHorizontal: gutter }]}>
         {header}
         <Text style={[styles.message, { color: muted }]}>{productsError}</Text>
-        {onRetry ? (
-          <Pressable onPress={onRetry} style={styles.retry}>
-            <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
-          </Pressable>
-        ) : null}
+        {onRetry ? retry : null}
       </View>
     );
   }
@@ -157,19 +176,19 @@ export function CreatorProfile({
       key={CREATOR_PROFILE_FLATLIST_KEYS.products}
       data={products}
       keyExtractor={(item) => item.catalogProductId ?? item.id}
-      contentContainerStyle={styles.content}
+      numColumns={2}
+      columnWrapperStyle={rowStyle}
+      contentContainerStyle={contentStyle}
       ListHeaderComponent={header}
-      ListEmptyComponent={
-        <Text style={[styles.message, { color: muted, marginTop: 24 }]}>No products yet</Text>
-      }
+      ListEmptyComponent={empty('No products yet')}
       ListFooterComponent={
         productsLoadingMore ? (
-          <ActivityIndicator style={{ marginVertical: 16 }} color={text} />
+          <ActivityIndicator style={{ marginVertical: tokens.space.md }} color={text} />
         ) : null
       }
       renderItem={({ item }) => (
-        <View style={styles.productCell}>
-          <ProductCard product={item} variant="compact" onPress={onPressProduct} />
+        <View style={styles.cell}>
+          <ProductCard product={item} variant="publicProfile" onPress={onPressProduct} />
         </View>
       )}
       onEndReached={onEndReached}
@@ -180,22 +199,17 @@ export function CreatorProfile({
 
 const styles = StyleSheet.create({
   content: {
-    paddingHorizontal: 16,
     paddingBottom: 40,
   },
   row: {
-    gap: 12,
-    marginBottom: 12,
+    alignItems: 'flex-start',
   },
   cell: {
     flex: 1,
-  },
-  productCell: {
-    marginBottom: 12,
+    minWidth: 0,
   },
   centered: {
     flex: 1,
-    paddingHorizontal: 20,
   },
   message: {
     textAlign: 'center',

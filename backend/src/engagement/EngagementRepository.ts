@@ -14,7 +14,7 @@ export type EngagementRepository = {
   upsertActiveEdge(input: {
     userId: string;
     edgeType: EdgeType;
-    objectType: 'creator' | 'collection' | 'catalog_product';
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
     sourceEventId?: string | null;
     privacyClass?: 'public' | 'private' | 'anonymous';
@@ -23,14 +23,14 @@ export type EngagementRepository = {
   removeEdge(input: {
     userId: string;
     edgeType: EdgeType;
-    objectType: 'creator' | 'collection' | 'catalog_product';
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
   }): Promise<RelationshipEdge | null>;
 
   getActiveEdge(input: {
     userId: string;
     edgeType: EdgeType;
-    objectType: 'creator' | 'collection' | 'catalog_product';
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
   }): Promise<RelationshipEdge | null>;
 
@@ -39,6 +39,12 @@ export type EngagementRepository = {
     edgeType: EdgeType;
     limit?: number;
   }): Promise<RelationshipEdge[]>;
+
+  countActiveEdges(input: {
+    edgeType: EdgeType;
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
+    objectId: string;
+  }): Promise<number>;
 
   incrementCounter(input: {
     objectType: string;

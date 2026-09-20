@@ -57,7 +57,7 @@ type UserSettingsDto = {
     followersCount: number;
     followingCount: number;
     collectionCount: number;
-    savesCount?: number;
+    totalReelLikesReceived?: number;
   };
   emailMirrored: string | null;
   accountStatus: string;

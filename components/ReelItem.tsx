@@ -6,7 +6,13 @@ import {
   creatorDisplayNameFromFeed,
   creatorUsernameFromFeed,
 } from '@/src/ui/feedCreatorIdentity';
-import type { FeedReelFollow, FeedReelSave, FeedReelShare } from '@/src/ui/feedReelTypes';
+import type { CreatorMoreReelTarget } from '@/src/ui/collectionCreatorMore';
+import type {
+  FeedReelFollow,
+  FeedReelLike,
+  FeedReelSave,
+  FeedReelShare,
+} from '@/src/ui/feedReelTypes';
 import { usePrefersReducedMotion } from '@/src/ui/usePrefersReducedMotion';
 import React, { useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -26,8 +32,10 @@ interface ReelItemProps {
   isActive: boolean;
   onProductPress?: (product: Product) => void;
   follow?: FeedReelFollow | null;
+  like?: FeedReelLike | null;
   save?: FeedReelSave | null;
   share?: FeedReelShare | null;
+  moreFromCreator?: CreatorMoreReelTarget | null;
   creatorAvatarUrl?: string | null;
   creatorUsername?: string | null;
   creatorDisplayName?: string | null;
@@ -40,8 +48,10 @@ export default function ReelItem({
   isActive,
   onProductPress,
   follow,
+  like,
   save,
   share,
+  moreFromCreator,
   creatorAvatarUrl,
   creatorUsername,
   creatorDisplayName,
@@ -86,8 +96,10 @@ export default function ReelItem({
           fadeMs={fadeMs}
           onProductPress={onProductPress}
           follow={follow}
+          like={like}
           save={save}
           share={share}
+          moreFromCreator={moreFromCreator}
           creatorAvatarUrl={creatorAvatarUrl}
           creatorUsername={creatorUsername}
           creatorDisplayName={creatorDisplayName}
@@ -105,8 +117,10 @@ export default function ReelItem({
           fadeMs={fadeMs}
           onProductPress={onProductPress}
           follow={follow}
+          like={like}
           save={save}
           share={share}
+          moreFromCreator={moreFromCreator}
           creatorAvatarUrl={creatorAvatarUrl}
           creatorUsername={creatorUsername}
           creatorDisplayName={creatorDisplayName}
@@ -160,8 +174,10 @@ function ReelStageShell({
   media,
   onProductPress,
   follow,
+  like,
   save,
   share,
+  moreFromCreator,
   creatorAvatarUrl,
   creatorUsername,
   creatorDisplayName,
@@ -173,8 +189,10 @@ function ReelStageShell({
   media: React.ReactNode;
   onProductPress?: (product: Product) => void;
   follow?: FeedReelFollow | null;
+  like?: FeedReelLike | null;
   save?: FeedReelSave | null;
   share?: FeedReelShare | null;
+  moreFromCreator?: CreatorMoreReelTarget | null;
   creatorAvatarUrl?: string | null;
   creatorUsername?: string | null;
   creatorDisplayName?: string | null;
@@ -198,6 +216,7 @@ function ReelStageShell({
       <ReelActionStack
         onVolumeToggle={onVolumeToggle}
         isMuted={isMuted}
+        like={like}
         save={save}
         share={share}
         bottomOffset={actionBottom}
@@ -208,6 +227,7 @@ function ReelStageShell({
         username={username}
         avatarUrl={creatorAvatarUrl}
         follow={follow}
+        moreFromCreator={moreFromCreator}
         onProductPress={onProductPress}
         onOverlayHeightChange={setOverlayHeight}
         bottomChromeInset={bottomChromeInset}
@@ -238,8 +258,10 @@ function InstagramReelStage({
   fadeMs,
   onProductPress,
   follow,
+  like,
   save,
   share,
+  moreFromCreator,
   creatorAvatarUrl,
   creatorUsername,
   creatorDisplayName,
@@ -251,8 +273,10 @@ function InstagramReelStage({
   fadeMs: number;
   onProductPress?: (product: Product) => void;
   follow?: FeedReelFollow | null;
+  like?: FeedReelLike | null;
   save?: FeedReelSave | null;
   share?: FeedReelShare | null;
+  moreFromCreator?: CreatorMoreReelTarget | null;
   creatorAvatarUrl?: string | null;
   creatorUsername?: string | null;
   creatorDisplayName?: string | null;
@@ -280,8 +304,10 @@ function InstagramReelStage({
       }
       onProductPress={onProductPress}
       follow={follow}
+      like={like}
       save={save}
       share={share}
+      moreFromCreator={moreFromCreator}
       creatorAvatarUrl={creatorAvatarUrl}
       creatorUsername={creatorUsername}
       creatorDisplayName={creatorDisplayName}
@@ -299,8 +325,10 @@ function YouTubeReelStage({
   fadeMs,
   onProductPress,
   follow,
+  like,
   save,
   share,
+  moreFromCreator,
   creatorAvatarUrl,
   creatorUsername,
   creatorDisplayName,
@@ -312,8 +340,10 @@ function YouTubeReelStage({
   fadeMs: number;
   onProductPress?: (product: Product) => void;
   follow?: FeedReelFollow | null;
+  like?: FeedReelLike | null;
   save?: FeedReelSave | null;
   share?: FeedReelShare | null;
+  moreFromCreator?: CreatorMoreReelTarget | null;
   creatorAvatarUrl?: string | null;
   creatorUsername?: string | null;
   creatorDisplayName?: string | null;
@@ -334,8 +364,10 @@ function YouTubeReelStage({
       media={<YouTubeReelItem video={video} isActive={isActive} webViewRef={webViewRef} fadeMs={fadeMs} />}
       onProductPress={onProductPress}
       follow={follow}
+      like={like}
       save={save}
       share={share}
+      moreFromCreator={moreFromCreator}
       creatorAvatarUrl={creatorAvatarUrl}
       creatorUsername={creatorUsername}
       creatorDisplayName={creatorDisplayName}

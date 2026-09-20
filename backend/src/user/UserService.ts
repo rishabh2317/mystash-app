@@ -18,7 +18,11 @@ import {
 } from './domain/types';
 import { emitUserEvent } from './observability';
 import { scheduleSearchUserProjection } from '../search/schedule';
-import type { CollectionDiscoveryPort, UserCreatorPort } from './ports';
+import type {
+  CollectionDiscoveryPort,
+  ReelLikeSummaryPort,
+  UserCreatorPort,
+} from './ports';
 import type { UserRepository } from './UserRepository';
 
 export class UserServiceError extends Error {
@@ -99,6 +103,14 @@ export class UserService implements UserCreatorPort {
       async sumPublishedCollectionSaves() {
         return 0;
       },
+      async countPublishedPublicCollections() {
+        return 0;
+      },
+    },
+    private readonly reelLikes: ReelLikeSummaryPort = {
+      async sumPublicReelLikesReceived() {
+        return 0;
+      },
     },
   ) {}
 
@@ -111,11 +123,8 @@ export class UserService implements UserCreatorPort {
     if (!user || user.deletedAt || user.accountStatus === 'DELETED') return null;
     if (user.accountStatus === 'SUSPENDED') return null;
     const profile = toPublicProfile(user);
-    const savesCount = await this.discovery.sumPublishedCollectionSaves(user.id);
-    return {
-      ...profile,
-      publicStats: { ...profile.publicStats, savesCount },
-    };
+    const publicStats = await this.attachLivePublicStats(user.id, profile.publicStats);
+    return { ...profile, publicStats };
   }
 
   async resolveUsernameRedirect(username: string): Promise<string | null> {
@@ -127,11 +136,8 @@ export class UserService implements UserCreatorPort {
     const user = await this.repo.getById(userId);
     if (!user || user.deletedAt) return null;
     const settings = toSettings(user);
-    const savesCount = await this.discovery.sumPublishedCollectionSaves(user.id);
-    return {
-      ...settings,
-      publicStats: { ...settings.publicStats, savesCount },
-    };
+    const publicStats = await this.attachLivePublicStats(user.id, settings.publicStats);
+    return { ...settings, publicStats };
   }
 
   async ensureFromAuth(authUser: AuthUserLike): Promise<User> {
@@ -388,6 +394,17 @@ export class UserService implements UserCreatorPort {
       creatorVerified: false,
       creatorSnapshotUpdatedAt: new Date().toISOString(),
     };
+  }
+
+  private async attachLivePublicStats(
+    userId: string,
+    base: PublicUserProfile['publicStats'],
+  ): Promise<PublicUserProfile['publicStats']> {
+    const [totalReelLikesReceived, collectionCount] = await Promise.all([
+      this.reelLikes.sumPublicReelLikesReceived(userId),
+      this.discovery.countPublishedPublicCollections(userId),
+    ]);
+    return { ...base, totalReelLikesReceived, collectionCount };
   }
 
   private async setCreatorStatus(user: User, to: User['creatorStatus']): Promise<User> {

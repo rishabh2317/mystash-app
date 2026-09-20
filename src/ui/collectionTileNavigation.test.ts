@@ -43,6 +43,18 @@ describe('collection tile navigation', () => {
     }
   });
 
+  it('personal profile lists open the existing collection reel destination', () => {
+    for (const file of [
+      'app/profile/collections.tsx',
+      'app/profile/reels.tsx',
+      'app/profile/saved.tsx',
+    ]) {
+      const src = readRepoFile(file);
+      assert.match(src, /collectionTilePressPath\(/, `${file} must use collectionTilePressPath`);
+      assert.doesNotMatch(src, /router\.push\(`\/collection\//);
+    }
+  });
+
   it('typed search collection tiles open the search-scoped reel feed', () => {
     const search = readRepoFile('app/(tabs)/search.tsx');
     assert.match(search, /const onCollectionPress = useCallback/);
@@ -50,6 +62,12 @@ describe('collection tile navigation', () => {
     assert.match(search, /beginSearchReelSession/);
     assert.match(search, /searchReelPath\(/);
     assert.match(search, /collectionTilePressPath\(/, 'explore landing keeps focused reel fallback');
+  });
+
+  it('Home play chip uses the existing collection reel destination', () => {
+    const feed = readRepoFile('components/feed/FeedCreatorBlock.tsx');
+    assert.match(feed, /collectionTilePressPath\(moreFromCreator\.collectionId\)/);
+    assert.doesNotMatch(feed, /router\.push\(`\/collection\//);
   });
 
   it('focused reel View Collection still opens the collection page', () => {

@@ -31,11 +31,21 @@ export function resolveYoutubeParentOrigin(): string {
   }
 }
 
+export type YoutubeWebHtmlOptions = {
+  /**
+   * Replay the video instead of letting it end. YouTube's end screen shows the
+   * video title, channel, a replay button and the Shorts watermark, none of
+   * which belong on an inline editorial player.
+   */
+  loop?: boolean;
+};
+
 /** HTML document + iframe params used by the home feed WebView (must match `baseUrl`). */
 export function buildYoutubeWebHtml(
   videoId: string,
   parentOrigin: string,
   cropScale = 1.12,
+  options: YoutubeWebHtmlOptions = {},
 ): string {
   const scale = Number.isFinite(cropScale) && cropScale > 0 ? cropScale : 1.12;
   const q = new URLSearchParams({
@@ -45,9 +55,17 @@ export function buildYoutubeWebHtml(
     controls: '0',
     modestbranding: '1',
     rel: '0',
+    iv_load_policy: '3',
+    fs: '0',
     enablejsapi: '1',
     origin: parentOrigin,
   });
+  if (options.loop) {
+    // `loop` only takes effect on a single-video embed when the video is also
+    // the playlist, per the IFrame Player API.
+    q.set('loop', '1');
+    q.set('playlist', videoId);
+  }
   const src = 'https://www.youtube.com/embed/' + encodeURIComponent(videoId) + '?' + q.toString();
 
   return `<!DOCTYPE html>
@@ -86,6 +104,12 @@ export function buildYoutubeWebHtml(
             ytCmd('setVolume', [100]);
             ytCmd('playVideo');
           }
+        } catch (e) {}
+      };
+      window.__mystashSetPlaying = function(playing) {
+        try {
+          if (playing) ytCmd('playVideo');
+          else ytCmd('pauseVideo');
         } catch (e) {}
       };
     </script>

@@ -71,8 +71,8 @@ export type PublicUserProfile = {
     followersCount: number;
     followingCount: number;
     collectionCount: number;
-    /** Sum of saves_count across published+public+clear Collections. */
-    savesCount: number;
+    /** Sum of active LIKE edges across eligible/public Reel projections. */
+    totalReelLikesReceived: number;
   };
 };
 
@@ -112,7 +112,7 @@ export function toPublicProfile(user: User): PublicUserProfile {
       followersCount: user.followersCount,
       followingCount: user.followingCount,
       collectionCount: user.collectionCount,
-      savesCount: 0,
+      totalReelLikesReceived: 0,
     },
   };
 }

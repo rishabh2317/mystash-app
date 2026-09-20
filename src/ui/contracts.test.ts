@@ -25,6 +25,7 @@ describe('control state contract', () => {
     assert.equal(BAG_COPY.added, 'Added to Bag');
     assert.equal(BAG_COPY.view, 'View Bag');
     assert.equal(BAG_COPY.empty, 'Your Bag is empty');
+    assert.equal(BAG_COPY.emptyHint, 'Products you save will show up here.');
     assert.equal(BAG_COPY.continueDiscovering, 'Continue discovering');
     assert.equal(BAG_COPY.keepInBag, 'Keep in Bag?');
     assert.equal(BAG_COPY.buy, 'View Product');

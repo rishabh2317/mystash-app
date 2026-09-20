@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { EngagementService } from './EngagementService';
 import { SupabaseEngagementRepository } from './SupabaseEngagementRepository';
 import type { CollectionCounterDenormPort, UserCounterDenormPort } from './ports';
+import { getEligiblePublicReel } from './reelEligibility';
 import { createUserService } from '../user/factory';
 
 export function createCollectionCounterDenorm(
@@ -44,6 +45,9 @@ export function createEngagementService(
     new SupabaseEngagementRepository(admin),
     opts?.collections ?? createCollectionCounterDenorm(admin),
     opts?.users ?? createUserCounterDenorm(admin),
+    {
+      getEligiblePublicReel: (reelId) => getEligiblePublicReel(admin, reelId),
+    },
   );
 }
 

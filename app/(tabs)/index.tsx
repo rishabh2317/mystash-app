@@ -211,6 +211,16 @@ export default function HomeScreen() {
                   }
                 : null
             }
+            like={
+              active
+                ? {
+                    isLiked: engagement.isLiked,
+                    pending: engagement.likePending,
+                    count: engagement.likeCount,
+                    onPress: () => void engagement.onLikePress(),
+                  }
+                : null
+            }
             save={
               active && engagement.canSaveShare
                 ? {
@@ -233,6 +243,7 @@ export default function HomeScreen() {
             creatorAvatarUrl={active ? engagement.avatarUrl : undefined}
             creatorUsername={active ? engagement.username : undefined}
             creatorDisplayName={active ? engagement.displayName : undefined}
+            moreFromCreator={active ? engagement.moreFromCreator : null}
           />
         </View>
       );
@@ -244,7 +255,11 @@ export default function HomeScreen() {
       engagement.displayName,
       engagement.followPending,
       engagement.isFollowing,
+      engagement.isLiked,
       engagement.isSaved,
+      engagement.likeCount,
+      engagement.likePending,
+      engagement.onLikePress,
       engagement.onFollowPress,
       engagement.onSavePress,
       engagement.onSharePress,
@@ -253,6 +268,7 @@ export default function HomeScreen() {
       engagement.sharesCount,
       engagement.showFollow,
       engagement.username,
+      engagement.moreFromCreator,
       handleProductPress,
       itemHeight,
       tabBarHeight,
@@ -334,7 +350,7 @@ export default function HomeScreen() {
         maxToRenderPerBatch={2}
         windowSize={3}
         initialNumToRender={1}
-        extraData={`${activeIndex}:${itemHeight}:${engagement.showFollow}:${engagement.isFollowing}:${engagement.isSaved}:${engagement.savesCount}:${engagement.sharesCount}`}
+        extraData={`${activeIndex}:${itemHeight}:${engagement.showFollow}:${engagement.isFollowing}:${engagement.isLiked}:${engagement.likeCount}:${engagement.isSaved}:${engagement.savesCount}:${engagement.sharesCount}:${engagement.moreFromCreator?.collectionId ?? ''}`}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

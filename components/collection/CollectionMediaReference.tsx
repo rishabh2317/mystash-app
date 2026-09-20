@@ -1,28 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
-import { useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  Dimensions,
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
 import {
   buildCollectionPreviewVideo,
+  collectionMediaFrameSize,
   collectionMediaSourceUrl,
   collectionMediaWatchLinkLabel,
-  collectionReelPlayerSize,
   originalReelPlatformLabel,
+  COLLECTION_YOUTUBE_CROP_SCALE,
   type CollectionMediaReferenceModel,
 } from '@/src/ui/collectionLayout';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 import { buildInstagramEmbedHtml } from '@/src/utils/instagramWebViewEmbed';
 import { getVideoUrlInfo } from '@/src/utils/videoUtils';
 import {
@@ -38,24 +41,32 @@ type Props = {
   isActive?: boolean;
 };
 
+const CONTROL_SIZE = 36;
+const PLAY_SIZE = 56;
+
 /**
- * Compact portrait inline player for the source Reel.
- * Reuses home-feed WebView embeds; expand opens `/reel/[collectionId]`.
+ * Portrait editorial presentation of the source Reel — the Collection's
+ * evidence, not a second Home feed. Reuses the home-feed WebView embeds
+ * with Collection crop/loop so native title/end-screen chrome stays off-frame.
+ * The centre control plays and pauses the inline player.
  */
 export function CollectionMediaReference({
   media,
   collection,
   isActive = true,
 }: Props) {
-  const router = useRouter();
-  const { tokens, mode } = useThemeMode();
+  const { tokens } = useThemeMode();
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const webViewRef = useRef<WebView>(null);
   const [showWebView, setShowWebView] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [playing, setPlaying] = useState(false);
 
-  const screenWidth = Dimensions.get('window').width;
-  const { width: playerWidth, height: playerHeight } = collectionReelPlayerSize(screenWidth);
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const { width: playerWidth, height: playerHeight } = collectionMediaFrameSize({
+    screenWidth,
+    screenHeight,
+  });
   const previewVideo = useMemo(() => buildCollectionPreviewVideo(collection), [collection]);
   const platformLabel = originalReelPlatformLabel(media.platform);
   const sourceUrl = collectionMediaSourceUrl(media);
@@ -74,14 +85,16 @@ export function CollectionMediaReference({
   const youtubeHtml = useMemo(
     () =>
       youtubeId && embedUrl
-        ? buildYoutubeWebHtml(youtubeId, parentOrigin)
+        ? buildYoutubeWebHtml(youtubeId, parentOrigin, COLLECTION_YOUTUBE_CROP_SCALE, {
+            loop: true,
+          })
         : null,
     [youtubeId, embedUrl, parentOrigin],
   );
   const instagramHtml = useMemo(
     () =>
       embedUrl && urlInfo?.platform === 'instagram'
-        ? buildInstagramEmbedHtml(embedUrl, { crop: 'inline' })
+        ? buildInstagramEmbedHtml(embedUrl, { crop: 'collection' })
         : null,
     [embedUrl, urlInfo?.platform],
   );
@@ -91,13 +104,14 @@ export function CollectionMediaReference({
       const timer = setTimeout(() => {
         Animated.timing(fadeAnim, {
           toValue: 0,
-          duration: 280,
+          duration: tokens.motion.thumbnailFadeMs,
           useNativeDriver: true,
         }).start(() => {
           setShowWebView(true);
+          setPlaying(true);
           Animated.timing(fadeAnim, {
             toValue: 1,
-            duration: 280,
+            duration: tokens.motion.thumbnailFadeMs,
             useNativeDriver: true,
           }).start();
         });
@@ -106,10 +120,10 @@ export function CollectionMediaReference({
     }
     setShowWebView(false);
     fadeAnim.setValue(1);
-  }, [canEmbed, fadeAnim]);
+  }, [canEmbed, fadeAnim, tokens.motion.thumbnailFadeMs]);
 
-  const openReel = () => {
-    router.push(media.reelPath as Href);
+  const injectPlayer = (script: string) => {
+    webViewRef.current?.injectJavaScript(script);
   };
 
   const openSourceUrl = useCallback(async () => {
@@ -122,7 +136,7 @@ export function CollectionMediaReference({
   const toggleMute = () => {
     const next = !muted;
     setMuted(next);
-    webViewRef.current?.injectJavaScript(`
+    injectPlayer(`
       (function() {
         try {
           if (typeof window.__mystashSetMuted === 'function') {
@@ -136,196 +150,238 @@ export function CollectionMediaReference({
     `);
   };
 
+  const togglePlayback = () => {
+    const next = !playing;
+    setPlaying(next);
+    injectPlayer(`
+      (function() {
+        try {
+          if (typeof window.__mystashSetPlaying === 'function') {
+            window.__mystashSetPlaying(${next ? 'true' : 'false'});
+          }
+        } catch (e) {}
+        true;
+      })();
+    `);
+  };
+
+  const controlStyle = (pressed: boolean) => [
+    styles.control,
+    {
+      width: CONTROL_SIZE,
+      height: CONTROL_SIZE,
+      borderRadius: tokens.radius.pill,
+      backgroundColor: IMMERSIVE_TOKENS.control,
+      opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
+    },
+  ];
+
   return (
-    <View style={styles.wrap}>
-      <View style={styles.center}>
-        <View
-          style={[
-            styles.frame,
+    <View style={[styles.center, { gap: tokens.space.xs }]}>
+      <View
+        style={[
+          styles.frame,
+          {
+            width: playerWidth,
+            height: playerHeight,
+            borderRadius: tokens.radius.xl,
+            backgroundColor: IMMERSIVE_TOKENS.stage,
+            borderColor: tokens.color.border,
+          },
+        ]}
+      >
+        {previewVideo?.thumbnail || media.posterUrl ? (
+          <Animated.View
+            style={[styles.posterLayer, { opacity: showWebView ? 0 : fadeAnim }]}
+            pointerEvents="none"
+          >
+            <Image
+              source={{ uri: previewVideo?.thumbnail ?? media.posterUrl ?? undefined }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+            />
+          </Animated.View>
+        ) : null}
+
+        {showWebView && canEmbed && urlInfo?.platform === 'youtube' && youtubeHtml ? (
+          <Animated.View style={[styles.playerLayer, { opacity: fadeAnim }]}>
+            <WebView
+              ref={webViewRef}
+              source={{ html: youtubeHtml, baseUrl: `${parentOrigin}/` }}
+              style={styles.webView}
+              originWhitelist={['*']}
+              javaScriptEnabled
+              domStorageEnabled
+              allowsInlineMediaPlayback
+              mediaPlaybackRequiresUserAction={false}
+              allowsFullscreenVideo={false}
+              scrollEnabled={false}
+              bounces={false}
+              androidLayerType="hardware"
+              userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+            />
+          </Animated.View>
+        ) : null}
+
+        {showWebView && canEmbed && urlInfo?.platform === 'instagram' && instagramHtml ? (
+          <Animated.View style={[styles.playerLayer, { opacity: fadeAnim }]}>
+            <WebView
+              ref={webViewRef}
+              source={{ html: instagramHtml, baseUrl: 'https://www.instagram.com' }}
+              style={styles.webView}
+              javaScriptEnabled
+              domStorageEnabled
+              allowsInlineMediaPlayback
+              mediaPlaybackRequiresUserAction={false}
+              allowsFullscreenVideo={false}
+              scrollEnabled={false}
+              bounces={false}
+              androidLayerType="hardware"
+              userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+            />
+          </Animated.View>
+        ) : null}
+
+        <View style={[styles.chrome, { padding: tokens.space.sm }]} pointerEvents="box-none">
+          <View style={styles.chromeCenter} pointerEvents="box-none">
+            <Pressable
+              onPress={togglePlayback}
+              accessibilityRole="button"
+              accessibilityLabel={playing ? 'Pause reel' : 'Play reel'}
+              style={({ pressed }) => [
+                styles.control,
+                {
+                  width: PLAY_SIZE,
+                  height: PLAY_SIZE,
+                  borderRadius: tokens.radius.pill,
+                  backgroundColor: IMMERSIVE_TOKENS.scrim,
+                  opacity: controlOpacity(
+                    resolveControlPhase({ pressed }),
+                    tokens.motion.pressOpacity,
+                  ),
+                },
+              ]}
+            >
+              <Ionicons
+                name={playing ? 'pause' : 'play'}
+                size={24}
+                color={IMMERSIVE_TOKENS.icon}
+              />
+            </Pressable>
+          </View>
+
+          <View style={styles.chromeFooter} pointerEvents="box-none">
+            <View
+              style={[
+                styles.platformPill,
+                {
+                  backgroundColor: IMMERSIVE_TOKENS.control,
+                  borderRadius: tokens.radius.pill,
+                  paddingHorizontal: tokens.space.xs,
+                  paddingVertical: tokens.space.xxs,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: IMMERSIVE_TOKENS.text,
+                  fontSize: tokens.fontSize.micro,
+                  lineHeight: tokens.lineHeight.micro,
+                  fontWeight: tokens.fontWeight.bold,
+                }}
+              >
+                {platformLabel}
+              </Text>
+            </View>
+            {canEmbed ? (
+              <Pressable
+                onPress={toggleMute}
+                accessibilityRole="button"
+                accessibilityLabel={muted ? 'Unmute reel' : 'Mute reel'}
+                hitSlop={hitSlopToMinTarget(CONTROL_SIZE)}
+                style={({ pressed }) => controlStyle(pressed)}
+              >
+                <Ionicons
+                  name={muted ? 'volume-mute' : 'volume-high'}
+                  size={18}
+                  color={IMMERSIVE_TOKENS.icon}
+                />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      </View>
+
+      {sourceUrl && watchLinkLabel ? (
+        <Pressable
+          onPress={() => void openSourceUrl()}
+          accessibilityRole="link"
+          accessibilityLabel={`${watchLinkLabel}, ${sourceUrl}`}
+          hitSlop={hitSlopToMinTarget(20)}
+          style={({ pressed }) => [
             {
-              width: playerWidth,
-              height: playerHeight,
-              borderRadius: tokens.radius.xl,
-              backgroundColor: '#0A0A0A',
-              borderColor: tokens.color.border,
-              shadowColor: mode === 'titanium' ? '#0F172A' : '#000',
+              opacity: controlOpacity(
+                resolveControlPhase({ pressed }),
+                tokens.motion.pressOpacity,
+              ),
             },
           ]}
         >
-          {previewVideo?.thumbnail || media.posterUrl ? (
-            <Animated.View
-              style={[styles.posterLayer, { opacity: showWebView ? 0 : fadeAnim }]}
-              pointerEvents="none"
-            >
-              <Image
-                source={{ uri: previewVideo?.thumbnail ?? media.posterUrl ?? undefined }}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
-              />
-              <View style={styles.posterScrim} />
-            </Animated.View>
-          ) : null}
-
-          {showWebView && canEmbed && urlInfo?.platform === 'youtube' && youtubeHtml ? (
-            <Animated.View style={[styles.playerLayer, { opacity: fadeAnim }]}>
-              <WebView
-                ref={webViewRef}
-                source={{ html: youtubeHtml, baseUrl: `${parentOrigin}/` }}
-                style={styles.webView}
-                originWhitelist={['*']}
-                javaScriptEnabled
-                domStorageEnabled
-                allowsInlineMediaPlayback
-                mediaPlaybackRequiresUserAction={false}
-                allowsFullscreenVideo={false}
-                scrollEnabled={false}
-                bounces={false}
-                androidLayerType="hardware"
-                userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
-              />
-            </Animated.View>
-          ) : null}
-
-          {showWebView && canEmbed && urlInfo?.platform === 'instagram' && instagramHtml ? (
-            <Animated.View style={[styles.playerLayer, { opacity: fadeAnim }]}>
-              <WebView
-                ref={webViewRef}
-                source={{ html: instagramHtml, baseUrl: 'https://www.instagram.com' }}
-                style={styles.webView}
-                javaScriptEnabled
-                domStorageEnabled
-                allowsInlineMediaPlayback
-                mediaPlaybackRequiresUserAction={false}
-                allowsFullscreenVideo={false}
-                scrollEnabled={false}
-                bounces={false}
-                androidLayerType="hardware"
-                userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
-              />
-            </Animated.View>
-          ) : null}
-
-          <View style={styles.chrome} pointerEvents="box-none">
-            <View style={[styles.platformPill, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
-              <Text style={styles.platformText}>{platformLabel}</Text>
-            </View>
-            <View style={styles.chromeRight} pointerEvents="box-none">
-              <Pressable
-                onPress={openReel}
-                accessibilityRole="button"
-                accessibilityLabel="Open full screen reel"
-                style={({ pressed }) => [
-                  styles.iconBtn,
-                  { opacity: pressed ? 0.85 : 1, backgroundColor: 'rgba(0,0,0,0.45)' },
-                ]}
-              >
-                <Ionicons name="expand-outline" size={18} color="#F8FAFC" />
-              </Pressable>
-              {canEmbed ? (
-                <Pressable
-                  onPress={toggleMute}
-                  accessibilityRole="button"
-                  accessibilityLabel={muted ? 'Unmute reel' : 'Mute reel'}
-                  style={({ pressed }) => [
-                    styles.iconBtn,
-                    { opacity: pressed ? 0.85 : 1, backgroundColor: 'rgba(0,0,0,0.45)' },
-                  ]}
-                >
-                  <Ionicons
-                    name={muted ? 'volume-mute' : 'volume-high'}
-                    size={18}
-                    color="#F8FAFC"
-                  />
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        </View>
-
-        {sourceUrl && watchLinkLabel ? (
-          <Pressable
-            onPress={openSourceUrl}
-            accessibilityRole="link"
-            accessibilityLabel={`${watchLinkLabel}, ${sourceUrl}`}
-            style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
+          <Text
+            style={{
+              color: tokens.color.textMuted,
+              fontSize: tokens.fontSize.caption,
+              lineHeight: tokens.lineHeight.caption,
+              fontWeight: tokens.fontWeight.semibold,
+              textAlign: 'center',
+            }}
           >
-            <Text style={[styles.sourceLink, { color: tokens.color.accent }]}>
-              {watchLinkLabel}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
+            {watchLinkLabel}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    marginTop: 4,
-  },
   center: {
     alignItems: 'center',
-    gap: 10,
   },
   frame: {
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.14,
-    shadowRadius: 18,
-    elevation: 6,
   },
   posterLayer: {
     ...StyleSheet.absoluteFillObject,
-  },
-  posterScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.12)',
   },
   playerLayer: {
     ...StyleSheet.absoluteFillObject,
   },
   webView: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: IMMERSIVE_TOKENS.stage,
   },
   chrome: {
     ...StyleSheet.absoluteFillObject,
-    padding: 10,
     justifyContent: 'space-between',
   },
-  platformPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  platformText: {
-    color: '#F8FAFC',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  chromeRight: {
-    position: 'absolute',
-    right: 10,
-    bottom: 10,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  chromeCenter: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sourceLink: {
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 18,
-    textDecorationLine: 'underline',
-    paddingHorizontal: 4,
+  chromeFooter: {
+    marginTop: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  platformPill: {
+    alignSelf: 'flex-end',
+  },
+  control: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

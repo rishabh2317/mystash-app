@@ -44,6 +44,11 @@ type Props = {
    * Only rendered when provided and catalogProductId is present.
    */
   onAddToCart?: (product: CatalogProductViewModel) => AddToCartOutcome | Promise<AddToCartOutcome>;
+  /**
+   * Bag / Discover Anywhere: hide verification, last-verified, and catalogue
+   * status. The sheet is still the existing product experience.
+   */
+  hideInternalStatus?: boolean;
 };
 
 export function ProductDetailsSheet({
@@ -53,6 +58,7 @@ export function ProductDetailsSheet({
   actions = NO_PRODUCT_DETAILS_ACTIONS,
   onBuy,
   onAddToCart,
+  hideInternalStatus = false,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { tokens, isLight } = useThemeMode();
@@ -155,19 +161,23 @@ export function ProductDetailsSheet({
               <Text style={[styles.title, { color: tokens.color.text }]}>
                 {product.title}
               </Text>
-              <View style={styles.badgeRow}>
-                <VerificationBadge status={product.verificationStatus} isLight={isLight} />
-              </View>
-              <Text style={[styles.merchantLine, { color: tokens.color.textMuted }]}>
-                {product.merchant || 'Merchant pending'}
-              </Text>
+              {hideInternalStatus ? null : (
+                <View style={styles.badgeRow}>
+                  <VerificationBadge status={product.verificationStatus} isLight={isLight} />
+                </View>
+              )}
+              {product.merchant || !hideInternalStatus ? (
+                <Text style={[styles.merchantLine, { color: tokens.color.textMuted }]}>
+                  {product.merchant || 'Merchant pending'}
+                </Text>
+              ) : null}
               {showPrice ? (
                 <Text style={[styles.price, { color: tokens.color.text }]}>
                   {product.currency ? `${product.currency} ` : ''}
                   {product.price}
                 </Text>
               ) : null}
-              {product.availability ? (
+              {product.availability && !hideInternalStatus ? (
                 <Text style={[styles.availability, { color: tokens.color.textMuted }]}>
                   {product.availability}
                 </Text>
@@ -192,7 +202,11 @@ export function ProductDetailsSheet({
               ) : null}
 
               <SpecificationGrid specifications={product.specifications} isLight={isLight} />
-              <MerchantSection product={product} isLight={isLight} />
+              <MerchantSection
+                product={product}
+                isLight={isLight}
+                hideInternalStatus={hideInternalStatus}
+              />
 
               {/* Future commerce extension points (additive): ratings, offers, coupons, similar products */}
 

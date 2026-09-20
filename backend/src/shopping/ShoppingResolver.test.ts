@@ -7,6 +7,7 @@ import {
   resetShoppingConfigurationCache,
   setShoppingConfigurationForTests,
 } from './ShoppingConfiguration';
+import { shoppingOfferId } from './storedDestinations';
 
 afterEach(() => {
   resetShoppingConfigurationCache();
@@ -123,5 +124,26 @@ describe('ShoppingResolver', () => {
     );
     assert.equal(result?.url, 'https://campaign.example/file-override');
     assert.equal(result?.destinationType, 'configured');
+  });
+
+  it('resolves a stored shopping candidate by offerId without inventing a URL', () => {
+    const resolver = new ShoppingResolver(
+      new AffiliateService({ enabled: false, provider: 'none' }),
+    );
+    const catalog = product({
+      preferredShoppingUrl: 'https://www.amazon.in/dp/PRIMARY',
+      merchantUrl: 'https://merchant.example/products/1',
+      metadata: {
+        shopping_candidates: [
+          { url: 'https://www.amazon.in/dp/PRIMARY', shoppingProvider: 'amazon' },
+          { url: 'https://www.flipkart.com/p/itm', shoppingProvider: 'flipkart' },
+        ],
+      },
+    });
+    const flipkart = shoppingOfferId('https://www.flipkart.com/p/itm');
+    const selected = resolver.resolve(catalog, { offerId: flipkart });
+    assert.equal(selected?.url, 'https://www.flipkart.com/p/itm');
+    assert.equal(resolver.resolve(catalog)?.url, 'https://www.amazon.in/dp/PRIMARY');
+    assert.equal(resolver.resolve(catalog, { offerId: 'unknown-offer' }), null);
   });
 });

@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { EngagementService } from './EngagementService';
+import { EngagementService, EngagementServiceError } from './EngagementService';
 import { InMemoryEngagementRepository } from './InMemoryEngagementRepository';
-import type { CollectionCounterDenormPort, UserCounterDenormPort } from './ports';
+import type {
+  CollectionCounterDenormPort,
+  ReelEligibilityPort,
+  UserCounterDenormPort,
+} from './ports';
+
+const eligibleReels: ReelEligibilityPort = {
+  async getEligiblePublicReel(reelId) {
+    if (reelId === 'deleted-reel' || reelId === 'unpublished-reel') return null;
+    return {
+      reelId,
+      collectionId: `collection-${reelId}`,
+      creatorId: 'creator-1',
+    };
+  },
+};
 
 describe('EngagementService', () => {
   it('records collection view idempotently and denorms views', async () => {
@@ -154,6 +169,75 @@ describe('EngagementService', () => {
     assert.equal(saves.length, 1);
     await svc.unsaveCollection({ userId: 'u1', collectionId: 'col-1' });
     assert.equal(denorm['col-1:saves'], 0);
+  });
+
+  it('likes and unlikes a Reel independently and reports current user state', async () => {
+    const repo = new InMemoryEngagementRepository();
+    const svc = new EngagementService(repo, undefined, undefined, eligibleReels);
+
+    assert.deepEqual(await svc.getReelLikeSummary('reel-1', 'u1'), {
+      liked: false,
+      likeCount: 0,
+    });
+    assert.deepEqual(await svc.likeReel({ userId: 'u1', reelId: 'reel-1' }), {
+      liked: true,
+      likeCount: 1,
+    });
+    assert.deepEqual(await svc.getReelLikeSummary('reel-1', 'u1'), {
+      liked: true,
+      likeCount: 1,
+    });
+    assert.deepEqual(await svc.unlikeReel({ userId: 'u1', reelId: 'reel-1' }), {
+      liked: false,
+      likeCount: 0,
+    });
+    assert.deepEqual(await svc.unlikeReel({ userId: 'u1', reelId: 'reel-1' }), {
+      liked: false,
+      likeCount: 0,
+    });
+  });
+
+  it('protects against duplicate Reel likes and counts distinct users', async () => {
+    const repo = new InMemoryEngagementRepository();
+    const svc = new EngagementService(repo, undefined, undefined, eligibleReels);
+
+    await svc.likeReel({ userId: 'u1', reelId: 'reel-1' });
+    await svc.likeReel({ userId: 'u1', reelId: 'reel-1' });
+    const afterSecondUser = await svc.likeReel({ userId: 'u2', reelId: 'reel-1' });
+    assert.equal(afterSecondUser.likeCount, 2);
+    assert.equal(
+      [...repo.edges.values()].filter(
+        (edge) =>
+          edge.edgeType === 'LIKE' &&
+          edge.objectType === 'reel' &&
+          edge.objectId === 'reel-1' &&
+          edge.state === 'ACTIVE',
+      ).length,
+      2,
+    );
+    assert.equal(
+      [...repo.facts.values()].filter((fact) => fact.interactionType === 'like').length,
+      2,
+    );
+  });
+
+  it('does not Like deleted or unpublished Reels', async () => {
+    const svc = new EngagementService(
+      new InMemoryEngagementRepository(),
+      undefined,
+      undefined,
+      eligibleReels,
+    );
+    await assert.rejects(
+      () => svc.likeReel({ userId: 'u1', reelId: 'deleted-reel' }),
+      (error: unknown) =>
+        error instanceof EngagementServiceError && error.statusCode === 404,
+    );
+    await assert.rejects(
+      () => svc.getReelLikeSummary('unpublished-reel', 'u1'),
+      (error: unknown) =>
+        error instanceof EngagementServiceError && error.statusCode === 404,
+    );
   });
 
   it('records MerchantClicked with tag-primary attribution dims', async () => {

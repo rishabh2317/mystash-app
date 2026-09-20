@@ -20,6 +20,8 @@ export type CatalogProductViewModel = {
   currency: string | null;
   lastVerifiedAt: string | null;
   metadataCompleteness: number | null;
+  /** Present when the cart/Bag projection supplied it. Optional on other surfaces. */
+  category?: string | null;
 };
 
 /** Raw catalog_products join shape used by mappers. */

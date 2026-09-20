@@ -3,6 +3,10 @@ import type {
   ProductAiReviewSource,
   ProductAiReviewSummary,
 } from '@/src/types/productAiReview';
+import {
+  AI_REVIEW_PREVIEW_FIXTURE_ENABLED,
+  productAiReviewPreviewFixture,
+} from '@/src/services/productAiReviewPreview';
 
 type UnavailableReason = Extract<ProductAiReviewResult, { status: 'unavailable' }>['reason'];
 
@@ -87,6 +91,12 @@ function isUnavailableReason(value: string): value is UnavailableReason {
 export async function fetchProductAiReview(catalogProductId: string): Promise<ProductAiReviewResult> {
   const id = catalogProductId.trim();
   if (!id) return unavailable('', 'missing_product_id');
+
+  // Temporary Collection preview: serve a full available summary so the card
+  // and sheet can be reviewed while the live endpoint is failing.
+  if (AI_REVIEW_PREVIEW_FIXTURE_ENABLED) {
+    return productAiReviewPreviewFixture(id);
+  }
 
   const base = apiBase();
   if (!base) return unavailable(id, 'network_error');

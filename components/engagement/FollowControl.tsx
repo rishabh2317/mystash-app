@@ -16,6 +16,11 @@ type Props = {
   disabled?: boolean;
   /** Compact chip for inline placement beside a name. */
   size?: 'default' | 'compact';
+  /**
+   * Unfollowed default CTA fills with inverse text (Collection).
+   * `brand` uses the shared primary — public creator storefront only.
+   */
+  emphasis?: 'default' | 'brand';
   /** White-on-dark styling for controls resting on media (reel overlays). */
   immersive?: boolean;
   /** @deprecated Colors come from ThemeMode tokens. */
@@ -29,6 +34,7 @@ export function FollowControl({
   pending = false,
   disabled = false,
   size = 'default',
+  emphasis = 'default',
   immersive = false,
   labelOverride,
   onPress,
@@ -46,9 +52,12 @@ export function FollowControl({
   const label = labelOverride ?? (isFollowing ? 'Following' : 'Follow');
   /** Compact (Home identity) stays secondary; Collection keeps the filled CTA. */
   const onAccent = !isFollowing && !labelOverride && !compact;
+  const brand = onAccent && emphasis === 'brand';
   const restingText = immersive ? tokens.immersive.text : tokens.color.text;
-  const spinnerColor = onAccent ? tokens.color.textOnAccent : restingText;
-  const labelColor = onAccent ? tokens.color.textOnAccent : restingText;
+  const accentFill = brand ? tokens.color.primary : tokens.color.text;
+  const accentLabel = brand ? tokens.color.onPrimary : tokens.color.textOnAccent;
+  const spinnerColor = onAccent ? accentLabel : restingText;
+  const labelColor = onAccent ? accentLabel : restingText;
   const labelSize = compact ? tokens.fontSize.caption : tokens.fontSize.body;
   const surface = immersive ? tokens.immersive.control : tokens.color.overlay;
   const surfaceBorder = immersive ? tokens.immersive.borderStrong : tokens.color.border;
@@ -68,7 +77,7 @@ export function FollowControl({
         {
           borderRadius: compact ? tokens.radius.sm : tokens.radius.md,
           borderWidth: tokens.stroke.hairline,
-          backgroundColor: onAccent ? tokens.color.text : surface,
+          backgroundColor: onAccent ? accentFill : surface,
           borderColor: onAccent ? 'transparent' : surfaceBorder,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },

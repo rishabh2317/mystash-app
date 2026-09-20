@@ -19,6 +19,7 @@ export type PipelineEvent =
   | 'review.required'
   | 'ingest.complete'
   | 'cache.hit'
+  | 'cache.miss'
   | 'stage.gate';
 
 export function emitPipelineEvent(event: PipelineEvent, fields: IngestLogFields = {}): void {

@@ -25,7 +25,9 @@ import { registerEngagementRoutes } from './engagement/routes';
 import { logSearchRuntime } from './search/factory';
 import { registerSearchRoutes } from './search/routes';
 import { registerCartRoutes } from './cart/routes';
+import { registerUserImportRoutes } from './user-import/routes';
 import { registerProductAiReviewRoutes } from './ai-review/routes';
+import { registerProductPageRoutes } from './product-page/routes';
 
 if (typeof globalThis.btoa !== 'function') {
   Object.assign(globalThis, {
@@ -48,12 +50,14 @@ app.get('/health', (_req, res) => {
 
 app.get('/products/:id/redirect', createProductRedirectHandler(createSupabaseAdmin()));
 registerProductAiReviewRoutes(app, createSupabaseAdmin());
+registerProductPageRoutes(app);
 
 registerCollectionRoutes(app);
 registerUserRoutes(app);
 registerEngagementRoutes(app);
 registerSearchRoutes(app);
 registerCartRoutes(app);
+registerUserImportRoutes(app);
 
 logSearchRuntime();
 
@@ -680,6 +684,9 @@ if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
       const { startProductAiReviewWorker } = await import('./ai-review/jobs/productAiReviewQueue');
       startProductAiReviewWorker(createSupabaseAdmin());
       logger.info('embedded product-ai-review worker started');
+      const { startContentSourceProcessingWorker } = await import('./content-source/factory');
+      startContentSourceProcessingWorker(createSupabaseAdmin());
+      logger.info('embedded content-source-processing worker started');
     } catch (e) {
       logger.warn({ err: e }, 'embedded product-resolve worker failed to start');
     }

@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { AddToCartOutcome } from '@/src/services/productActionOrchestration';
@@ -6,13 +7,25 @@ import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { displayHeroUri } from '@/src/services/catalogProductMapper';
 import { trackProductEvent } from '@/src/logging/productAnalytics';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { IMMERSIVE_TOKENS, mediaScrimGradient } from '@/src/theme/tokens';
 import { BAG_COPY, controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { COLLECTION_PRODUCT_COPY } from '@/src/ui/collectionProductActions';
+import { COLLECTION_SECTION_COPY, formatProductPrice } from '@/src/ui/collectionSections';
+import { ActionButton } from '@/components/ui/ActionButton';
 import { AddToCartButton } from './AddToCartButton';
 import { ProductHeroImage } from './ProductHeroImage';
+import { TrustStrip } from './TrustStrip';
 import { VerificationBadge } from './VerificationBadge';
 
-export type ProductCardVariant = 'compact' | 'standard';
+/**
+ * One semantic product card, several intentional visual contracts.
+ * `compact` / `standard` are the pre-existing list forms (Search, Bag).
+ * `collection` is the decision-oriented Collection card.
+ * `related` is the discovery rail card.
+ * `publicProfile` is the public-profile catalog card: overlay tile matching
+ * Collection `creatorRail` (thumbnail + price + title on the media).
+ */
+export type ProductCardVariant = 'compact' | 'standard' | 'collection' | 'related' | 'publicProfile';
 
 type Props = {
   product: CatalogProductViewModel;
@@ -47,6 +60,10 @@ type Props = {
   showIndexPrice?: boolean;
 };
 
+/** Square media in the Collection card; the rail card uses a full-width crop. */
+const COLLECTION_THUMB_SIZE = 96;
+const RELATED_MEDIA_ASPECT = 1;
+
 export function ProductCard({
   product,
   onPress,
@@ -77,6 +94,297 @@ export function ProductCard({
   const showMerchantShortcut = !!onMerchantShortcut && canShop;
   const showActions = showAddToCart || showBuy || showAiReview;
   const isCompact = variant === 'compact';
+
+  const openDetails = () => {
+    trackProductEvent('product.card.opened', {
+      catalogProductId: product.catalogProductId ?? product.id,
+    });
+    onPress(product);
+  };
+
+  const priceLabel = showPrice ? formatProductPrice(product) : null;
+  const brandStyle = {
+    color: tokens.color.textMuted,
+    fontSize: tokens.fontSize.micro,
+    lineHeight: tokens.lineHeight.micro,
+    fontWeight: tokens.fontWeight.bold,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.6,
+  };
+  const priceStyle = {
+    color: tokens.color.primary,
+    fontWeight: tokens.fontWeight.extraBold,
+  };
+  const a11yLabel = `${product.title}${product.brand ? `, ${product.brand}` : ''}${
+    priceLabel ? `, ${priceLabel}` : ''
+  }. Open product details.`;
+
+  if (variant === 'collection') {
+    return (
+      <View
+        style={[
+          styles.collectionCard,
+          {
+            backgroundColor: tokens.color.surface,
+            borderColor: tokens.color.border,
+            borderRadius: tokens.radius.xl,
+            padding: tokens.space.md,
+            gap: tokens.space.sm,
+          },
+        ]}
+      >
+        <Pressable
+          onPress={openDetails}
+          accessibilityRole="button"
+          accessibilityLabel={a11yLabel}
+          style={({ pressed }) => [
+            styles.collectionRow,
+            {
+              gap: tokens.space.sm,
+              opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
+            },
+          ]}
+        >
+          <ProductHeroImage
+            productId={product.id}
+            uri={displayHeroUri(product)}
+            alt={product.title}
+            style={[styles.collectionThumb, { borderRadius: tokens.radius.md }]}
+          />
+          <View style={[styles.collectionBody, { gap: tokens.space.xxs }]}>
+            {product.brand ? (
+              <Text style={brandStyle} numberOfLines={1}>
+                {product.brand}
+              </Text>
+            ) : null}
+            <Text
+              style={{
+                color: tokens.color.text,
+                fontSize: tokens.fontSize.title,
+                lineHeight: tokens.lineHeight.title,
+                fontWeight: tokens.fontWeight.extraBold,
+              }}
+              numberOfLines={2}
+            >
+              {product.title}
+            </Text>
+            {priceLabel ? (
+              <Text
+                style={[
+                  priceStyle,
+                  { fontSize: tokens.fontSize.title, lineHeight: tokens.lineHeight.title },
+                ]}
+                numberOfLines={1}
+              >
+                {priceLabel}
+              </Text>
+            ) : null}
+            <View style={[styles.collectionMeta, { gap: tokens.space.xs }]}>
+              <VerificationBadge status={product.verificationStatus} isLight={isLight} />
+              {product.merchant ? (
+                <Text
+                  style={{
+                    color: tokens.color.textMuted,
+                    fontSize: tokens.fontSize.caption,
+                    lineHeight: tokens.lineHeight.caption,
+                  }}
+                  numberOfLines={1}
+                >
+                  {product.merchant}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        </Pressable>
+
+        <View style={[styles.collectionActions, { gap: tokens.space.xs }]}>
+          <View style={styles.collectionPrimary}>
+            <ActionButton
+              label={COLLECTION_SECTION_COPY.viewProductDetails}
+              onPress={openDetails}
+              variant="primary"
+              trailingIcon="chevron-forward"
+              accessibilityLabel={`${COLLECTION_SECTION_COPY.viewProductDetails}: ${product.title}`}
+            />
+          </View>
+          {showAddToCart && onAddToCart ? (
+            // Unflexed wrapper: the quiet action sizes to its label so the
+            // primary CTA keeps the remaining width and stays dominant.
+            <View>
+              <AddToCartButton product={product} variant="quiet" onAddToCart={onAddToCart} />
+            </View>
+          ) : null}
+        </View>
+
+        <TrustStrip
+          product={product}
+          onMerchantPress={showMerchantShortcut ? onMerchantShortcut : undefined}
+        />
+      </View>
+    );
+  }
+
+  if (variant === 'publicProfile') {
+    const scrim = mediaScrimGradient();
+    return (
+      <Pressable
+        onPress={openDetails}
+        accessibilityRole="button"
+        accessibilityLabel={a11yLabel}
+        style={({ pressed }) => [
+          styles.publicPortrait,
+          {
+            borderRadius: tokens.radius.lg,
+            backgroundColor: IMMERSIVE_TOKENS.stage,
+            opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
+          },
+        ]}
+      >
+        <ProductHeroImage
+          productId={product.id}
+          uri={displayHeroUri(product)}
+          alt={product.title}
+          contentFit="cover"
+          style={StyleSheet.absoluteFill}
+        />
+        <LinearGradient
+          colors={[...scrim.colors]}
+          locations={[...scrim.locations]}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+        <View style={[styles.publicChrome, { padding: tokens.space.xs }]}>
+          {priceLabel ? (
+            <View
+              style={[
+                styles.publicBadge,
+                {
+                  backgroundColor: IMMERSIVE_TOKENS.control,
+                  borderRadius: tokens.radius.sm,
+                  paddingHorizontal: tokens.space.xxs,
+                  paddingVertical: tokens.space.xxs / 2,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: IMMERSIVE_TOKENS.text,
+                  fontSize: tokens.fontSize.micro,
+                  lineHeight: tokens.lineHeight.micro,
+                  fontWeight: tokens.fontWeight.bold,
+                }}
+                numberOfLines={1}
+              >
+                {priceLabel}
+              </Text>
+            </View>
+          ) : (
+            <View />
+          )}
+          <Text
+            style={{
+              color: IMMERSIVE_TOKENS.text,
+              fontSize: tokens.fontSize.caption,
+              lineHeight: tokens.lineHeight.caption,
+              fontWeight: tokens.fontWeight.bold,
+              textShadowColor: IMMERSIVE_TOKENS.textShadow,
+              textShadowOffset: { width: 0, height: 1 },
+              textShadowRadius: 3,
+            }}
+            numberOfLines={2}
+          >
+            {product.title}
+          </Text>
+        </View>
+      </Pressable>
+    );
+  }
+
+  if (variant === 'related') {
+    return (
+      <View
+        style={[
+          styles.relatedCard,
+          {
+            backgroundColor: tokens.color.surface,
+            borderColor: tokens.color.border,
+            borderRadius: tokens.radius.xl,
+          },
+        ]}
+      >
+        <Pressable
+          onPress={openDetails}
+          accessibilityRole="button"
+          accessibilityLabel={a11yLabel}
+          style={({ pressed }) => [
+            {
+              opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
+            },
+          ]}
+        >
+          <ProductHeroImage
+            productId={product.id}
+            uri={displayHeroUri(product)}
+            alt={product.title}
+            contentFit="cover"
+            style={styles.relatedMedia}
+          />
+          <View
+            style={[
+              styles.relatedBody,
+              {
+                padding: tokens.space.sm,
+                gap: tokens.space.xxs / 2,
+                minHeight:
+                  tokens.lineHeight.caption +
+                  tokens.lineHeight.bodyStrong +
+                  tokens.lineHeight.bodyStrong,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: tokens.color.textMuted,
+                fontSize: tokens.fontSize.caption,
+                lineHeight: tokens.lineHeight.caption,
+              }}
+              numberOfLines={1}
+            >
+              {product.brand || ' '}
+            </Text>
+            <Text
+              style={{
+                color: tokens.color.text,
+                fontSize: tokens.fontSize.bodyStrong,
+                lineHeight: tokens.lineHeight.bodyStrong,
+                fontWeight: tokens.fontWeight.extraBold,
+              }}
+              numberOfLines={1}
+            >
+              {product.title}
+            </Text>
+            <Text
+              style={[
+                priceStyle,
+                {
+                  fontSize: tokens.fontSize.bodyStrong,
+                  lineHeight: tokens.lineHeight.bodyStrong,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {priceLabel || ' '}
+            </Text>
+          </View>
+        </Pressable>
+        {showAddToCart && onAddToCart ? (
+          <View style={[styles.relatedSave, { top: tokens.space.xs, right: tokens.space.xs }]}>
+            <AddToCartButton product={product} variant="icon" onAddToCart={onAddToCart} />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
 
   return (
     <View
@@ -109,12 +417,7 @@ export function ProductCard({
         </Pressable>
       ) : null}
       <Pressable
-        onPress={() => {
-          trackProductEvent('product.card.opened', {
-            catalogProductId: product.catalogProductId ?? product.id,
-          });
-          onPress(product);
-        }}
+        onPress={openDetails}
         accessibilityRole="button"
         accessibilityLabel={`${product.title}${product.brand ? `, ${product.brand}` : ''}. Open product details.`}
         style={({ pressed }) => [styles.pressableRow, { opacity: pressed ? 0.92 : 1 }]}
@@ -265,4 +568,62 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionBtnText: { fontWeight: '800', fontSize: 13 },
+  collectionCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  collectionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  collectionThumb: {
+    width: COLLECTION_THUMB_SIZE,
+    height: COLLECTION_THUMB_SIZE,
+  },
+  collectionBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  collectionMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  collectionActions: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  collectionPrimary: {
+    flex: 1,
+    minWidth: 0,
+  },
+  relatedCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    position: 'relative',
+    alignSelf: 'flex-start',
+  },
+  relatedMedia: {
+    width: '100%',
+    aspectRatio: RELATED_MEDIA_ASPECT,
+  },
+  relatedBody: {
+    minWidth: 0,
+  },
+  relatedSave: {
+    position: 'absolute',
+    zIndex: 2,
+  },
+  publicPortrait: {
+    width: '100%',
+    aspectRatio: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  publicChrome: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'space-between',
+  },
+  publicBadge: {
+    alignSelf: 'flex-start',
+  },
 });

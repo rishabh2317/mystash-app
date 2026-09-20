@@ -1,17 +1,32 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+
 import { ProductCard, ProductDetailsSheet } from '@/components/commerce';
 import { AiReviewSheet } from '@/components/commerce/AiReviewSheet';
+import { ProductAiReviewCard } from '@/components/commerce/ProductAiReviewCard';
 import { CollectionTile } from '@/components/collection/CollectionTile';
-import { FollowControl } from '@/components/engagement/FollowControl';
-import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
-import type { CollectionViewModel } from '@/src/types/collection';
-import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
+import { ContentRail } from '@/components/ui/ContentRail';
+import { ListRowGroup, type ListRowSpec } from '@/components/ui/ListRowGroup';
+import { SectionHeader } from '@/components/ui/SectionHeader';
+import { useThemeMode } from '@/contexts/ThemeContext';
 import { listCreatorCollections } from '@/src/services/collectionApi';
 import { loadCollectionRelatedProducts } from '@/src/services/collectionRelatedProducts';
 import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
 import { openProductShopping } from '@/src/services/shoppingClick';
-import {
-  COLLECTION_PRODUCT_COPY,
-} from '@/src/ui/collectionProductActions';
+import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
+import type { CollectionViewModel } from '@/src/types/collection';
+import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
+import type { ProductAiReviewResult } from '@/src/types/productAiReview';
 import {
   CREATOR_MORE_COLLECTIONS_PREVIEW,
   filterCreatorCollectionsPreview,
@@ -21,28 +36,26 @@ import {
   collectionMediaReference,
   collectionTilePressPath,
   COLLECTION_SCROLL_HORIZONTAL_PADDING,
-  splitCollectionProducts,
 } from '@/src/ui/collectionLayout';
-import { useIsFocused } from '@react-navigation/native';
-import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { COLLECTION_PRODUCT_COPY } from '@/src/ui/collectionProductActions';
 import {
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+  COLLECTION_SECTION_COPY,
+  collectionVerificationSummary,
+  formatCollectionDate,
+  productsSectionTitle,
+  shouldGroupProductInsights,
+  verificationSummaryLabel,
+} from '@/src/ui/collectionSections';
+import { railCardWidth } from '@/src/ui/rail';
 
+import { CollectionHero } from './CollectionHero';
 import { CollectionMediaReference } from './CollectionMediaReference';
 import { CollectionPageHeader } from './CollectionPageHeader';
-import { useThemeMode } from '@/contexts/ThemeContext';
 
 type Props = {
   collection: CollectionDetailViewModel;
-  isLight: boolean;
+  /** @deprecated Colors come from ThemeMode tokens. */
+  isLight?: boolean;
   isSaved?: boolean;
   savePending?: boolean;
   onSavePress?: () => void;
@@ -53,9 +66,16 @@ type Props = {
   onFollowPress?: () => void;
 };
 
+const RELATED_RAIL = { visible: 2, peek: 56, minWidth: 140, maxWidth: 200 };
+const CREATOR_RAIL = { visible: 3, peek: 28, minWidth: 96, maxWidth: 150 };
+
+/**
+ * Collection: an editorial decision environment.
+ * Creator context → collection context → evidence (reel) → products →
+ * product intelligence → related discovery → more from creator → trust → intent.
+ */
 export function CollectionScreen({
   collection,
-  isLight,
   isSaved = false,
   savePending = false,
   onSavePress,
@@ -67,29 +87,48 @@ export function CollectionScreen({
 }: Props) {
   const router = useRouter();
   const { tokens } = useThemeMode();
+  const { width: screenWidth } = useWindowDimensions();
   const onAddToCart = useProductAddToCartHandler();
   const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
   const [detailsVisible, setDetailsVisible] = useState(false);
   const [aiReviewProduct, setAiReviewProduct] = useState<CatalogProductViewModel | null>(null);
   const [aiReviewVisible, setAiReviewVisible] = useState(false);
+  const [aiResults, setAiResults] = useState<Record<string, ProductAiReviewResult>>({});
   const [relatedProducts, setRelatedProducts] = useState<CatalogProductViewModel[]>([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [creatorCollections, setCreatorCollections] = useState<CollectionViewModel[]>([]);
   const [creatorCollectionsNextCursor, setCreatorCollectionsNextCursor] = useState<string | null>(null);
   const [creatorCollectionsLoading, setCreatorCollectionsLoading] = useState(false);
 
-  const text = tokens.color.text;
   const muted = tokens.color.textMuted;
-  const headerTitle = collection.title?.trim() || 'Collection';
-  const creatorLabel =
-    collection.creator.displayName?.trim() ||
-    (collection.creator.username ? `@${collection.creator.username}` : 'Creator');
-  const caption = collection.caption?.trim() ?? '';
+  const gutter = COLLECTION_SCROLL_HORIZONTAL_PADDING;
+  const railGap = tokens.space.sm;
   const media = useMemo(() => collectionMediaReference(collection), [collection]);
-  const { featured, shopAll } = useMemo(
-    () => splitCollectionProducts(collection.products),
-    [collection.products],
+  const products = collection.products;
+  const groupInsights = shouldGroupProductInsights(products.length);
+  const insightProducts = useMemo(
+    () => products.filter((product) => Boolean(product.catalogProductId)),
+    [products],
   );
+  const verification = useMemo(
+    () => collectionVerificationSummary(products),
+    [products],
+  );
+  const verificationLabel = verificationSummaryLabel(verification);
+  const verificationCheckedOn = formatCollectionDate(verification.lastVerifiedAt);
+
+  const relatedCardWidth = railCardWidth({
+    screenWidth,
+    gutter,
+    gap: railGap,
+    ...RELATED_RAIL,
+  });
+  const creatorCardWidth = railCardWidth({
+    screenWidth,
+    gutter,
+    gap: railGap,
+    ...CREATOR_RAIL,
+  });
 
   const onBuy = useCallback(
     async (product: CatalogProductViewModel) => {
@@ -110,12 +149,13 @@ export function CollectionScreen({
     [collection.collectionId, collection.creator.id],
   );
 
+  const creatorHandle = collection.creator.username?.trim() || null;
+
   const openCreator = useCallback(() => {
-    const handle = collection.creator.username?.trim();
-    if (handle) {
-      router.push(`/creator/${encodeURIComponent(handle)}`);
+    if (creatorHandle) {
+      router.push(`/creator/${encodeURIComponent(creatorHandle)}`);
     }
-  }, [collection.creator.username, router]);
+  }, [creatorHandle, router]);
 
   const openDetails = useCallback((p: CatalogProductViewModel) => {
     setDetailsProduct(p);
@@ -127,6 +167,13 @@ export function CollectionScreen({
     setAiReviewVisible(true);
   }, []);
 
+  const onAiReviewResult = useCallback(
+    (catalogProductId: string, result: ProductAiReviewResult) => {
+      setAiResults((prev) => ({ ...prev, [catalogProductId]: result }));
+    },
+    [],
+  );
+
   const onMerchantShortcut = useCallback(
     async (product: CatalogProductViewModel) => {
       await onBuy(product);
@@ -134,7 +181,7 @@ export function CollectionScreen({
     [onBuy],
   );
 
-  const collectionCardProps = useCallback(
+  const productCardProps = useCallback(
     (product: CatalogProductViewModel) => ({
       onPress: openDetails,
       onAddToCart: product.catalogProductId ? onAddToCart : undefined,
@@ -222,72 +269,71 @@ export function CollectionScreen({
     [router],
   );
 
-  const onViewAllCreatorCollections = useCallback(() => {
-    const handle = collection.creator.username?.trim();
-    if (handle) {
-      router.push(`/creator/${encodeURIComponent(handle)}` as never);
+  const exploreRows = useMemo<ListRowSpec[]>(() => {
+    const rows: ListRowSpec[] = [];
+    if (creatorHandle) {
+      rows.push({
+        id: 'creator',
+        icon: 'albums-outline',
+        title: COLLECTION_SECTION_COPY.shopMoreCollections,
+        subtitle: COLLECTION_SECTION_COPY.shopMoreCollectionsHint,
+        onPress: openCreator,
+      });
     }
-  }, [collection.creator.username, router]);
+    if (onSavePress) {
+      rows.push({
+        id: 'save',
+        icon: isSaved ? 'bookmark' : 'bookmark-outline',
+        title: isSaved
+          ? COLLECTION_SECTION_COPY.savedCollection
+          : COLLECTION_SECTION_COPY.saveCollection,
+        subtitle: isSaved
+          ? COLLECTION_SECTION_COPY.savedCollectionHint
+          : COLLECTION_SECTION_COPY.saveCollectionHint,
+        onPress: onSavePress,
+        disabled: savePending,
+      });
+    }
+    return rows;
+  }, [creatorHandle, isSaved, onSavePress, openCreator, savePending]);
 
   const isFocused = useIsFocused();
+  /** Section heading → its content. */
+  const sectionGap = { gap: tokens.space.sm };
+  /** A product and its own AI Review read as one block, with room to breathe. */
+  const productGap = { gap: tokens.space.md };
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.color.canvas }]}>
       <CollectionPageHeader
-        title={headerTitle}
         isSaved={isSaved}
         savePending={savePending}
         onSavePress={onSavePress}
         onSharePress={onSharePress}
+        overflowItems={[
+          { id: 'bag', label: 'View Bag', icon: 'bag-outline', onPress: () => router.push('/cart') },
+        ]}
       />
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[
+          styles.scroll,
+          {
+            paddingHorizontal: gutter,
+            paddingTop: tokens.space.md,
+            paddingBottom: tokens.space.xxl,
+            gap: tokens.space.xl,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.creatorRow}>
-          {collection.creator.avatarUrl ? (
-            <Pressable
-              onPress={collection.creator.username ? openCreator : undefined}
-              disabled={!collection.creator.username}
-            >
-              <Image
-                source={{ uri: collection.creator.avatarUrl }}
-                style={styles.avatar}
-                contentFit="cover"
-              />
-            </Pressable>
-          ) : (
-            <View style={[styles.avatar, { backgroundColor: tokens.color.canvasEnd }]} />
-          )}
-          <View style={styles.creatorCopy}>
-            <View style={styles.nameRow}>
-              <Pressable
-                onPress={collection.creator.username ? openCreator : undefined}
-                disabled={!collection.creator.username}
-                accessibilityRole="link"
-                accessibilityLabel={`Creator ${creatorLabel}`}
-              >
-                <Text style={[styles.creator, { color: tokens.color.accent }]}>{creatorLabel}</Text>
-              </Pressable>
-              {!isSelf && onFollowPress ? (
-                <FollowControl
-                  isFollowing={isFollowing}
-                  pending={followPending}
-                  size="compact"
-                  onPress={onFollowPress}
-                />
-              ) : null}
-            </View>
-            {collection.creator.username ? (
-              <Text style={[styles.handle, { color: muted }]}>@{collection.creator.username}</Text>
-            ) : null}
-          </View>
-        </View>
-
-        {caption ? (
-          <Text style={[styles.caption, { color: muted }]}>{caption}</Text>
-        ) : null}
+        <CollectionHero
+          collection={collection}
+          onCreatorPress={creatorHandle ? openCreator : undefined}
+          isFollowing={isFollowing}
+          followPending={followPending}
+          onFollowPress={!isSelf && onFollowPress ? onFollowPress : undefined}
+        />
 
         {media ? (
           <CollectionMediaReference
@@ -297,105 +343,188 @@ export function CollectionScreen({
           />
         ) : null}
 
-        {featured.length > 0 ? (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: text }]}>Featured</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.rail}
+        <View style={sectionGap}>
+          <SectionHeader title={productsSectionTitle(products.length)} />
+          {products.length === 0 ? (
+            <Text
+              style={{
+                color: muted,
+                fontSize: tokens.fontSize.body,
+                lineHeight: tokens.lineHeight.body,
+              }}
             >
-              {featured.map((product) => (
-                <View key={`featured-${product.id}`} style={styles.railCard}>
-                  <ProductCard
-                    product={product}
-                    isLight={isLight}
-                    variant="compact"
-                    {...collectionCardProps(product)}
-                  />
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: text }]}>Shop all products</Text>
-          {shopAll.length === 0 ? (
-            <Text style={[styles.empty, { color: muted }]}>No products in this collection yet.</Text>
+              No products in this collection yet.
+            </Text>
           ) : (
-            shopAll.map((product) => (
-              <View key={product.id} style={styles.productRow}>
+            products.map((product) => (
+              <View key={product.id} style={productGap}>
                 <ProductCard
                   product={product}
-                  isLight={isLight}
-                  variant="standard"
-                  {...collectionCardProps(product)}
+                  variant="collection"
+                  {...productCardProps(product)}
                 />
+                {!groupInsights && product.catalogProductId ? (
+                  <ProductAiReviewCard
+                    product={product}
+                    variant="standalone"
+                    onOpen={openAiReview}
+                    onResult={onAiReviewResult}
+                  />
+                ) : null}
               </View>
             ))
           )}
         </View>
 
+        {groupInsights && insightProducts.length > 0 ? (
+          <View style={sectionGap}>
+            <SectionHeader
+              title={COLLECTION_SECTION_COPY.productInsights}
+              subtitle="AI Review for each product in this collection"
+            />
+            {/* Multi-product Collections stack one AI Review per product. */}
+            {insightProducts.map((product) => (
+              <ProductAiReviewCard
+                key={`insight-${product.id}`}
+                product={product}
+                variant="withProduct"
+                onOpen={openAiReview}
+                onResult={onAiReviewResult}
+              />
+            ))}
+          </View>
+        ) : null}
+
         {relatedLoading || relatedProducts.length > 0 ? (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: text }]}>
-              {COLLECTION_PRODUCT_COPY.relatedProducts}
-            </Text>
+          <View style={sectionGap}>
+            <SectionHeader title={COLLECTION_PRODUCT_COPY.relatedProducts} />
             {relatedLoading && relatedProducts.length === 0 ? (
-              <Text style={[styles.empty, { color: muted }]}>Loading related products…</Text>
+              <Text
+                style={{
+                  color: muted,
+                  fontSize: tokens.fontSize.body,
+                  lineHeight: tokens.lineHeight.body,
+                }}
+              >
+                Loading related products…
+              </Text>
             ) : (
-              relatedProducts.map((product) => (
-                <View key={`related-${product.id}`} style={styles.productRow}>
-                  <ProductCard
-                    product={product}
-                    isLight={isLight}
-                    variant="standard"
-                    {...collectionCardProps(product)}
-                  />
-                </View>
-              ))
+              <ContentRail
+                gutter={gutter}
+                itemPitch={relatedCardWidth + railGap}
+                pageCount={relatedProducts.length}
+                accessibilityLabel={COLLECTION_PRODUCT_COPY.relatedProducts}
+              >
+                {relatedProducts.map((product, index) => (
+                  <View
+                    key={`related-${product.id}`}
+                    style={{
+                      width: relatedCardWidth,
+                      marginRight: index === relatedProducts.length - 1 ? 0 : railGap,
+                    }}
+                  >
+                    <ProductCard
+                      product={product}
+                      variant="related"
+                      onPress={openDetails}
+                      onAddToCart={product.catalogProductId ? onAddToCart : undefined}
+                    />
+                  </View>
+                ))}
+              </ContentRail>
             )}
           </View>
         ) : null}
 
         {creatorCollectionsLoading || moreFromCreator.length > 0 ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: text, marginTop: 0 }]}>
-                {COLLECTION_PRODUCT_COPY.moreFromCreator}
-              </Text>
-              {showCreatorViewAll ? (
-                <Pressable
-                  onPress={onViewAllCreatorCollections}
-                  accessibilityRole="button"
-                  accessibilityLabel={COLLECTION_PRODUCT_COPY.viewAll}
-                >
-                  <Text style={[styles.viewAll, { color: tokens.color.accent }]}>
-                    {COLLECTION_PRODUCT_COPY.viewAll}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
+          <View style={sectionGap}>
+            <SectionHeader
+              title={COLLECTION_PRODUCT_COPY.moreFromCreator}
+              actionLabel={showCreatorViewAll ? COLLECTION_PRODUCT_COPY.viewAll : undefined}
+              onActionPress={showCreatorViewAll ? openCreator : undefined}
+              actionAccessibilityLabel={`${COLLECTION_PRODUCT_COPY.viewAll} ${COLLECTION_PRODUCT_COPY.moreFromCreator}`}
+            />
             {creatorCollectionsLoading && moreFromCreator.length === 0 ? (
-              <Text style={[styles.empty, { color: muted }]}>Loading collections…</Text>
-            ) : (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.creatorRail}
+              <Text
+                style={{
+                  color: muted,
+                  fontSize: tokens.fontSize.body,
+                  lineHeight: tokens.lineHeight.body,
+                }}
               >
-                {moreFromCreator.map((item) => (
-                  <View key={item.collectionId} style={styles.creatorTile}>
+                Loading collections…
+              </Text>
+            ) : (
+              <ContentRail
+                gutter={gutter}
+                itemPitch={creatorCardWidth + railGap}
+                accessibilityLabel={COLLECTION_PRODUCT_COPY.moreFromCreator}
+              >
+                {moreFromCreator.map((item, index) => (
+                  <View
+                    key={item.collectionId}
+                    style={{
+                      width: creatorCardWidth,
+                      marginRight: index === moreFromCreator.length - 1 ? 0 : railGap,
+                    }}
+                  >
                     <CollectionTile
                       collection={item}
-                      isLight={isLight}
+                      variant="creatorRail"
                       onPress={onPressCreatorCollection}
                     />
                   </View>
                 ))}
-              </ScrollView>
+              </ContentRail>
             )}
+          </View>
+        ) : null}
+
+        {verificationLabel ? (
+          <View
+            style={[
+              styles.trustCard,
+              {
+                backgroundColor: tokens.color.surface,
+                borderColor: tokens.color.border,
+                borderRadius: tokens.radius.xl,
+                padding: tokens.space.md,
+                gap: tokens.space.sm,
+              },
+            ]}
+          >
+            <Ionicons name="shield-checkmark" size={20} color={tokens.color.primary} />
+            <View style={styles.trustCopy}>
+              <Text
+                style={{
+                  color: tokens.color.text,
+                  fontSize: tokens.fontSize.bodyStrong,
+                  lineHeight: tokens.lineHeight.bodyStrong,
+                  fontWeight: tokens.fontWeight.bold,
+                }}
+              >
+                {verificationLabel}
+              </Text>
+              {verificationCheckedOn ? (
+                <Text
+                  style={{
+                    color: muted,
+                    fontSize: tokens.fontSize.caption,
+                    lineHeight: tokens.lineHeight.caption,
+                    marginTop: tokens.space.xxs / 2,
+                  }}
+                >
+                  {`${COLLECTION_SECTION_COPY.lastVerified} ${verificationCheckedOn}`}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+
+        {exploreRows.length > 0 ? (
+          <View style={sectionGap}>
+            <SectionHeader title={COLLECTION_SECTION_COPY.exploreMore} />
+            <ListRowGroup rows={exploreRows} />
           </View>
         ) : null}
       </ScrollView>
@@ -403,6 +532,11 @@ export function CollectionScreen({
       <AiReviewSheet
         visible={aiReviewVisible}
         product={aiReviewProduct}
+        preloaded={
+          aiReviewProduct?.catalogProductId
+            ? aiResults[aiReviewProduct.catalogProductId] ?? null
+            : null
+        }
         onClose={() => {
           setAiReviewVisible(false);
           setAiReviewProduct(null);
@@ -411,7 +545,6 @@ export function CollectionScreen({
       <ProductDetailsSheet
         visible={detailsVisible}
         product={detailsProduct}
-        isLight={isLight}
         onClose={() => setDetailsVisible(false)}
         onAddToCart={detailsProduct?.catalogProductId ? onAddToCart : undefined}
         onBuy={detailsProduct?.catalogProductId ? onBuy : undefined}
@@ -423,82 +556,15 @@ export function CollectionScreen({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: {
-    paddingHorizontal: COLLECTION_SCROLL_HORIZONTAL_PADDING,
-    paddingBottom: 40,
-    gap: 12,
+    flexGrow: 1,
   },
-  creatorRow: {
+  trustCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginTop: 4,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-  },
-  creatorCopy: {
+  trustCopy: {
     flex: 1,
-    gap: 2,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  creator: {
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  handle: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  caption: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '500',
-  },
-  section: {
-    gap: 10,
-    marginTop: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: 8,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginTop: 8,
-  },
-  viewAll: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  empty: {
-    fontSize: 14,
-  },
-  rail: {
-    gap: 10,
-    paddingRight: 8,
-  },
-  railCard: {
-    width: 268,
-  },
-  productRow: {
-    marginTop: 2,
-  },
-  creatorRail: {
-    gap: 12,
-    paddingRight: 8,
-  },
-  creatorTile: {
-    width: 168,
+    minWidth: 0,
   },
 });

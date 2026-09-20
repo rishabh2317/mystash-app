@@ -1,6 +1,6 @@
 /** Whether a catalog product is already a Bag line. Cart remains the API name. */
 export function catalogProductInBag(
-  items: readonly { catalogProductId: string }[],
+  items: readonly { catalogProductId?: string | null }[],
   catalogProductId: string | null | undefined,
 ): boolean {
   const id = catalogProductId?.trim();

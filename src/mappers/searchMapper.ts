@@ -58,7 +58,7 @@ export function mapSearchCreatorCard(card: SearchResultCard): CreatorViewModel |
     followersCount: typeof card.followersCount === 'number' ? card.followersCount : 0,
     followingCount: 0,
     collectionCount: 0,
-    savesCount: 0,
+    totalReelLikesReceived: 0,
   };
 }
 

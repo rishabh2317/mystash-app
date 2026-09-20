@@ -8,8 +8,16 @@ import type {
 } from './domain/types';
 import type { EngagementRepository } from './EngagementRepository';
 import { emitEngagementEvent } from './observability';
-import type { CollectionCounterDenormPort, UserCounterDenormPort } from './ports';
-import { noopCollectionCounterDenorm, noopUserCounterDenorm } from './ports';
+import type {
+  CollectionCounterDenormPort,
+  ReelEligibilityPort,
+  UserCounterDenormPort,
+} from './ports';
+import {
+  denyAllReelEligibility,
+  noopCollectionCounterDenorm,
+  noopUserCounterDenorm,
+} from './ports';
 import { scheduleSearchEngagementNearline } from '../search/schedule';
 
 export class EngagementServiceError extends Error {
@@ -52,6 +60,7 @@ export class EngagementService {
     private readonly repo: EngagementRepository,
     private readonly collections: CollectionCounterDenormPort = noopCollectionCounterDenorm,
     private readonly users: UserCounterDenormPort = noopUserCounterDenorm,
+    private readonly reels: ReelEligibilityPort = denyAllReelEligibility,
   ) {}
 
   async recordFact(input: RecordFactInput): Promise<{ fact: InteractionFact; inserted: boolean }> {
@@ -285,6 +294,111 @@ export class EngagementService {
     }
   }
 
+  async getReelLikeSummary(
+    reelId: string,
+    userId?: string | null,
+  ): Promise<{ liked: boolean; likeCount: number }> {
+    const reel = await this.requireEligibleReel(reelId);
+    const [edge, likeCount] = await Promise.all([
+      userId
+        ? this.repo.getActiveEdge({
+            userId,
+            edgeType: 'LIKE',
+            objectType: 'reel',
+            objectId: reel.reelId,
+          })
+        : Promise.resolve(null),
+      this.repo.countActiveEdges({
+        edgeType: 'LIKE',
+        objectType: 'reel',
+        objectId: reel.reelId,
+      }),
+    ]);
+    return { liked: !!edge, likeCount };
+  }
+
+  async likeReel(params: {
+    eventId?: string;
+    userId: string;
+    reelId: string;
+    surface?: string | null;
+  }): Promise<{ liked: true; likeCount: number }> {
+    const reel = await this.requireEligibleReel(params.reelId);
+    const existing = await this.repo.getActiveEdge({
+      userId: params.userId,
+      edgeType: 'LIKE',
+      objectType: 'reel',
+      objectId: reel.reelId,
+    });
+    if (!existing) {
+      const { fact } = await this.recordFact({
+        eventId: params.eventId ?? randomUUID(),
+        interactionType: 'like',
+        objectType: 'reel',
+        objectId: reel.reelId,
+        actorUserId: params.userId,
+        collectionId: reel.collectionId,
+        creatorId: reel.creatorId,
+        surface: params.surface,
+        privacyClass: 'private',
+      });
+      await this.repo.upsertActiveEdge({
+        userId: params.userId,
+        edgeType: 'LIKE',
+        objectType: 'reel',
+        objectId: reel.reelId,
+        sourceEventId: fact.eventId,
+        privacyClass: 'private',
+      });
+    }
+    const likeCount = await this.repo.countActiveEdges({
+      edgeType: 'LIKE',
+      objectType: 'reel',
+      objectId: reel.reelId,
+    });
+    return { liked: true, likeCount };
+  }
+
+  async unlikeReel(params: {
+    eventId?: string;
+    userId: string;
+    reelId: string;
+    surface?: string | null;
+  }): Promise<{ liked: false; likeCount: number }> {
+    const reel = await this.requireEligibleReel(params.reelId);
+    const existing = await this.repo.getActiveEdge({
+      userId: params.userId,
+      edgeType: 'LIKE',
+      objectType: 'reel',
+      objectId: reel.reelId,
+    });
+    if (existing) {
+      await this.recordFact({
+        eventId: params.eventId ?? randomUUID(),
+        interactionType: 'unlike',
+        objectType: 'reel',
+        objectId: reel.reelId,
+        actorUserId: params.userId,
+        collectionId: reel.collectionId,
+        creatorId: reel.creatorId,
+        surface: params.surface,
+        privacyClass: 'private',
+      });
+      await this.repo.removeEdge({
+        userId: params.userId,
+        edgeType: 'LIKE',
+        objectType: 'reel',
+        objectId: reel.reelId,
+      });
+    }
+    const likeCount = await this.repo.countActiveEdges({
+      edgeType: 'LIKE',
+      objectType: 'reel',
+      objectId: reel.reelId,
+    });
+    return { liked: false, likeCount };
+  }
+
   async saveCollection(params: {
     eventId?: string;
     userId: string;
@@ -434,6 +548,14 @@ export class EngagementService {
     return this.repo.listActiveEdges({ userId, edgeType: 'SAVE', limit });
   }
 
+  private async requireEligibleReel(reelId: string) {
+    const reel = await this.reels.getEligiblePublicReel(reelId.trim());
+    if (!reel) {
+      throw new EngagementServiceError('Reel not found', 404);
+    }
+    return reel;
+  }
+
   private async bumpAndDenormCollection(
     collectionId: string,
     counterName: CounterName,
@@ -513,6 +635,12 @@ export class EngagementService {
         break;
       case 'open':
         emitEngagementEvent('CollectionOpened', base);
+        break;
+      case 'like':
+        emitEngagementEvent('ReelLiked', base);
+        break;
+      case 'unlike':
+        emitEngagementEvent('ReelUnliked', base);
         break;
       case 'save':
         emitEngagementEvent('CollectionSaved', base);

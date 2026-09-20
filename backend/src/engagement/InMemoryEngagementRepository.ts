@@ -74,7 +74,7 @@ export class InMemoryEngagementRepository implements EngagementRepository {
   async upsertActiveEdge(input: {
     userId: string;
     edgeType: EdgeType;
-    objectType: 'creator' | 'collection' | 'catalog_product';
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
     sourceEventId?: string | null;
     privacyClass?: PrivacyClass;
@@ -112,7 +112,7 @@ export class InMemoryEngagementRepository implements EngagementRepository {
   async removeEdge(input: {
     userId: string;
     edgeType: EdgeType;
-    objectType: 'creator' | 'collection' | 'catalog_product';
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
   }): Promise<RelationshipEdge | null> {
     const key = this.edgeKey(input.userId, input.edgeType, input.objectType, input.objectId);
@@ -126,7 +126,7 @@ export class InMemoryEngagementRepository implements EngagementRepository {
   async getActiveEdge(input: {
     userId: string;
     edgeType: EdgeType;
-    objectType: 'creator' | 'collection' | 'catalog_product';
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
   }): Promise<RelationshipEdge | null> {
     const edge = this.edges.get(
@@ -144,6 +144,20 @@ export class InMemoryEngagementRepository implements EngagementRepository {
       (e) => e.userId === input.userId && e.edgeType === input.edgeType && e.state === 'ACTIVE',
     );
     return out.slice(0, input.limit ?? 100);
+  }
+
+  async countActiveEdges(input: {
+    edgeType: EdgeType;
+    objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
+    objectId: string;
+  }): Promise<number> {
+    return [...this.edges.values()].filter(
+      (edge) =>
+        edge.edgeType === input.edgeType &&
+        edge.objectType === input.objectType &&
+        edge.objectId === input.objectId &&
+        edge.state === 'ACTIVE',
+    ).length;
   }
 
   async incrementCounter(input: {

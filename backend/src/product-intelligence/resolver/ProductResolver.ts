@@ -3,7 +3,11 @@ import type { ProductIntelligenceConfig } from '../config';
 import type {
   AiDraftInput,
   CatalogProduct,
+  CreateCatalogInput,
+  DiscoveredProductDraft,
+  NormalizedProduct,
   ResolveDraftResult,
+  ResolveIngestOptions,
   SearchCandidate,
   VerificationStatus,
 } from '../domain/types';
@@ -32,6 +36,7 @@ import { decideProductVerification } from '../verification/verificationPolicy';
 import { ingestLog } from '../../pipeline/ingestLog';
 import type { CatalogService } from '../../catalog/CatalogService';
 import { merchantUrlsMatch } from '../search/directUrlIdentity';
+import { discoveredProductIdentityKey } from '../discovered/identity';
 
 function aiFieldProvenance(provider = 'ai'): Record<string, { source: string; provider?: string }> {
   return {
@@ -107,15 +112,29 @@ export class ProductResolver {
     private readonly ingestId: string,
   ) {}
 
-  async resolveIngest(drafts: AiDraftInput[]): Promise<ResolveDraftResult[]> {
+  async resolveIngest(
+    drafts: AiDraftInput[],
+    opts: ResolveIngestOptions = {},
+  ): Promise<ResolveDraftResult[]> {
+    const promoteOnMiss = opts.promoteOnMiss !== false;
     const out: ResolveDraftResult[] = [];
     for (const d of drafts) {
-      out.push(await this.resolveOne(d));
+      out.push(await this.resolveOne(d, promoteOnMiss));
     }
     return out;
   }
 
-  private async resolveOne(draft: AiDraftInput): Promise<ResolveDraftResult> {
+  /**
+   * User-import resolve: same matcher/enrichment, no catalog write on miss.
+   */
+  async resolveForUserImport(drafts: AiDraftInput[]): Promise<ResolveDraftResult[]> {
+    return this.resolveIngest(drafts, { promoteOnMiss: false });
+  }
+
+  private async resolveOne(
+    draft: AiDraftInput,
+    promoteOnMiss = true,
+  ): Promise<ResolveDraftResult> {
     const norm = this.normalizer.normalize(draft);
     const specificity = scoreProductSpecificity(draft, norm, this.cfg.specificityMin);
     const t0 = performance.now();
@@ -130,7 +149,10 @@ export class ProductResolver {
     if (specificity.decision !== 'searchable') {
       const decision = 'insufficient_specificity';
       const reason = specificity.reasons.join(',');
-      const unverified = await this.upsertCatalog(draft.catalogProductId, {
+      const result = await this.writeMiss(promoteOnMiss, draft, norm, decision, reason, 0, {
+        specificityScore: specificity.score,
+        pdpClassifierScore: null,
+      }, {
         name: norm.name,
         normalizedName: norm.normalizedName,
         canonicalSlug: norm.canonicalSlugBase,
@@ -163,19 +185,11 @@ export class ProductResolver {
       });
       emitPiEvent('specificity.gated', {
         draftId: draft.draftId,
-        catalogId: unverified.id,
+        catalogId: result.catalogProductId,
         specificityScore: specificity.score,
         reason,
       });
-      return this.finishWithCatalog(
-        draft,
-        norm.aiConfidence,
-        unverified,
-        0,
-        decision,
-        reason,
-        { specificityScore: specificity.score, pdpClassifierScore: null },
-      );
+      return result;
     }
 
     const localHit = await this.catalog.localSearch(norm);
@@ -190,50 +204,52 @@ export class ProductResolver {
         score: localHit.score,
       });
       const hit = localHit.product;
-      const localProduct = await this.catalog.createOrUpdateFromResolve(hit.id, {
-        name: hit.name,
-        normalizedName: hit.normalizedName,
-        canonicalSlug: hit.canonicalSlug,
-        brand: hit.brand,
-        model: hit.model,
-        category: hit.category,
-        description: hit.description,
-        imageUrl: hit.imageUrl,
-        merchant: hit.merchant,
-        merchantUrl: hit.merchantUrl,
-        preferredShoppingUrl: hit.preferredShoppingUrl,
-        shoppingProvider: hit.shoppingProvider,
-        currency: hit.currency,
-        price: hit.price,
-        verificationStatus: 'VERIFIED',
-        verificationProvider: hit.verificationProvider ?? 'catalog',
-        verificationSource: 'catalog',
-        verificationVersion: this.cfg.verificationVersion,
-        aiConfidence: hit.aiConfidence,
-        matchConfidence: localHit.score,
-        verificationConfidence: hit.verificationConfidence,
-        metadata: {
-          field_provenance:
-            hit.metadata.field_provenance ?? {
-              title: { source: 'catalog' },
-              brand: { source: 'catalog' },
-              price: { source: 'catalog' },
-              heroImage: { source: 'catalog' },
-              merchant: { source: 'catalog' },
+      const localProduct = promoteOnMiss
+        ? await this.catalog.createOrUpdateFromResolve(hit.id, {
+            name: hit.name,
+            normalizedName: hit.normalizedName,
+            canonicalSlug: hit.canonicalSlug,
+            brand: hit.brand,
+            model: hit.model,
+            category: hit.category,
+            description: hit.description,
+            imageUrl: hit.imageUrl,
+            merchant: hit.merchant,
+            merchantUrl: hit.merchantUrl,
+            preferredShoppingUrl: hit.preferredShoppingUrl,
+            shoppingProvider: hit.shoppingProvider,
+            currency: hit.currency,
+            price: hit.price,
+            verificationStatus: 'VERIFIED',
+            verificationProvider: hit.verificationProvider ?? 'catalog',
+            verificationSource: 'catalog',
+            verificationVersion: this.cfg.verificationVersion,
+            aiConfidence: hit.aiConfidence,
+            matchConfidence: localHit.score,
+            verificationConfidence: hit.verificationConfidence,
+            metadata: {
+              field_provenance:
+                hit.metadata.field_provenance ?? {
+                  title: { source: 'catalog' },
+                  brand: { source: 'catalog' },
+                  price: { source: 'catalog' },
+                  heroImage: { source: 'catalog' },
+                  merchant: { source: 'catalog' },
+                },
+              scores: {
+                specificity: specificity.score,
+                match: localHit.score,
+              },
+              verification: {
+                decision: 'local_hit',
+                reason: localHit.via,
+                status: 'VERIFIED',
+                source: 'catalog',
+                version: this.cfg.verificationVersion,
+              },
             },
-          scores: {
-            specificity: specificity.score,
-            match: localHit.score,
-          },
-          verification: {
-            decision: 'local_hit',
-            reason: localHit.via,
-            status: 'VERIFIED',
-            source: 'catalog',
-            version: this.cfg.verificationVersion,
-          },
-        },
-      });
+          })
+        : hit;
       return this.finishWithCatalog(
         draft,
         norm.aiConfidence,
@@ -242,6 +258,7 @@ export class ProductResolver {
         'local_hit',
         localHit.via,
         { specificityScore: specificity.score, pdpClassifierScore: null },
+        { persistDraft: promoteOnMiss },
       );
     }
 
@@ -267,8 +284,12 @@ export class ProductResolver {
         errorKind: searchResult.errorKind,
         durationMs: Math.round(performance.now() - t0),
       });
-      // Always persist an UNRESOLVED catalog row so UI never depends on external providers.
-      const unresolved = await this.upsertCatalog(draft.catalogProductId, {
+      // Creator: persist UNRESOLVED so UI never depends on providers.
+      // User import: discovered payload, never a catalog placeholder.
+      const result = await this.writeMiss(promoteOnMiss, draft, norm, 'unresolved_search_failed', `${searchResult.errorKind}: ${searchResult.message}`, 0, {
+        specificityScore: specificity.score,
+        pdpClassifierScore: null,
+      }, {
         name: norm.name,
         normalizedName: norm.normalizedName,
         canonicalSlug: norm.canonicalSlugBase,
@@ -301,27 +322,20 @@ export class ProductResolver {
           },
         },
       });
-      emitPiEvent('draft.unresolved', { draftId: draft.draftId, catalogId: unresolved.id });
-      const result = await this.finishWithCatalog(
-        draft,
-        norm.aiConfidence,
-        unresolved,
-        0,
-        'unresolved_search_failed',
-        `${searchResult.errorKind}: ${searchResult.message}`,
-        { specificityScore: specificity.score, pdpClassifierScore: null },
-      );
-      if (this.background && this.cfg.backgroundResolve) {
+      emitPiEvent('draft.unresolved', { draftId: draft.draftId, catalogId: result.catalogProductId });
+      if (promoteOnMiss && this.background && this.cfg.backgroundResolve) {
         await this.background.enqueue({ draftId: draft.draftId, ingestId: this.ingestId });
         emitPiEvent('resolve.background_enqueued', { draftId: draft.draftId });
       }
-      // finishWithCatalog sets enqueueBackground false — mark for callers
-      return { ...result, enqueueBackground: true };
+      return { ...result, enqueueBackground: promoteOnMiss };
     }
 
     if (searchResult.candidates.length === 0) {
       emitPiEvent('search.succeeded_empty', { draftId: draft.draftId });
-      const created = await this.upsertCatalog(draft.catalogProductId, {
+      const result = await this.writeMiss(promoteOnMiss, draft, norm, 'created_unverified_empty_search', 'search succeeded with no acceptable PDP', 0.4, {
+        specificityScore: specificity.score,
+        pdpClassifierScore: null,
+      }, {
         name: norm.name,
         normalizedName: norm.normalizedName,
         canonicalSlug: norm.canonicalSlugBase,
@@ -352,16 +366,10 @@ export class ProductResolver {
           },
         },
       });
-      emitPiEvent('catalog.created_unverified', { catalogId: created.id });
-      return this.finishWithCatalog(
-        draft,
-        norm.aiConfidence,
-        created,
-        0.4,
-        'created_unverified_empty_search',
-        'search succeeded with no acceptable PDP',
-        { specificityScore: specificity.score, pdpClassifierScore: null },
-      );
+      if (result.catalogProductId) {
+        emitPiEvent('catalog.created_unverified', { catalogId: result.catalogProductId });
+      }
+      return result;
     }
 
     const metadataCandidates = searchResult.candidates.filter(
@@ -406,7 +414,13 @@ export class ProductResolver {
         this.cfg.verificationMatchMin,
       );
       emitPiEvent('search.succeeded_empty', { draftId: draft.draftId, reason: 'no_score' });
-      const created = await this.upsertCatalog(draft.catalogProductId, {
+      const lowReason = scoredBest
+        ? 'candidate failed PDP/enrichment verification policy'
+        : 'candidates below match threshold';
+      return this.writeMiss(promoteOnMiss, draft, norm, 'created_unverified_low_score', lowReason, 0.35, {
+        specificityScore: specificity.score,
+        pdpClassifierScore: scoredBest?.candidate.pdpScore ?? null,
+      }, {
         name: norm.name,
         normalizedName: norm.normalizedName,
         canonicalSlug: norm.canonicalSlugBase,
@@ -430,29 +444,13 @@ export class ProductResolver {
           },
           verification: {
             decision: 'created_unverified_low_score',
-            reason: scoredBest
-              ? 'candidate failed PDP/enrichment verification policy'
-              : 'candidates below match threshold',
+            reason: lowReason,
             status: 'UNVERIFIED',
             source: 'ai_fallback',
             version: this.cfg.verificationVersion,
           },
         },
       });
-      return this.finishWithCatalog(
-        draft,
-        norm.aiConfidence,
-        created,
-        0.35,
-        'created_unverified_low_score',
-        scoredBest
-          ? 'candidate failed PDP/enrichment verification policy'
-          : 'candidates below match threshold',
-        {
-          specificityScore: specificity.score,
-          pdpClassifierScore: scoredBest?.candidate.pdpScore ?? null,
-        },
-      );
     }
 
     const merged = mergeEnrichedCandidates(metadataCandidates);
@@ -620,7 +618,10 @@ export class ProductResolver {
       };
     }
 
-    const created = await this.upsertCatalog(draft.catalogProductId, {
+    const result = await this.writeMiss(promoteOnMiss, draft, norm, resolutionDecision, bestMatch.reason, bestMatch.score, {
+      specificityScore: specificity.score,
+      pdpClassifierScore: bestPdpScore,
+    }, {
       name: (creatorUrl ? seedCandidate?.title : null) || merged.title || norm.name,
       normalizedName: norm.normalizedName,
       canonicalSlug: norm.canonicalSlugBase,
@@ -685,7 +686,6 @@ export class ProductResolver {
           };
         }),
         shopping_candidates: shopping?.offers ?? [],
-        // Preserve business shopping config; never replace with pipeline evidence.
         ...(existingCatalog?.metadata?.shoppingSelection
           ? { shoppingSelection: existingCatalog.metadata.shoppingSelection }
           : {}),
@@ -710,24 +710,96 @@ export class ProductResolver {
         },
       },
     });
-    emitPiEvent(
-      verificationStatus === 'VERIFIED'
-        ? 'catalog.created_verified'
-        : 'catalog.created_unverified',
-      { catalogId: created.id },
-    );
+    if (result.catalogProductId) {
+      emitPiEvent(
+        verificationStatus === 'VERIFIED'
+          ? 'catalog.created_verified'
+          : 'catalog.created_unverified',
+        { catalogId: result.catalogProductId },
+      );
+    }
+    return result;
+  }
+
+  /**
+   * Creator promote-on-miss writes catalog; user import returns a discovered payload instead.
+   */
+  private async writeMiss(
+    promoteOnMiss: boolean,
+    draft: AiDraftInput,
+    norm: NormalizedProduct,
+    decision: string,
+    reason: string,
+    matchScore: number,
+    quality: { specificityScore: number; pdpClassifierScore: number | null },
+    catalogInput: CreateCatalogInput,
+  ): Promise<ResolveDraftResult> {
+    if (!promoteOnMiss) {
+      return this.finishAsDiscovered(draft, norm, decision, reason, matchScore, quality, catalogInput);
+    }
+    const created = await this.upsertCatalog(draft.catalogProductId, catalogInput);
     return this.finishWithCatalog(
       draft,
       norm.aiConfidence,
       created,
-      bestMatch.score,
-      resolutionDecision,
-      bestMatch.reason,
-      {
-        specificityScore: specificity.score,
-        pdpClassifierScore: bestPdpScore,
-      },
+      matchScore,
+      decision,
+      reason,
+      quality,
     );
+  }
+
+  private finishAsDiscovered(
+    draft: AiDraftInput,
+    norm: NormalizedProduct,
+    decision: string,
+    reason: string,
+    matchScore: number,
+    quality: { specificityScore: number; pdpClassifierScore: number | null },
+    catalogInput: CreateCatalogInput,
+  ): ResolveDraftResult {
+    const merchantUrl = catalogInput.merchantUrl ?? norm.merchantUrlHint ?? null;
+    const completeness =
+      typeof catalogInput.metadata?.metadata_completeness === 'number'
+        ? catalogInput.metadata.metadata_completeness
+        : typeof catalogInput.metadata?.metadataCompleteness === 'number'
+          ? catalogInput.metadata.metadataCompleteness
+          : null;
+    const discovered: DiscoveredProductDraft = {
+      name: catalogInput.name,
+      brand: catalogInput.brand ?? null,
+      model: catalogInput.model ?? null,
+      category: catalogInput.category ?? null,
+      imageUrl: catalogInput.imageUrl ?? null,
+      price: catalogInput.price ?? null,
+      currency: catalogInput.currency ?? null,
+      merchant: catalogInput.merchant ?? null,
+      merchantUrl,
+      identityKey: discoveredProductIdentityKey(norm, merchantUrl),
+      metadata: catalogInput.metadata ?? {},
+      matchConfidence: matchScore,
+      completeness,
+    };
+    emitPiEvent('catalog.miss', {
+      draftId: draft.draftId,
+      decision,
+      promoteOnMiss: false,
+    });
+    return {
+      draftId: draft.draftId,
+      resolutionStatus: catalogInput.verificationStatus,
+      catalogProductId: null,
+      merchantUrl,
+      affiliateUrl: null,
+      aiConfidence: norm.aiConfidence,
+      matchConfidence: matchScore,
+      decision,
+      reason,
+      enqueueBackground: false,
+      specificityScore: quality.specificityScore,
+      pdpClassifierScore: quality.pdpClassifierScore,
+      discovered,
+    };
   }
 
   /**
@@ -753,6 +825,7 @@ export class ProductResolver {
       specificityScore: 0,
       pdpClassifierScore: null,
     },
+    opts: { persistDraft?: boolean } = {},
   ): Promise<ResolveDraftResult> {
     // preferredShoppingUrl: configured URL / preferred-merchant exact / resolver — never force to merchantUrl.
     const merchantUrl = product.merchantUrl;
@@ -774,6 +847,7 @@ export class ProductResolver {
       specificityScore: quality.specificityScore,
       pdpClassifierScore: quality.pdpClassifierScore,
     };
+    const persistDraft = opts.persistDraft !== false;
     const provenance = product.metadata.metadataSourceMap ?? product.metadata.field_provenance;
     emitPiEvent('verification.decided', {
       draftId: draft.draftId,
@@ -791,17 +865,19 @@ export class ProductResolver {
         : null,
       metadataSourceMap: provenance ? JSON.stringify(provenance).slice(0, 500) : null,
     });
-    await this.persistDraft(result, product, draft);
-    await this.history.write({
-      draftId: draft.draftId,
-      catalogProductId: product.id,
-      score: matchScore,
-      decision,
-      reason,
-      aiConfidence,
-      matchConfidence: matchScore,
-      verificationConfidence: product.verificationConfidence,
-    });
+    if (persistDraft) {
+      await this.persistDraft(result, product, draft);
+      await this.history.write({
+        draftId: draft.draftId,
+        catalogProductId: product.id,
+        score: matchScore,
+        decision,
+        reason,
+        aiConfidence,
+        matchConfidence: matchScore,
+        verificationConfidence: product.verificationConfidence,
+      });
+    }
     return result;
   }
 

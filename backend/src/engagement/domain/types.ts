@@ -5,6 +5,7 @@ export type PrivacyClass = 'public' | 'private' | 'anonymous';
 export type EngagementObjectType =
   | 'collection'
   | 'creator'
+  | 'reel'
   | 'catalog_product'
   | 'collection_product_tag'
   | 'session'
@@ -15,6 +16,8 @@ export type InteractionType =
   | 'impression'
   | 'view'
   | 'open'
+  | 'like'
+  | 'unlike'
   | 'save'
   | 'unsave'
   | 'share'
@@ -35,7 +38,7 @@ export type InteractionType =
   | 'purchase_attributed'
   | 'view_invalidated';
 
-export type EdgeType = 'FOLLOW' | 'SAVE' | 'HIDE' | 'WISHLIST';
+export type EdgeType = 'FOLLOW' | 'SAVE' | 'LIKE' | 'HIDE' | 'WISHLIST';
 
 export type EdgeState = 'ACTIVE' | 'REMOVED';
 
@@ -75,7 +78,7 @@ export type RelationshipEdge = {
   id: string;
   userId: string;
   edgeType: EdgeType;
-  objectType: 'creator' | 'collection' | 'catalog_product';
+  objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
   objectId: string;
   state: EdgeState;
   sourceEventId: string | null;
@@ -110,6 +113,3 @@ export type RecordFactInput = {
   metadata?: Record<string, unknown>;
   occurredAt?: string;
 };
-
-/** V1: no Like. */
-export const V1_FORBIDDEN_EDGE_TYPES = [] as const;

@@ -792,6 +792,20 @@ export class SupabaseCollectionRepository implements CollectionRepository {
     return sum;
   }
 
+  async countPublishedPublicCollections(creatorId: string): Promise<number> {
+    const { count, error } = await this.admin
+      .from('collections')
+      .select('id', { count: 'exact', head: true })
+      .eq('creator_id', creatorId)
+      .eq('status', 'published')
+      .eq('visibility', 'public')
+      .eq('moderation_state', 'clear')
+      .is('deleted_at', null)
+      .not('published_at', 'is', null);
+    if (error) throw new Error(error.message);
+    return count ?? 0;
+  }
+
   async listPublishedCreatorProductTagRows(
     creatorId: string,
     opts: { limit: number; afterCatalogProductId?: string | null },

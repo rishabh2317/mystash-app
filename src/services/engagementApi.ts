@@ -30,6 +30,11 @@ export type CreatorAnalyticsSummary = {
   }[];
 };
 
+export type ReelLikeSummary = {
+  liked: boolean;
+  likeCount: number;
+};
+
 function apiBase(): string {
   const base = process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL?.replace(/\/$/, '');
   if (!base) {
@@ -114,7 +119,7 @@ export async function isFollowingCreator(creatorId: string): Promise<boolean> {
   return Boolean(body.following);
 }
 
-export async function listFollowingIncludes(creatorId: string): Promise<boolean> {
+export async function listFollowingIds(): Promise<string[]> {
   const token = await bearerToken();
   const res = await fetch(`${apiBase()}/engagement/me/following`, {
     method: 'GET',
@@ -128,7 +133,12 @@ export async function listFollowingIncludes(creatorId: string): Promise<boolean>
     throw new EngagementApiError(body.error ?? `Following list failed (${res.status})`, res.status);
   }
   const body = (await res.json()) as { following?: { creator_id: string }[] };
-  return (body.following ?? []).some((e) => e.creator_id === creatorId);
+  return (body.following ?? []).map((e) => e.creator_id.trim()).filter(Boolean);
+}
+
+export async function listFollowingIncludes(creatorId: string): Promise<boolean> {
+  const ids = await listFollowingIds();
+  return ids.includes(creatorId);
 }
 
 export async function saveCollection(
@@ -192,6 +202,65 @@ export async function listSavedCollectionIds(): Promise<string[]> {
   }
   const body = (await res.json()) as { saves?: { collection_id: string }[] };
   return (body.saves ?? []).map((e) => e.collection_id);
+}
+
+export async function getReelLikeSummary(reelId: string): Promise<ReelLikeSummary> {
+  const res = await fetch(
+    `${apiBase()}/engagement/reels/${encodeURIComponent(reelId)}/like`,
+    {
+      method: 'GET',
+      headers: await authHeaders(),
+    },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new EngagementApiError(body.error ?? `Reel likes failed (${res.status})`, res.status);
+  }
+  const body = (await res.json()) as { liked?: boolean; like_count?: number };
+  return {
+    liked: Boolean(body.liked),
+    likeCount: Math.max(0, Math.floor(Number(body.like_count) || 0)),
+  };
+}
+
+async function setReelLiked(
+  reelId: string,
+  liked: boolean,
+  surface?: string,
+): Promise<ReelLikeSummary> {
+  const token = await bearerToken();
+  const res = await fetch(
+    `${apiBase()}/engagement/reels/${encodeURIComponent(reelId)}/like`,
+    {
+      method: liked ? 'POST' : 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        event_id: newEventId(),
+        ...(surface ? { surface } : {}),
+      }),
+    },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new EngagementApiError(body.error ?? `Reel like failed (${res.status})`, res.status);
+  }
+  const body = (await res.json()) as { liked?: boolean; like_count?: number };
+  return {
+    liked: Boolean(body.liked),
+    likeCount: Math.max(0, Math.floor(Number(body.like_count) || 0)),
+  };
+}
+
+export function likeReel(reelId: string, surface?: string): Promise<ReelLikeSummary> {
+  return setReelLiked(reelId, true, surface);
+}
+
+export function unlikeReel(reelId: string, surface?: string): Promise<ReelLikeSummary> {
+  return setReelLiked(reelId, false, surface);
 }
 
 /** Hydrate Save state from Engagement SoT (`GET /engagement/me/saves`). */

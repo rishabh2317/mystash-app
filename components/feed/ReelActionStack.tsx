@@ -4,16 +4,18 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SaveControl } from '@/components/engagement/SaveControl';
 import { ShareControl } from '@/components/engagement/ShareControl';
+import { LikeControl } from '@/components/engagement/LikeControl';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { formatEngagementCount } from '@/src/ui/formatEngagementCount';
 import { FEED_MIN_HIT_TARGET } from '@/src/ui/feedA11y';
-import type { FeedReelSave, FeedReelShare } from '@/src/ui/feedReelTypes';
+import type { FeedReelLike, FeedReelSave, FeedReelShare } from '@/src/ui/feedReelTypes';
 
 type Props = {
   onVolumeToggle?: () => void;
   isMuted?: boolean;
+  like?: FeedReelLike | null;
   save?: FeedReelSave | null;
   share?: FeedReelShare | null;
   /** Distance from stage bottom to the bottom of the action rail. */
@@ -45,12 +47,13 @@ function CountLabel({ value }: { value: number }) {
 export function ReelActionStack({
   onVolumeToggle,
   isMuted,
+  like,
   save,
   share,
   bottomOffset,
 }: Props) {
   const { tokens } = useThemeMode();
-  if (!onVolumeToggle && !save && !share) return null;
+  if (!onVolumeToggle && !like && !save && !share) return null;
 
   return (
     <View
@@ -89,6 +92,17 @@ export function ReelActionStack({
               color={tokens.immersive.icon}
             />
           </Pressable>
+        </View>
+      ) : null}
+      {like ? (
+        <View style={[styles.actionCol, { gap: tokens.space.xxs }]}>
+          <LikeControl
+            isLiked={like.isLiked}
+            pending={like.pending}
+            immersive
+            onPress={like.onPress}
+          />
+          <CountLabel value={like.count} />
         </View>
       ) : null}
       {save ? (

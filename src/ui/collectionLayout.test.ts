@@ -4,19 +4,19 @@ import { describe, it } from 'node:test';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
 import {
-  COLLECTION_INLINE_PLAYER_MAX_WIDTH,
+  COLLECTION_MEDIA_MAX_HEIGHT_RATIO,
   COLLECTION_PAGE_EMBEDS_PLAYER,
+  COLLECTION_SCROLL_HORIZONTAL_PADDING,
   ORIGINAL_REEL_LABEL,
   buildCollectionPreviewVideo,
-  collectionInlinePlayerWidth,
+  collectionMediaFrameSize,
   collectionMediaReference,
   collectionMediaSourceUrl,
   collectionMediaWatchLinkLabel,
   collectionReelPath,
   collectionTilePressPath,
-  collectionReelPlayerSize,
   originalReelPlatformLabel,
-  splitCollectionProducts,
+  COLLECTION_YOUTUBE_CROP_SCALE,
 } from './collectionLayout';
 
 function product(id: string): CatalogProductViewModel {
@@ -73,27 +73,12 @@ function collection(
 describe('UX-B.5 collection layout', () => {
   it('embeds a compact inline player on the Collection page', () => {
     assert.equal(COLLECTION_PAGE_EMBEDS_PLAYER, true);
+    assert.ok(COLLECTION_YOUTUBE_CROP_SCALE > 1.12);
   });
 
   it('opens the existing Focused Reel route for full-screen', () => {
     assert.equal(collectionReelPath('col-1'), '/reel/col-1');
     assert.equal(collectionTilePressPath('col-1'), '/reel/col-1');
-  });
-
-  it('keeps products first: featured rail only when there are 4+ items, shop-all is the full list', () => {
-    const three = splitCollectionProducts([product('a'), product('b'), product('c')]);
-    assert.deepEqual(three.featured.map((p) => p.id), []);
-    assert.equal(three.shopAll.length, 3);
-
-    const five = splitCollectionProducts([
-      product('a'),
-      product('b'),
-      product('c'),
-      product('d'),
-      product('e'),
-    ]);
-    assert.deepEqual(five.featured.map((p) => p.id), ['a', 'b', 'c']);
-    assert.deepEqual(five.shopAll.map((p) => p.id), ['a', 'b', 'c', 'd', 'e']);
   });
 
   it('builds media reference + preview video for inline embed', () => {
@@ -112,11 +97,25 @@ describe('UX-B.5 collection layout', () => {
     assert.equal(video.embed_url, 'https://www.youtube.com/embed/abc12345678');
   });
 
-  it('sizes the compact reel player within editorial bounds', () => {
-    assert.equal(collectionInlinePlayerWidth(390), 226);
-    assert.equal(collectionInlinePlayerWidth(320), 200);
-    assert.ok(collectionInlinePlayerWidth(500) <= COLLECTION_INLINE_PLAYER_MAX_WIDTH);
-    assert.deepEqual(collectionReelPlayerSize(390), { width: 226, height: 402 });
+  it('keeps the editorial media frame portrait and inside the viewport', () => {
+    const contentWidth = 390 - COLLECTION_SCROLL_HORIZONTAL_PADDING * 2;
+    const phone = collectionMediaFrameSize({ screenWidth: 390, screenHeight: 844 });
+    assert.equal(phone.width, 313);
+    assert.equal(phone.height, 556);
+    assert.ok(phone.height / phone.width > 1.7, 'stays portrait');
+    assert.ok(phone.width <= contentWidth);
+    // The evidence should dominate: near the full content column, not a narrow
+    // frame floating inside it.
+    assert.ok(phone.width / contentWidth > 0.85, 'fills most of the content column');
+
+    // Short/wide viewport: height budget wins, never a landscape crop.
+    const short = collectionMediaFrameSize({ screenWidth: 430, screenHeight: 600 });
+    assert.ok(short.height <= 600 * COLLECTION_MEDIA_MAX_HEIGHT_RATIO + 1);
+    assert.ok(short.height > short.width);
+
+    // Narrow viewport: never wider than the content column.
+    const narrow = collectionMediaFrameSize({ screenWidth: 320, screenHeight: 1000 });
+    assert.equal(narrow.width, 320 - COLLECTION_SCROLL_HORIZONTAL_PADDING * 2);
   });
 
   it('exposes the public source URL for the media link', () => {
