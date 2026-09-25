@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { DiscoveredProductRepository } from './DiscoveredProductRepository';
+import type {
+  DiscoveredProductRepository,
+  UpdateDiscoveredProductPatch,
+} from './DiscoveredProductRepository';
 import type { DiscoveredProductRecord, InsertDiscoveredProductRow } from './domain/types';
 
 function now(): string {
@@ -57,5 +60,31 @@ export class InMemoryDiscoveredProductRepository implements DiscoveredProductRep
 
   async insert(row: InsertDiscoveredProductRow): Promise<DiscoveredProductRecord> {
     return this.seed(row);
+  }
+
+  async update(id: string, patch: UpdateDiscoveredProductPatch): Promise<DiscoveredProductRecord | null> {
+    const existing = this.products.get(id);
+    if (!existing) return null;
+    const next: DiscoveredProductRecord = {
+      ...existing,
+      name: patch.name !== undefined ? patch.name : existing.name,
+      brand: patch.brand !== undefined ? patch.brand : existing.brand,
+      model: patch.model !== undefined ? patch.model : existing.model,
+      category: patch.category !== undefined ? patch.category : existing.category,
+      imageUrl: patch.imageUrl !== undefined ? patch.imageUrl : existing.imageUrl,
+      price: patch.price !== undefined ? patch.price : existing.price,
+      currency: patch.currency !== undefined ? patch.currency : existing.currency,
+      merchant: patch.merchant !== undefined ? patch.merchant : existing.merchant,
+      merchantUrl: patch.merchantUrl !== undefined ? patch.merchantUrl : existing.merchantUrl,
+      metadata: patch.metadata !== undefined ? { ...patch.metadata } : { ...existing.metadata },
+      matchConfidence:
+        patch.matchConfidence !== undefined ? patch.matchConfidence : existing.matchConfidence,
+      completeness: patch.completeness !== undefined ? patch.completeness : existing.completeness,
+      processorVersion:
+        patch.processorVersion !== undefined ? patch.processorVersion : existing.processorVersion,
+      updatedAt: now(),
+    };
+    this.products.set(id, next);
+    return { ...next, metadata: { ...next.metadata } };
   }
 }

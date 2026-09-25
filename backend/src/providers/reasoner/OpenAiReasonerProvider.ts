@@ -28,7 +28,6 @@ export class OpenAiReasonerProvider implements ReasonerProvider {
     const t0 = performance.now();
     const cfg = getPipelineConfig();
     const client = createOpenAIClient();
-    const contextJson = JSON.stringify(input.context, null, 0).slice(0, 100_000);
 
     const completion = await openaiCompletionWithRateLimit(
       this.admin,
@@ -41,7 +40,7 @@ export class OpenAiReasonerProvider implements ReasonerProvider {
           max_tokens: 4096,
           messages: [
             { role: 'system', content: PRODUCT_REASONER_SYSTEM },
-            { role: 'user', content: buildReasonerUserPayload(contextJson) },
+            { role: 'user', content: buildReasonerUserPayload(input.context) },
           ],
         }),
     );

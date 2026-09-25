@@ -12,6 +12,7 @@ type UserImportRow = {
   platform: string;
   content_source_id: string | null;
   status: string;
+  timed_out_at: string | null;
   created_at: string;
   updated_at: string;
   schema_version: number;
@@ -28,6 +29,7 @@ function mapRow(row: UserImportRow): UserImportRecord {
     platform: row.platform,
     contentSourceId: row.content_source_id,
     status: row.status as UserImportStatus,
+    timedOutAt: row.timed_out_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     schemaVersion: row.schema_version,
@@ -46,6 +48,16 @@ export class SupabaseUserImportRepository implements UserImportRepository {
       .select('*')
       .eq('user_id', userId)
       .eq('dedupe_key', dedupeKey)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapRow(data as UserImportRow) : null;
+  }
+
+  async findById(id: string): Promise<UserImportRecord | null> {
+    const { data, error } = await this.admin
+      .from('user_imports')
+      .select('*')
+      .eq('id', id)
       .maybeSingle();
     if (error) throw error;
     return data ? mapRow(data as UserImportRow) : null;
@@ -89,5 +101,49 @@ export class SupabaseUserImportRepository implements UserImportRepository {
       .order('created_at', { ascending: true });
     if (error) throw error;
     return ((data ?? []) as UserImportRow[]).map(mapRow);
+  }
+
+  async markTimedOut(id: string, timedOutAt: string): Promise<UserImportRecord | null> {
+    const { data, error } = await this.admin
+      .from('user_imports')
+      .update({
+        timed_out_at: timedOutAt,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .is('timed_out_at', null)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return mapRow(data as UserImportRow);
+    return this.findById(id);
+  }
+
+  async clearTimedOut(id: string): Promise<UserImportRecord | null> {
+    const { data, error } = await this.admin
+      .from('user_imports')
+      .update({
+        timed_out_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .not('timed_out_at', 'is', null)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return mapRow(data as UserImportRow);
+    return this.findById(id);
+  }
+
+  async deleteForUser(id: string, userId: string): Promise<boolean> {
+    const { data, error } = await this.admin
+      .from('user_imports')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select('id')
+      .maybeSingle();
+    if (error) throw error;
+    return Boolean(data);
   }
 }

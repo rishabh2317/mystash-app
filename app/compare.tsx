@@ -118,7 +118,7 @@ export default function CompareScreen() {
   return (
     <View style={styles.screen}>
       <LinearGradient colors={[...softCanvasGradient(tokens)]} style={StyleSheet.absoluteFill} />
-      <TopBar mode="page" title={COMPARE_COPY.title} showBack showBag />
+      <TopBar mode="page" title={COMPARE_COPY.title} showBack />
       {status === 'loading' ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.color.accent} />

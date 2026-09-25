@@ -39,6 +39,12 @@ export type User = {
   country: string | null;
   language: string | null;
   timezone: string | null;
+  /** When country was last set from device location (ISO timestamp). */
+  countryDetectedAt: string | null;
+  /** When location was last checked (ISO timestamp). */
+  lastLocationCheckAt: string | null;
+  /** location = auto; manual = user override; null = unset/legacy. */
+  countrySource: 'location' | 'manual' | null;
   joinedAt: string;
   deletedAt: string | null;
   emailMirrored: string | null;
@@ -82,6 +88,9 @@ export type UserSettings = PublicUserProfile & {
   country: string | null;
   language: string | null;
   timezone: string | null;
+  countryDetectedAt: string | null;
+  lastLocationCheckAt: string | null;
+  countrySource: 'location' | 'manual' | null;
   authProvider: string | null;
 };
 
@@ -125,6 +134,9 @@ export function toSettings(user: User): UserSettings {
     country: user.country,
     language: user.language,
     timezone: user.timezone,
+    countryDetectedAt: user.countryDetectedAt,
+    lastLocationCheckAt: user.lastLocationCheckAt,
+    countrySource: user.countrySource,
     authProvider: user.authProvider,
   };
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { outlineCardChrome } from '@/src/theme/tokens';
 
 type Props = {
   title?: string;
@@ -34,8 +35,7 @@ export function SettingsSection({ title, children }: Props) {
         style={[
           styles.group,
           {
-            backgroundColor: tokens.color.surface,
-            borderColor: tokens.color.border,
+            ...outlineCardChrome(tokens),
             borderRadius: tokens.radius.xl,
           },
         ]}

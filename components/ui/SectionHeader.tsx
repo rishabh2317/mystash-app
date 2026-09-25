@@ -1,7 +1,9 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { typeStyle } from '@/src/theme/typography';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 
@@ -32,27 +34,17 @@ export function SectionHeader({
   return (
     <View style={[styles.row, { gap: tokens.space.sm }]}>
       <View style={styles.copy}>
-        <Text
-          style={{
-            color: tokens.color.text,
-            // A step above product titles (`title`) so the page's structure
-            // reads before its contents.
-            fontSize: tokens.fontSize.section,
-            lineHeight: tokens.lineHeight.section,
-            fontWeight: tokens.fontWeight.bold,
-            letterSpacing: -0.3,
-          }}
-        >
-          {title}
-        </Text>
+        <Text style={typeStyle(tokens, 'sectionTitle')}>{title}</Text>
         {subtitle ? (
           <Text
-            style={{
-              color: tokens.color.textMuted,
-              fontSize: tokens.fontSize.label,
-              lineHeight: tokens.lineHeight.label,
-              marginTop: tokens.space.xxs / 2,
-            }}
+            style={[
+              typeStyle(tokens, 'bodyMuted'),
+              {
+                fontSize: tokens.fontSize.label,
+                lineHeight: tokens.lineHeight.label,
+                marginTop: tokens.space.xxs / 2,
+              },
+            ]}
           >
             {subtitle}
           </Text>
@@ -68,16 +60,7 @@ export function SectionHeader({
             opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
           })}
         >
-          <Text
-            style={{
-              color: tokens.color.primary,
-              fontSize: tokens.fontSize.label,
-              lineHeight: tokens.lineHeight.label,
-              fontWeight: tokens.fontWeight.bold,
-            }}
-          >
-            {actionLabel}
-          </Text>
+          <Text style={typeStyle(tokens, 'link')}>{actionLabel}</Text>
         </Pressable>
       ) : null}
     </View>

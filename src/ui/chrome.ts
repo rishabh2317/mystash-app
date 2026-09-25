@@ -2,17 +2,24 @@ import { BAG_COPY } from '@/src/ui/contracts';
 
 export type TopBarMode = 'immersive' | 'page';
 
-/** Tab destinations. Bag is chrome-only, never a tab. */
+/**
+ * Canonical footer destinations (user-facing labels).
+ * Watch keeps the Home feed route (`index`). Stash opens existing `/cart`.
+ */
 export const APP_TAB_ITEMS = [
-  { name: 'index', title: 'Home' },
-  { name: 'search', title: 'Search' },
-  { name: 'create', title: 'Create' },
-  { name: 'profile', title: 'Profile' },
+  { name: 'index', title: 'Watch', icon: 'play-outline' },
+  { name: 'search', title: 'Search', icon: 'search-outline' },
+  { name: 'create', title: 'Create', icon: 'add-outline' },
+  { name: 'stash', title: 'Stash', icon: 'bag-handle-outline' },
+  { name: 'profile', title: 'Profile', icon: 'person-outline' },
 ] as const;
 
+/** Refined outline icon size for the footer (not oversized). */
+export const APP_TAB_ICON_SIZE = 22;
+
 /**
- * Routes whose tab bar sits on media and therefore uses the immersive
- * treatment. The tab bar itself is never forked — only its variant changes.
+ * Routes whose tab bar sits on the Watch feed and stays solid black.
+ * The tab bar itself is never forked — only its surface variant changes.
  */
 export function isImmersiveTabRoute(pathname: string | null | undefined): boolean {
   const path = pathname?.trim();
@@ -27,7 +34,7 @@ export function isImmersiveTabRoute(pathname: string | null | undefined): boolea
 }
 
 /**
- * Badge count for BagButton.
+ * Badge count for the Stash tab icon.
  * Unsigned users never see a count (cart may still exist internally).
  */
 export function bagBadgeCount(signedIn: boolean, itemCount: number): number {
@@ -40,9 +47,9 @@ export function bagButtonAccessibilityLabel(badgeCount: number): string {
   return `${BAG_COPY.noun}, ${badgeCount} items`;
 }
 
-export function bagScreenTitle(itemCount: number): string {
-  if (itemCount <= 0) return BAG_COPY.noun;
-  return `${BAG_COPY.noun} · ${itemCount}`;
+/** TopBar title on /cart — count lives in the editorial Stash header. */
+export function bagScreenTitle(_itemCount?: number): string {
+  return BAG_COPY.yourStash;
 }
 
 export function formatBagBadgeText(badgeCount: number): string {

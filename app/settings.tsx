@@ -1,9 +1,11 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,14 +17,17 @@ import { TopBar } from '@/components/chrome/TopBar';
 import { SettingsRow } from '@/components/settings/SettingsRow';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCommerceCountry } from '@/contexts/CommerceCountryContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { ensureMe, type UserSettingsViewModel } from '@/src/services/userApi';
 import { BAG_COPY } from '@/src/ui/contracts';
 import {
   SETTINGS_COPY,
+  SHOPPING_COUNTRY_OPTIONS,
   settingsAppearanceValue,
   settingsCreatorStatusLabel,
   settingsCurateCopy,
+  settingsShoppingCountryValue,
 } from '@/src/ui/settingsHub';
 
 /** Settings hub — compact grouped rows over the existing account destinations. */
@@ -30,7 +35,9 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { tokens, isLight, toggleTheme } = useThemeMode();
   const { user, loading, signOut } = useAuth();
+  const { snapshot, setManualCountry, enableAutomaticLocation, refresh } = useCommerceCountry();
   const [me, setMe] = useState<UserSettingsViewModel | null>(null);
+  const [countryBusy, setCountryBusy] = useState(false);
 
   useEffect(() => {
     if (!user || loading) {
@@ -50,6 +57,20 @@ export default function SettingsScreen() {
     };
   }, [user, loading]);
 
+  useEffect(() => {
+    if (!snapshot?.country || !me) return;
+    if (me.country === snapshot.country && me.countrySource === snapshot.countrySource) return;
+    setMe((current) =>
+      current
+        ? {
+            ...current,
+            country: snapshot.country,
+            countrySource: snapshot.countrySource,
+          }
+        : current,
+    );
+  }, [snapshot, me]);
+
   const profileHandle = useMemo(() => {
     if (!user) return '';
     return me?.username || (user.user_metadata?.username as string) || user.email?.split('@')[0] || 'user';
@@ -58,6 +79,65 @@ export default function SettingsScreen() {
   const creatorStatusLabel = settingsCreatorStatusLabel(me?.creatorStatus);
   const curateCopy = settingsCurateCopy(me?.creatorStatus);
   const showAnalytics = Boolean(me && me.creatorStatus !== 'NONE');
+  const shoppingCountryValue = settingsShoppingCountryValue({
+    country: snapshot?.country ?? me?.country,
+    countrySource: snapshot?.countrySource ?? me?.countrySource,
+  });
+
+  const onPickShoppingCountry = () => {
+    const applyManual = async (code: string) => {
+      setCountryBusy(true);
+      try {
+        await setManualCountry(code);
+        await refresh();
+      } catch (e) {
+        Alert.alert('Could not update country', e instanceof Error ? e.message : 'Try again.');
+      } finally {
+        setCountryBusy(false);
+      }
+    };
+    const applyLocation = async () => {
+      setCountryBusy(true);
+      try {
+        await enableAutomaticLocation();
+        await refresh();
+      } catch (e) {
+        Alert.alert('Could not use location', e instanceof Error ? e.message : 'Try again.');
+      } finally {
+        setCountryBusy(false);
+      }
+    };
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [
+            'Cancel',
+            SETTINGS_COPY.shoppingCountryUseLocation,
+            ...SHOPPING_COUNTRY_OPTIONS.map((row) => row.label),
+          ],
+          cancelButtonIndex: 0,
+        },
+        (index) => {
+          if (index === 1) void applyLocation();
+          else if (index > 1) {
+            const option = SHOPPING_COUNTRY_OPTIONS[index - 2];
+            if (option) void applyManual(option.code);
+          }
+        },
+      );
+      return;
+    }
+
+    Alert.alert(SETTINGS_COPY.shoppingCountry, SETTINGS_COPY.shoppingCountryHint, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: SETTINGS_COPY.shoppingCountryUseLocation, onPress: () => void applyLocation() },
+      ...SHOPPING_COUNTRY_OPTIONS.map((row) => ({
+        text: row.label,
+        onPress: () => void applyManual(row.code),
+      })),
+    ]);
+  };
 
   if (loading) {
     return (
@@ -186,7 +266,15 @@ export default function SettingsScreen() {
           />
           <SettingsRow
             variant="navigation"
-            icon="cart-outline"
+            icon="flag-outline"
+            title={SETTINGS_COPY.shoppingCountry}
+            subtitle={SETTINGS_COPY.shoppingCountryHint}
+            value={countryBusy ? 'Updating…' : shoppingCountryValue}
+            onPress={onPickShoppingCountry}
+          />
+          <SettingsRow
+            variant="navigation"
+            icon="bag-handle-outline"
             title={SETTINGS_COPY.bag}
             value={BAG_COPY.view}
             onPress={() => router.push('/cart')}

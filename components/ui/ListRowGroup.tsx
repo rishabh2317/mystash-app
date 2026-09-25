@@ -3,6 +3,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { outlineCardChrome } from '@/src/theme/tokens';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 
 export type ListRowSpec = {
@@ -35,8 +36,7 @@ export function ListRowGroup({ rows }: Props) {
       style={[
         styles.group,
         {
-          backgroundColor: tokens.color.surface,
-          borderColor: tokens.color.border,
+          ...outlineCardChrome(tokens),
           borderRadius: tokens.radius.xl,
         },
       ]}
@@ -91,7 +91,7 @@ export function ListRowGroup({ rows }: Props) {
               </Text>
             ) : null}
           </View>
-          <Ionicons name="chevron-forward" size={16} color={tokens.color.textMuted} />
+          <Ionicons name="chevron-forward-outline" size={16} color={tokens.color.textMuted} />
         </Pressable>
       ))}
     </View>

@@ -41,4 +41,41 @@ describe('DiscoveredProductService', () => {
     const { record } = await service.getOrCreate(draft(), 'v1');
     assert.equal(record.catalogProductId, null);
   });
+
+  it('backfills imageUrl on reuse when existing is null and draft has http image', async () => {
+    const repo = new InMemoryDiscoveredProductRepository();
+    const service = new DiscoveredProductService(repo);
+    const first = await service.getOrCreate(draft({ imageUrl: null }), 'v1');
+    assert.equal(first.record.imageUrl, null);
+    const second = await service.getOrCreate(
+      draft({ imageUrl: 'https://cdn.example.com/gadget.jpg' }),
+      'v1',
+    );
+    assert.equal(second.created, false);
+    assert.equal(second.record.id, first.record.id);
+    assert.equal(second.record.imageUrl, 'https://cdn.example.com/gadget.jpg');
+  });
+
+  it('never overwrites an existing imageUrl on reuse', async () => {
+    const repo = new InMemoryDiscoveredProductRepository();
+    const service = new DiscoveredProductService(repo);
+    const first = await service.getOrCreate(
+      draft({ imageUrl: 'https://cdn.example.com/original.jpg' }),
+      'v1',
+    );
+    const second = await service.getOrCreate(
+      draft({ imageUrl: 'https://cdn.example.com/newer.jpg' }),
+      'v1',
+    );
+    assert.equal(second.created, false);
+    assert.equal(second.record.imageUrl, 'https://cdn.example.com/original.jpg');
+  });
+
+  it('ignores non-http draft images on reuse backfill', async () => {
+    const repo = new InMemoryDiscoveredProductRepository();
+    const service = new DiscoveredProductService(repo);
+    await service.getOrCreate(draft({ imageUrl: null }), 'v1');
+    const second = await service.getOrCreate(draft({ imageUrl: '/relative/path.jpg' }), 'v1');
+    assert.equal(second.record.imageUrl, null);
+  });
 });

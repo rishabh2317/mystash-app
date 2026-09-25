@@ -34,7 +34,7 @@ export function FeedPlayOverlay({ visible, onPress }: Props) {
           },
         ]}
       >
-        <Ionicons name="play" size={44} color={tokens.immersive.iconMuted} />
+        <Ionicons name="play-outline" size={44} color={tokens.immersive.iconMuted} />
       </Pressable>
     </View>
   );

@@ -128,6 +128,56 @@ describe('UserService', () => {
     assert.equal(settings?.publicStats.totalReelLikesReceived, 0);
   });
 
+  it('updates commerce country from location without fabricating codes', async () => {
+    const { svc } = setup();
+    await svc.ensureFromAuth(authUser);
+    const inResult = await svc.updateCommerceCountry(authUser.id, {
+      country: 'IN',
+      source: 'location',
+    });
+    assert.equal(inResult.changed, true);
+    assert.equal(inResult.user.country, 'IN');
+    assert.equal(inResult.user.countrySource, 'location');
+    assert.ok(inResult.user.countryDetectedAt);
+    assert.ok(inResult.user.lastLocationCheckAt);
+
+    const usResult = await svc.updateCommerceCountry(authUser.id, {
+      country: 'US',
+      source: 'location',
+    });
+    assert.equal(usResult.changed, true);
+    assert.equal(usResult.user.country, 'US');
+
+    const same = await svc.updateCommerceCountry(authUser.id, {
+      country: 'US',
+      source: 'location',
+    });
+    assert.equal(same.changed, false);
+    assert.equal(same.user.country, 'US');
+  });
+
+  it('does not let location overwrite a manual commerce country unless forced', async () => {
+    const { svc } = setup();
+    await svc.ensureFromAuth(authUser);
+    await svc.updateCommerceCountry(authUser.id, { country: 'GB', source: 'manual' });
+    const blocked = await svc.updateCommerceCountry(authUser.id, {
+      country: 'IN',
+      source: 'location',
+    });
+    assert.equal(blocked.changed, false);
+    assert.equal(blocked.user.country, 'GB');
+    assert.equal(blocked.user.countrySource, 'manual');
+
+    const forced = await svc.updateCommerceCountry(authUser.id, {
+      country: 'IN',
+      source: 'location',
+      force: true,
+    });
+    assert.equal(forced.changed, true);
+    assert.equal(forced.user.country, 'IN');
+    assert.equal(forced.user.countrySource, 'location');
+  });
+
   it('attaches total Reel likes received and live Collection count', async () => {
     const { svc, collections } = setup(14);
     await svc.ensureFromAuth(authUser);

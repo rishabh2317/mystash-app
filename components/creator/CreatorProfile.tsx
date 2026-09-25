@@ -4,19 +4,21 @@ import {
   FlatList,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import type { AddToCartOutcome } from '@/src/services/productActionOrchestration';
 import type { CreatorViewModel } from '@/src/types/creator';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
-import { CollectionTile } from '@/components/collection/CollectionTile';
+import { PublicCollectionTile } from '@/components/collection/PublicCollectionTile';
 import { ProductCard } from '@/components/commerce';
+import { Text } from '@/components/ui/Text';
 import {
   CreatorProfileHeader,
   type CreatorProfileTab,
 } from './CreatorProfileHeader';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { typeStyle } from '@/src/theme/typography';
 import { CREATOR_PROFILE_FLATLIST_KEYS } from '@/src/ui/creatorProfileFlatList';
 
 type Props = {
@@ -34,9 +36,11 @@ type Props = {
   productsLoadingMore?: boolean;
   productsError?: string | null;
   onFollowPress: () => void;
+  onSharePress: () => void;
   onTabChange: (tab: CreatorProfileTab) => void;
   onPressCollection: (collection: CollectionViewModel) => void;
   onPressProduct: (product: CatalogProductViewModel) => void;
+  onAddToCart?: (product: CatalogProductViewModel) => AddToCartOutcome | Promise<AddToCartOutcome>;
   onEndReached?: () => void;
   onRetry?: () => void;
 };
@@ -59,9 +63,11 @@ export function CreatorProfile({
   productsLoadingMore,
   productsError,
   onFollowPress,
+  onSharePress,
   onTabChange,
   onPressCollection,
   onPressProduct,
+  onAddToCart,
   onEndReached,
   onRetry,
 }: Props) {
@@ -79,6 +85,7 @@ export function CreatorProfile({
       followPending={followPending}
       activeTab={activeTab}
       onFollowPress={onFollowPress}
+      onSharePress={onSharePress}
       onTabChange={onTabChange}
     />
   );
@@ -90,22 +97,14 @@ export function CreatorProfile({
   const rowStyle = [styles.row, { gap, marginBottom: gap }];
 
   const empty = (message: string) => (
-    <Text
-      style={{
-        color: muted,
-        marginTop: tokens.space.lg,
-        textAlign: 'center',
-        fontSize: tokens.fontSize.body,
-        lineHeight: tokens.lineHeight.body,
-      }}
-    >
+    <Text style={[typeStyle(tokens, 'bodyMuted'), { marginTop: tokens.space.lg, textAlign: 'center' }]}>
       {message}
     </Text>
   );
 
   const retry = (
     <Pressable onPress={onRetry} style={styles.retry}>
-      <Text style={{ color: text, fontWeight: tokens.fontWeight.bold }}>Retry</Text>
+      <Text style={[typeStyle(tokens, 'tileTitle'), { color: text }]}>Retry</Text>
     </Pressable>
   );
 
@@ -144,7 +143,7 @@ export function CreatorProfile({
         }
         renderItem={({ item }) => (
           <View style={styles.cell}>
-            <CollectionTile collection={item} variant="public" onPress={onPressCollection} />
+            <PublicCollectionTile collection={item} onPress={onPressCollection} />
           </View>
         )}
         onEndReached={onEndReached}
@@ -188,7 +187,12 @@ export function CreatorProfile({
       }
       renderItem={({ item }) => (
         <View style={styles.cell}>
-          <ProductCard product={item} variant="publicProfile" onPress={onPressProduct} />
+          <ProductCard
+            product={item}
+            variant="related"
+            onPress={onPressProduct}
+            onAddToCart={item.catalogProductId ? onAddToCart : undefined}
+          />
         </View>
       )}
       onEndReached={onEndReached}

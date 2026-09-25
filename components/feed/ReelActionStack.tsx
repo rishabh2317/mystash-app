@@ -77,7 +77,7 @@ export function ReelActionStack({
             style={({ pressed }) => [
               styles.iconBtn,
               {
-                backgroundColor: tokens.immersive.control,
+                backgroundColor: 'transparent',
                 borderRadius: tokens.radius.pill,
                 opacity: controlOpacity(
                   resolveControlPhase({ pressed }),
@@ -87,7 +87,7 @@ export function ReelActionStack({
             ]}
           >
             <Ionicons
-              name={isMuted ? 'volume-mute' : 'volume-high'}
+              name={isMuted ? 'volume-mute-outline' : 'volume-high-outline'}
               size={22}
               color={tokens.immersive.icon}
             />

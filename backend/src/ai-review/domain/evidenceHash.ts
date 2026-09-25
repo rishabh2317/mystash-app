@@ -3,7 +3,7 @@ import type { ProductIdentityContext } from './types';
 
 /** Deterministic fingerprint of catalog identity inputs used for review research. */
 export function computeProductEvidenceHash(identity: ProductIdentityContext): string {
-  const payload = {
+  const payload: Record<string, unknown> = {
     productId: identity.productId,
     name: identity.name.trim().toLowerCase(),
     brand: identity.brand?.trim().toLowerCase() ?? null,
@@ -14,5 +14,7 @@ export function computeProductEvidenceHash(identity: ProductIdentityContext): st
       Object.entries(identity.specifications).sort(([a], [b]) => a.localeCompare(b)),
     ),
   };
+  const merchantUrl = identity.merchantUrl?.trim().toLowerCase();
+  if (merchantUrl) payload.merchantUrl = merchantUrl;
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }

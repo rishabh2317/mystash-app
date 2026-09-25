@@ -7,14 +7,16 @@
     "icon": "./assets/images/icon.png",
     "scheme": "mystash",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
-        }
-      }
+        },
+        "NSLocationWhenInUseUsageDescription": "Mystash uses your location to show prices and merchant sites for your country."
+      },
+      "bundleIdentifier": "com.anonymous.Mystash"
     },
     "android": {
       "adaptiveIcon": {
@@ -26,7 +28,11 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "usesCleartextTraffic": true,
-      "package": "com.anonymous.Mystash"
+      "package": "com.anonymous.Mystash",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "output": "single",
@@ -48,6 +54,14 @@
       ],
       "expo-video",
       "expo-sqlite",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Mystash uses your location to show prices and merchant sites for your country.",
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false
+        }
+      ],
       "./plugins/withAndroidShareIntent"
     ],
     "experiments": {

@@ -42,7 +42,7 @@ export function ShareControl({
       style={[
         styles.btn,
         {
-          backgroundColor: immersive ? tokens.immersive.control : tokens.color.overlay,
+          backgroundColor: 'transparent',
           borderRadius: tokens.radius.pill,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },

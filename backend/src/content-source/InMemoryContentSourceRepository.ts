@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ContentSourceRepository } from './ContentSourceRepository';
-import { ENQUEUEABLE_STATUSES, PROCESSING_CLAIM_STATUSES } from './domain/lifecycle';
+import { ENQUEUEABLE_STATUSES, PROCESSING_CLAIM_STATUSES, REPROCESSABLE_STATUSES } from './domain/lifecycle';
 import type {
   ContentSourceIdentity,
   ContentSourceProductRecord,
@@ -74,6 +74,35 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       ...record,
       processingStatus: 'QUEUED',
       queuedAt,
+      updatedAt: now(),
+    };
+    this.sources.set(id, next);
+    return { ...next };
+  }
+
+  async markRequeue(id: string, queuedAt: string): Promise<ContentSourceRecord | null> {
+    const record = this.sources.get(id);
+    if (!record) return null;
+    if (!REPROCESSABLE_STATUSES.includes(record.processingStatus)) return null;
+    const next: ContentSourceRecord = {
+      ...record,
+      processingStatus: 'QUEUED',
+      queuedAt,
+      failureReason: null,
+      updatedAt: now(),
+    };
+    this.sources.set(id, next);
+    return { ...next };
+  }
+
+  async markRevertToReceived(id: string): Promise<ContentSourceRecord | null> {
+    const record = this.sources.get(id);
+    if (!record) return null;
+    if (record.processingStatus !== 'QUEUED') return null;
+    const next: ContentSourceRecord = {
+      ...record,
+      processingStatus: 'RECEIVED',
+      queuedAt: null,
       updatedAt: now(),
     };
     this.sources.set(id, next);

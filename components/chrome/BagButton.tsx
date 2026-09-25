@@ -12,13 +12,14 @@ import {
   formatBagBadgeText,
   type TopBarMode,
 } from '@/src/ui/chrome';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 
 type Props = {
   mode?: TopBarMode;
 };
 
-/** Universal commerce entry. Navigates to existing `/cart`. */
+/** Universal commerce entry. Navigates to the Stash tab (`/stash`; `/cart` redirects). */
 export function BagButton({ mode = 'page' }: Props) {
   const router = useRouter();
   const { tokens } = useThemeMode();
@@ -30,19 +31,24 @@ export function BagButton({ mode = 'page' }: Props) {
 
   return (
     <Pressable
-      onPress={() => router.push('/cart')}
+      onPress={() => router.push('/stash')}
       accessibilityRole="button"
       accessibilityLabel={bagButtonAccessibilityLabel(count)}
       hitSlop={hitSlopToMinTarget(40)}
-      style={[
+      style={({ pressed }) => [
         styles.btn,
+        immersive
+          ? {
+              backgroundColor: tokens.immersive.controlStrong,
+              borderRadius: tokens.radius.pill,
+            }
+          : null,
         {
-          backgroundColor: immersive ? tokens.immersive.controlStrong : tokens.color.overlay,
-          borderRadius: tokens.radius.pill,
+          opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
         },
       ]}
     >
-      <Ionicons name="cart-outline" size={20} color={iconColor} />
+      <Ionicons name="bag-handle-outline" size={22} color={iconColor} />
       {count > 0 ? (
         <View
           style={[

@@ -8,11 +8,15 @@ import { formatEngagementCount } from '@/src/ui/formatEngagementCount';
  */
 export const COLLECTION_SECTION_COPY = {
   productsSectionSuffix: 'in this collection',
+  curatedBy: 'Curated by',
   productInsights: 'Product insights',
   aiReview: 'AI Review',
   aiReviewBeta: 'Beta',
   readFullReview: 'Read full AI review',
   viewProductDetails: 'View product details',
+  viewMoreMerchants: 'View more',
+  buyingOptions: 'Buying options',
+  shopOption: 'Shop',
   soldBy: 'Sold by',
   lastVerified: 'Last verified',
   trust: 'Verification',
@@ -154,3 +158,83 @@ export function formatProductPrice(product: CatalogProductViewModel): string | n
   const alreadyPrefixed = price.slice(0, currency.length).toUpperCase() === currency.toUpperCase();
   return alreadyPrefixed ? price : `${currency} ${price}`;
 }
+
+/** Buying-option row on Collection product cards (no client-side merchant URLs). */
+export type CollectionMerchantPreview = {
+  id: string;
+  label: string;
+  /** Formatted price when the offer provided one. */
+  priceLabel?: string | null;
+};
+
+/** How many buying options to preview before “View more”. */
+export const COLLECTION_MERCHANT_PREVIEW_LIMIT = 3;
+
+export function merchantLabelFromUrl(url: string | null | undefined): string | null {
+  const raw = url?.trim();
+  if (!raw || !/^https?:\/\//i.test(raw)) return null;
+  try {
+    return new URL(raw).hostname.replace(/^www\./i, '') || null;
+  } catch {
+    return null;
+  }
+}
+
+function formatOfferPrice(price: string | null | undefined, currency: string | null | undefined): string | null {
+  const raw = price?.trim();
+  if (!raw || raw === '—') return null;
+  const cur = currency?.trim();
+  if (!cur) return raw;
+  const alreadyPrefixed = raw.slice(0, cur.length).toUpperCase() === cur.toUpperCase();
+  return alreadyPrefixed ? raw : `${cur} ${raw}`;
+}
+
+/** Fallback rows from catalog fields when Product Page offers are not loaded yet. */
+export function collectionMerchantPreviewsFromProduct(
+  product: Pick<CatalogProductViewModel, 'merchant' | 'price' | 'currency'> & {
+    merchantUrl?: string | null;
+  },
+): CollectionMerchantPreview[] {
+  const fromUrl = merchantLabelFromUrl(product.merchantUrl);
+  const fromName = product.merchant?.trim() || null;
+  const priceLabel = formatProductPrice(product as CatalogProductViewModel);
+  if (fromName && fromUrl && fromName.toLowerCase() !== fromUrl.toLowerCase()) {
+    return [
+      { id: 'merchant-name', label: fromName, priceLabel },
+      { id: 'merchant-url', label: fromUrl, priceLabel: null },
+    ];
+  }
+  if (fromName) return [{ id: 'merchant-name', label: fromName, priceLabel }];
+  if (fromUrl) return [{ id: 'merchant-url', label: fromUrl, priceLabel }];
+  return [];
+}
+
+/**
+ * Prefer real offer merchants (with prices). Keeps unnamed offers when they still
+ * have a price so the card can show multiple buying options.
+ */
+export function collectionMerchantPreviewsFromOffers(
+  offers: ReadonlyArray<{
+    id: string;
+    merchant: string | null;
+    price?: string | null;
+    currency?: string | null;
+    action?: string | null;
+  }>,
+): CollectionMerchantPreview[] {
+  const out: CollectionMerchantPreview[] = [];
+  const seen = new Set<string>();
+  for (const offer of offers) {
+    if (offer.action === 'none') continue;
+    const label = offer.merchant?.trim() || null;
+    const priceLabel = formatOfferPrice(offer.price, offer.currency);
+    if (!label && !priceLabel) continue;
+    const display = label || COLLECTION_SECTION_COPY.shopOption;
+    const key = `${display.toLowerCase()}|${priceLabel ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ id: offer.id, label: display, priceLabel });
+  }
+  return out;
+}
+

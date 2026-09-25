@@ -3,7 +3,7 @@
  * Parents own API/auth orchestration. Controls own local visual phase
  * (pressed, pending spinner, transient success) unless noted.
  *
- * User-facing commerce copy is Bag. Cart remains the internal/API name.
+ * User-facing commerce copy is Stash. Cart remains the internal/API name.
  */
 
 export type ControlPhase =
@@ -54,30 +54,31 @@ export const CONTROL_OWNERSHIP: Record<ControlKind, string> = {
   addToBag:
     'Parent owns auth + Cart API (internal). Control owns local pending → success visual. Outcome added | login | unavailable.',
   buy: 'Parent owns shopping redirect / Bag purchase-confirm. Control is emit-only; optional pending.',
-  bag: 'BagButton chrome. Count/badge from CartContext. Unsigned: no badge. Route stays /cart.',
+  bag: 'Stash tab chrome. Count/badge on bottom-nav Stash icon from CartContext. Unsigned: no badge.',
   productDetailsSheet:
     'Parent owns product, buy, add-to-bag handlers. Sheet owns gallery/expand UI; does not call cart or shopping APIs.',
   toast: 'App-level feedback bus. Screens should prefer toast/inline over Alert except destructive confirms.',
 };
 
 export const BAG_COPY = {
-  noun: 'Bag',
-  add: 'Add to Bag',
-  adding: 'Adding…',
-  added: 'Added to Bag',
-  view: 'View Bag',
-  empty: 'Your Bag is empty',
-  emptyHint: 'Products you save will show up here.',
+  noun: 'Stash',
+  yourStash: 'My Stash',
+  add: 'Stash it',
+  adding: 'Stashing…',
+  added: 'Stashed',
+  view: 'View Stash',
+  empty: 'Your Stash is empty',
+  emptyHint: "See something you love?\nStash it here and we'll remember it for you.",
   continueDiscovering: 'Continue discovering',
-  signInTitle: 'Sign in to view your Bag',
-  signInBody: 'Sign in to save products to your Bag.',
-  loadError: "Couldn’t load your Bag",
-  addError: "Couldn’t add to Bag",
-  removeError: "Couldn’t remove from Bag",
-  updateError: "Couldn’t update your Bag",
-  keepInBag: 'Keep in Bag?',
-  keepInBagAction: 'Keep in Bag',
-  removeFromBag: 'Remove from Bag',
+  signInTitle: 'Sign in to view your Stash',
+  signInBody: 'Sign in to stash products you discover.',
+  loadError: "Couldn’t load your Stash",
+  addError: "Couldn’t stash that",
+  removeError: "Couldn’t remove from Stash",
+  updateError: "Couldn’t update your Stash",
+  keepInBag: 'Keep in Stash?',
+  keepInBagAction: 'Keep in Stash',
+  removeFromBag: 'Remove from Stash',
   /** Opens merchant / product destination (not an in-app purchase). */
   buy: 'View Product',
 } as const;

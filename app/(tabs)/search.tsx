@@ -1,6 +1,6 @@
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter, type Href } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -8,39 +8,32 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
 import { TopBar } from '@/components/chrome/TopBar';
 import { CollectionTile } from '@/components/collection/CollectionTile';
+import { PublicCollectionTile } from '@/components/collection/PublicCollectionTile';
 import { ProductCard } from '@/components/commerce/ProductCard';
-import { ProductDetailsSheet } from '@/components/commerce/ProductDetailsSheet';
+import { StashCategoryCard } from '@/components/commerce/StashCategoryCard';
 import { CreatorCard } from '@/components/creator/CreatorCard';
+import { SearchModeSwitch, type SearchUtilityMode } from '@/components/search/SearchModeSwitch';
+import { ShareActivityCard } from '@/components/search/ShareActivityCard';
+import { ContentRail } from '@/components/ui/ContentRail';
+import { SectionHeader } from '@/components/ui/SectionHeader';
+import { Text } from '@/components/ui/Text';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCart } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { pageCanvasGradient } from '@/src/theme/tokens';
-import { collectionTilePressPath } from '@/src/ui/collectionLayout';
-import {
-  beginSearchReelSession,
-  searchReelPath,
-  shouldOpenSearchReelFeed,
-} from '@/src/ui/searchReelNavigation';
-import {
-  popularFallbackMessage,
-  searchConstraintChipLabel,
-  searchSectionOrder,
-  searchSectionTitle,
-  type SearchSectionKind,
-} from '@/src/ui/searchSections';
+import { useImportSharesPoll } from '@/src/hooks/useImportSharesPoll';
 import {
   dedupeById,
   mapSearchCollectionCard,
   mapSearchCreatorCard,
 } from '@/src/mappers/searchMapper';
-import { videosToExploreCollections } from '@/src/mappers/exploreCollectionMapper';
 import { hydrateSearchProducts } from '@/src/mappers/searchProductHydration';
-import { subscribeFeedReload } from '@/src/services/feedRefresh';
 import {
   useProductAddToCartHandler,
   useProductBuyHandler,
@@ -53,13 +46,63 @@ import {
   type SearchResultCard,
 } from '@/src/services/searchApi';
 import { fetchVideos } from '@/src/services/supabase';
+import {
+  deleteUserImport,
+  retryUserImport,
+  submitUserImport,
+  UserImportApiError,
+} from '@/src/services/userImportApi';
 import { shouldResetSearchSession } from '@/src/state/searchSession';
+import { outlineCardChrome } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CreatorViewModel } from '@/src/types/creator';
+import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import { productPagePath } from '@/src/ui/productPage';
+import {
+  beginSearchReelSession,
+  searchReelPath,
+  shouldOpenSearchReelFeed,
+} from '@/src/ui/searchReelNavigation';
+import { loadSearchDiscoverLanding } from '@/src/ui/searchDiscoverLoad';
+import type {
+  CreatorProductShelf,
+  SearchDiscoverLanding,
+} from '@/src/ui/searchDiscoverUx';
+import {
+  buildSearchDiscoverLanding,
+  creatorProductShelfHref,
+  creatorProductShelfMetaLabel,
+  creatorProductShelfToStashCategoryCard,
+  SEARCH_DISCOVER_COPY,
+  searchDiscoverHasContent,
+} from '@/src/ui/searchDiscoverUx';
+import {
+  popularFallbackMessage,
+  searchConstraintChipLabel,
+  searchSectionOrder,
+  searchSectionTitle,
+  type SearchSectionKind,
+} from '@/src/ui/searchSections';
+import {
+  SHARE_ACTIVITY_COPY,
+  shareActivityLandingItems,
+} from '@/src/ui/shareActivity';
+import { extractSharedLink, sharedLinkMessage } from '@/src/ui/shareImport';
 
 const DEBOUNCE_MS = 300;
 const PAGE_LIMIT = 20;
+const GUTTER = 16;
+const GRID_GAP = 12;
+const EMPTY_DISCOVER: SearchDiscoverLanding = {
+  posts: [],
+  productCollections: [],
+  products: [],
+};
+
+const SEARCH_PLACEHOLDER = 'Search products, creators, collections';
+const PASTE_PLACEHOLDER = 'Paste a product, Reel or Short URL';
 
 type SearchSections = {
   collections: CollectionViewModel[];
@@ -115,7 +158,11 @@ function partitionResults(results: SearchResultCard[]): {
 }
 
 type ListRow =
-  | { key: string; kind: 'landing'; collections: CollectionViewModel[]; loading: boolean }
+  | { key: string; kind: 'activity' }
+  | { key: string; kind: 'discover_posts' }
+  | { key: string; kind: 'discover_product_collections' }
+  | { key: string; kind: 'discover_products' }
+  | { key: string; kind: 'landing_empty' }
   | { key: string; kind: 'banner'; text: string }
   | { key: string; kind: 'status'; text: string; action?: () => void }
   | { key: string; kind: 'section'; title: string }
@@ -127,13 +174,51 @@ type ListRow =
 export default function SearchScreen() {
   const router = useRouter();
   const pathname = usePathname();
-  const { tokens, isLight } = useThemeMode();
+  const { width: screenWidth } = useWindowDimensions();
+  const { tokens } = useThemeMode();
+  const { user } = useAuth();
+  const { refresh: refreshCart } = useCart();
   const onBuy = useProductBuyHandler();
   const onAddToCart = useProductAddToCartHandler();
+  const onImportBecameReady = useCallback(() => {
+    void refreshCart();
+  }, [refreshCart]);
+  const { shares, refresh: refreshShares } = useImportSharesPoll({
+    enabled: Boolean(user),
+    onBecameReady: onImportBecameReady,
+  });
+  const activityItems = useMemo(() => shareActivityLandingItems(shares), [shares]);
 
+  const onRetryShare = useCallback(
+    async (importId: string) => {
+      try {
+        await retryUserImport(importId);
+        await refreshShares();
+      } catch {
+        /* surface via next poll */
+      }
+    },
+    [refreshShares],
+  );
+
+  const onDeleteShare = useCallback(
+    async (importId: string) => {
+      try {
+        await deleteUserImport(importId);
+        await refreshShares();
+      } catch {
+        /* ignore */
+      }
+    },
+    [refreshShares],
+  );
+
+  const [mode, setMode] = useState<SearchUtilityMode>('search');
   const [input, setInput] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [sections, setSections] = useState<SearchSections>(EMPTY_SECTIONS);
+  const [discover, setDiscover] = useState<SearchDiscoverLanding>(EMPTY_DISCOVER);
+  const [discoverLoading, setDiscoverLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -142,13 +227,11 @@ export default function SearchScreen() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-
-  const [detailsVisible, setDetailsVisible] = useState(false);
-  const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
-  const [explore, setExplore] = useState<CollectionViewModel[]>([]);
-  const [exploreLoading, setExploreLoading] = useState(true);
   const [searchIntent, setSearchIntent] = useState<string | null>(null);
   const [searchDegraded, setSearchDegraded] = useState<string[]>([]);
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const [pasteAck, setPasteAck] = useState<string | null>(null);
+  const [pasteSubmitting, setPasteSubmitting] = useState(false);
 
   const loadGen = useRef(0);
   const activeQueryRef = useRef('');
@@ -158,6 +241,29 @@ export default function SearchScreen() {
   const muted = tokens.color.textMuted;
   const fieldBg = tokens.color.surface;
   const fieldBorder = tokens.color.border;
+
+  const postCardWidth = Math.min(148, Math.round(screenWidth * 0.38));
+  const productCardWidth = Math.min(148, Math.round((screenWidth - GUTTER * 2 - GRID_GAP) / 2.15));
+  const categoryCardWidth = (screenWidth - GUTTER * 2 - GRID_GAP) / 2;
+  const railGap = tokens.space.sm;
+
+  const loadDiscover = useCallback(async () => {
+    setDiscoverLoading(true);
+    try {
+      const videos = await fetchVideos();
+      // Progressive paint: sync shelves first, then replace with hydrated data.
+      setDiscover(buildSearchDiscoverLanding(videos));
+      setDiscoverLoading(false);
+      setDiscover(await loadSearchDiscoverLanding(videos));
+    } catch {
+      setDiscover(EMPTY_DISCOVER);
+      setDiscoverLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDiscover();
+  }, [loadDiscover]);
 
   const resetTypedSearch = useCallback(() => {
     loadGen.current += 1;
@@ -173,42 +279,32 @@ export default function SearchScreen() {
     setNextCursor(null);
     setSuggestions([]);
     setShowSuggestions(false);
-    setDetailsVisible(false);
-    setDetailsProduct(null);
     setSearchIntent(null);
     setSearchDegraded([]);
+    setPasteError(null);
+    setPasteAck(null);
+    setPasteSubmitting(false);
   }, []);
 
   useEffect(() => {
     const prev = prevPathRef.current;
     if (shouldResetSearchSession(prev, pathname)) {
       resetTypedSearch();
+      setMode('search');
     }
     prevPathRef.current = pathname;
   }, [pathname, resetTypedSearch]);
 
-  const loadExplore = useCallback(async () => {
-    try {
-      const videos = await fetchVideos();
-      setExplore(videosToExploreCollections(videos));
-    } catch {
-      setExplore([]);
-    } finally {
-      setExploreLoading(false);
+  useEffect(() => {
+    if (mode !== 'search') {
+      setDebouncedQuery('');
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
     }
-  }, []);
-
-  useEffect(() => {
-    void loadExplore();
-    return subscribeFeedReload(() => {
-      void loadExplore();
-    });
-  }, [loadExplore]);
-
-  useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(input.trim()), DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [input]);
+  }, [input, mode]);
 
   const runSearch = useCallback(async (q: string, opts?: { cursor?: string | null; append?: boolean }) => {
     const query = q.trim();
@@ -267,21 +363,24 @@ export default function SearchScreen() {
   }, []);
 
   useEffect(() => {
-    if (!debouncedQuery) {
-      loadGen.current += 1;
-      setSections(EMPTY_SECTIONS);
-      setNextCursor(null);
-      setZeroResult(false);
-      setError(null);
-      setLoading(false);
-      setSuggestions([]);
-      setShowSuggestions(false);
+    if (mode !== 'search' || !debouncedQuery) {
+      if (!debouncedQuery) {
+        loadGen.current += 1;
+        setSections(EMPTY_SECTIONS);
+        setNextCursor(null);
+        setZeroResult(false);
+        setError(null);
+        setLoading(false);
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
       return;
     }
     void runSearch(debouncedQuery);
-  }, [debouncedQuery, runSearch]);
+  }, [debouncedQuery, mode, runSearch]);
 
   useEffect(() => {
+    if (mode !== 'search') return;
     const q = input.trim();
     if (q.length < 2) {
       setSuggestions([]);
@@ -304,7 +403,7 @@ export default function SearchScreen() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [input]);
+  }, [input, mode]);
 
   const emitClick = useCallback(
     (entityType: 'collection' | 'creator' | 'product', id: string) => {
@@ -349,6 +448,22 @@ export default function SearchScreen() {
     [debouncedQuery, emitClick, nextCursor, router, sections.collections],
   );
 
+  const onDiscoverCollectionPress = useCallback(
+    (collection: CollectionViewModel) => {
+      Keyboard.dismiss();
+      router.push(collectionTilePressPath(collection.collectionId) as Href);
+    },
+    [router],
+  );
+
+  const onProductCollectionPress = useCallback(
+    (shelf: CreatorProductShelf) => {
+      Keyboard.dismiss();
+      router.push(creatorProductShelfHref(shelf.username) as Href);
+    },
+    [router],
+  );
+
   const onCreatorPress = useCallback(
     (creator: CreatorViewModel) => {
       Keyboard.dismiss();
@@ -363,13 +478,13 @@ export default function SearchScreen() {
     (product: CatalogProductViewModel) => {
       Keyboard.dismiss();
       setShowSuggestions(false);
+      const productId = product.catalogProductId ?? product.id;
       if (product.catalogProductId) {
         emitClick('product', product.catalogProductId);
       }
-      setDetailsProduct(product);
-      setDetailsVisible(true);
+      router.push(productPagePath(productId) as Href);
     },
-    [emitClick],
+    [emitClick, router],
   );
 
   const onSuggestionPress = useCallback(
@@ -404,37 +519,103 @@ export default function SearchScreen() {
         router.push(collectionTilePressPath(s.id) as Href);
         return;
       }
+      if (s.entityType === 'product' && s.id) {
+        emitClick('product', s.id);
+        router.push(productPagePath(s.id) as Href);
+        return;
+      }
       setInput(s.text);
       setDebouncedQuery(s.text.trim());
     },
     [debouncedQuery, emitClick, nextCursor, router, sections.collections],
   );
 
+  const onPasteSubmit = useCallback(async () => {
+    setPasteError(null);
+    setPasteAck(null);
+    const extracted = extractSharedLink(input);
+    if (!extracted.ok) {
+      setPasteError(sharedLinkMessage(extracted.reason));
+      return;
+    }
+    if (!user) {
+      setPasteError('Sign in to send links to Mystash.');
+      return;
+    }
+    setPasteSubmitting(true);
+    try {
+      await submitUserImport(extracted.rawInput);
+      setPasteAck('Got it — Mystash received your link.');
+      setInput('');
+      void refreshShares();
+    } catch (e) {
+      const message =
+        e instanceof UserImportApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Mystash could not accept that link.';
+      setPasteError(message);
+    } finally {
+      setPasteSubmitting(false);
+    }
+  }, [input, refreshShares, user]);
+
+  const onModeChange = useCallback((next: SearchUtilityMode) => {
+    setMode(next);
+    setPasteError(null);
+    setPasteAck(null);
+    setShowSuggestions(false);
+    if (next === 'paste_url') {
+      setDebouncedQuery('');
+      setSuggestions([]);
+    }
+  }, []);
+
   const onLoadMore = useCallback(() => {
-    if (!debouncedQuery || !nextCursor || loading || loadingMore) return;
+    if (mode !== 'search' || !debouncedQuery || !nextCursor || loading || loadingMore) return;
     void runSearch(debouncedQuery, { cursor: nextCursor, append: true });
-  }, [debouncedQuery, nextCursor, loading, loadingMore, runSearch]);
+  }, [debouncedQuery, nextCursor, loading, loadingMore, mode, runSearch]);
 
   const onRefresh = useCallback(() => {
-    if (!debouncedQuery) return;
+    if (mode === 'paste_url' || !debouncedQuery) {
+      setRefreshing(true);
+      void Promise.all([refreshShares(), loadDiscover()]).finally(() => setRefreshing(false));
+      return;
+    }
     setRefreshing(true);
     void runSearch(debouncedQuery);
-  }, [debouncedQuery, runSearch]);
+  }, [debouncedQuery, loadDiscover, mode, refreshShares, runSearch]);
 
-  const hasQuery = debouncedQuery.length > 0;
+  const hasQuery = mode === 'search' && debouncedQuery.length > 0;
   const hasResults =
     sections.collections.length > 0 ||
     sections.creators.length > 0 ||
     sections.products.length > 0;
+  const hasDiscover = searchDiscoverHasContent(discover);
+
+  const productCollectionRows: CreatorProductShelf[][] = [];
+  for (let i = 0; i < discover.productCollections.length; i += 2) {
+    productCollectionRows.push(discover.productCollections.slice(i, i + 2));
+  }
 
   const rows: ListRow[] = [];
   if (!hasQuery) {
-    rows.push({
-      key: 'landing',
-      kind: 'landing',
-      collections: explore,
-      loading: exploreLoading,
-    });
+    if (activityItems.length > 0) {
+      rows.push({ key: 'activity', kind: 'activity' });
+    }
+    if (discover.posts.length > 0) {
+      rows.push({ key: 'discover_posts', kind: 'discover_posts' });
+    }
+    if (discover.productCollections.length > 0) {
+      rows.push({ key: 'discover_product_collections', kind: 'discover_product_collections' });
+    }
+    if (discover.products.length > 0) {
+      rows.push({ key: 'discover_products', kind: 'discover_products' });
+    }
+    if (!discoverLoading && !hasDiscover && activityItems.length === 0) {
+      rows.push({ key: 'landing_empty', kind: 'landing_empty' });
+    }
   } else if (loading && !hasResults) {
     rows.push({ key: 'loading', kind: 'status', text: 'Searching…' });
   } else if (error && !hasResults) {
@@ -499,58 +680,115 @@ export default function SearchScreen() {
     }
   }
 
-  const bg = pageCanvasGradient(tokens);
+  const placeholder = mode === 'search' ? SEARCH_PLACEHOLDER : PASTE_PLACEHOLDER;
 
   return (
-    <View style={styles.root}>
-      <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
+    <View style={[styles.root, { backgroundColor: tokens.color.canvasSoft }]}>
       <TopBar mode="page" title="Search" />
 
-      <View style={styles.header}>
-        <TextInput
-          value={input}
-          onChangeText={(v) => {
-            setInput(v);
-            setShowSuggestions(true);
-          }}
-          placeholder="Search collections, creators, products"
-          placeholderTextColor={muted}
-          returnKeyType="search"
-          autoCorrect={false}
-          autoCapitalize="none"
-          clearButtonMode="while-editing"
-          onSubmitEditing={() => {
-            setDebouncedQuery(input.trim());
-            setShowSuggestions(false);
-            Keyboard.dismiss();
-          }}
-          onFocus={() => setShowSuggestions(suggestions.length > 0)}
+      <View
+        style={[
+          styles.header,
+          {
+            paddingHorizontal: GUTTER,
+            paddingTop: tokens.space.sm,
+            paddingBottom: tokens.space.md,
+            gap: tokens.space.md,
+          },
+        ]}
+      >
+        <View
           style={[
-            styles.input,
+            styles.inputRow,
             {
-              color: text,
               backgroundColor: fieldBg,
-              borderColor: fieldBorder,
+              borderColor: pasteError ? tokens.color.danger : fieldBorder,
+              borderRadius: tokens.radius.lg,
             },
           ]}
-        />
-        {showSuggestions && suggestions.length > 0 ? (
+        >
+          <Ionicons
+            name={mode === 'paste_url' ? 'link-outline' : 'search-outline'}
+            size={18}
+            color={muted}
+          />
+          <TextInput
+            value={input}
+            onChangeText={(v) => {
+              setInput(v);
+              setPasteError(null);
+              setPasteAck(null);
+              if (mode === 'search') setShowSuggestions(true);
+            }}
+            placeholder={placeholder}
+            placeholderTextColor={muted}
+            returnKeyType={mode === 'search' ? 'search' : 'go'}
+            autoCorrect={false}
+            autoCapitalize="none"
+            autoComplete="off"
+            keyboardType={mode === 'paste_url' ? 'url' : 'default'}
+            clearButtonMode="while-editing"
+            editable={!pasteSubmitting}
+            onSubmitEditing={() => {
+              if (mode === 'paste_url') {
+                void onPasteSubmit();
+                Keyboard.dismiss();
+                return;
+              }
+              setDebouncedQuery(input.trim());
+              setShowSuggestions(false);
+              Keyboard.dismiss();
+            }}
+            onFocus={() => {
+              if (mode === 'search' && suggestions.length > 0) setShowSuggestions(true);
+            }}
+            style={[
+              styles.input,
+              {
+                color: text,
+                fontFamily: tokens.fontFamily.regular,
+                fontSize: tokens.fontSize.body,
+                lineHeight: tokens.lineHeight.body,
+              },
+            ]}
+          />
+        </View>
+        <SearchModeSwitch mode={mode} onChange={onModeChange} />
+        {pasteError ? (
+          <Text style={[typeStyle(tokens, 'tileMeta'), { color: tokens.color.danger }]}>
+            {pasteError}
+          </Text>
+        ) : null}
+        {pasteAck ? (
+          <Text style={typeStyle(tokens, 'bodyMuted')}>{pasteAck}</Text>
+        ) : null}
+        {pasteSubmitting ? (
+          <View style={styles.pasteBusy}>
+            <ActivityIndicator size="small" color={tokens.color.primary} />
+            <Text style={typeStyle(tokens, 'bodyMuted')}>Sending your link…</Text>
+          </View>
+        ) : null}
+        {mode === 'search' && showSuggestions && suggestions.length > 0 ? (
           <View
             style={[
               styles.suggestBox,
-              { backgroundColor: fieldBg, borderColor: fieldBorder },
+              {
+                backgroundColor: fieldBg,
+                borderColor: fieldBorder,
+                borderRadius: tokens.radius.lg,
+              },
             ]}
           >
             {suggestions.map((s, i) => (
               <Pressable
                 key={`${s.kind}-${s.text}-${i}`}
                 onPress={() => onSuggestionPress(s)}
-                style={styles.suggestRow}
+                style={[styles.suggestRow, { paddingHorizontal: tokens.space.sm + 2 }]}
               >
-                <Text style={[styles.suggestText, { color: text }]} numberOfLines={1}>
+                <Text style={[typeStyle(tokens, 'tileTitle'), { flex: 1 }]} numberOfLines={1}>
                   {s.text}
                 </Text>
-                <Text style={[styles.suggestKind, { color: muted }]}>{s.kind}</Text>
+                <Text style={typeStyle(tokens, 'tileMeta')}>{s.kind}</Text>
               </Pressable>
             ))}
           </View>
@@ -562,45 +800,126 @@ export default function SearchScreen() {
         keyExtractor={(item) => item.key}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          {
+            paddingHorizontal: GUTTER,
+            paddingTop: tokens.space.sm,
+            paddingBottom: tokens.space.xxl,
+            gap: tokens.space.xl,
+          },
+        ]}
         refreshControl={
-          hasQuery ? (
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={text} />
-          ) : undefined
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={text} />
         }
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.4}
         onScrollBeginDrag={() => setShowSuggestions(false)}
+        ListHeaderComponent={
+          !hasQuery && discoverLoading && !hasDiscover ? (
+            <View style={styles.statusBlock}>
+              <ActivityIndicator color={tokens.color.primary} />
+            </View>
+          ) : null
+        }
         renderItem={({ item }) => {
-          if (item.kind === 'landing') {
-            if (item.loading && item.collections.length === 0) {
-              return (
-                <View style={styles.statusBlock}>
-                  <ActivityIndicator color={text} />
-                </View>
-              );
-            }
-            if (item.collections.length === 0) {
-              return (
-                <View style={styles.landing}>
-                  <Text style={[styles.landingTitle, { color: text }]}>Find what you need</Text>
-                  <Text style={[styles.landingBody, { color: muted }]}>
-                    Search collections, creators, and products. Results appear as you type.
-                  </Text>
-                </View>
-              );
-            }
+          if (item.kind === 'activity') {
             return (
-              <View style={styles.exploreGrid}>
-                {item.collections.map((collection) => (
-                  <View key={collection.collectionId} style={styles.exploreCell}>
-                    <CollectionTile
-                      collection={collection}
-                      isLight={isLight}
-                      onPress={onCollectionPress}
-                    />
-                  </View>
+              <View style={{ gap: tokens.space.md }}>
+                <SectionHeader
+                  title={SHARE_ACTIVITY_COPY.sectionTitle}
+                  actionLabel={SHARE_ACTIVITY_COPY.seeAll}
+                  onActionPress={() => router.push('/shares' as Href)}
+                />
+                {activityItems.map((activity) => (
+                  <ShareActivityCard
+                    key={activity.importId}
+                    item={activity}
+                    compact
+                    expandable
+                    onRetry={onRetryShare}
+                    onDelete={onDeleteShare}
+                  />
                 ))}
+              </View>
+            );
+          }
+          if (item.kind === 'discover_posts') {
+            return (
+              <View style={{ gap: tokens.space.md }}>
+                <SectionHeader title={SEARCH_DISCOVER_COPY.latestCollections} />
+                <ContentRail
+                  gutter={GUTTER}
+                  itemPitch={postCardWidth + railGap}
+                  itemGap={railGap}
+                >
+                  {discover.posts.map((collection) => (
+                    <View key={collection.collectionId} style={{ width: postCardWidth }}>
+                      <PublicCollectionTile
+                        collection={collection}
+                        onPress={onDiscoverCollectionPress}
+                      />
+                    </View>
+                  ))}
+                </ContentRail>
+              </View>
+            );
+          }
+          if (item.kind === 'discover_product_collections') {
+            return (
+              <View style={{ gap: tokens.space.md }}>
+                <SectionHeader title={SEARCH_DISCOVER_COPY.productCollections} />
+                <View style={{ gap: GRID_GAP }}>
+                  {productCollectionRows.map((row) => (
+                    <View
+                      key={row.map((s) => s.username).join('-')}
+                      style={{ flexDirection: 'row', gap: GRID_GAP }}
+                    >
+                      {row.map((shelf) => (
+                        <View key={shelf.username} style={{ width: categoryCardWidth }}>
+                          <StashCategoryCard
+                            category={creatorProductShelfToStashCategoryCard(shelf)}
+                            metaLabel={creatorProductShelfMetaLabel(shelf)}
+                            onPress={() => onProductCollectionPress(shelf)}
+                          />
+                        </View>
+                      ))}
+                      {row.length === 1 ? <View style={{ width: categoryCardWidth }} /> : null}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            );
+          }
+          if (item.kind === 'discover_products') {
+            return (
+              <View style={{ gap: tokens.space.md }}>
+                <SectionHeader title={SEARCH_DISCOVER_COPY.recentProducts} />
+                <ContentRail
+                  gutter={GUTTER}
+                  itemPitch={productCardWidth + railGap}
+                  itemGap={railGap}
+                >
+                  {discover.products.map((product) => (
+                    <View key={product.id} style={{ width: productCardWidth }}>
+                      <ProductCard
+                        product={product}
+                        variant="related"
+                        showIndexPrice
+                        onPress={onProductPress}
+                        onAddToCart={product.catalogProductId ? onAddToCart : undefined}
+                      />
+                    </View>
+                  ))}
+                </ContentRail>
+              </View>
+            );
+          }
+          if (item.kind === 'landing_empty') {
+            return (
+              <View style={[styles.landing, { gap: tokens.space.xs }]}>
+                <Text style={typeStyle(tokens, 'sectionTitle')}>Discover</Text>
+                <Text style={typeStyle(tokens, 'bodyMuted')}>{SEARCH_DISCOVER_COPY.emptyHint}</Text>
               </View>
             );
           }
@@ -609,10 +928,17 @@ export default function SearchScreen() {
               <View
                 style={[
                   styles.banner,
-                  { backgroundColor: tokens.color.surface, borderColor: tokens.color.border },
+                  {
+                    ...outlineCardChrome(tokens),
+                    borderRadius: tokens.radius.lg,
+                    paddingHorizontal: tokens.space.sm,
+                    paddingVertical: tokens.space.xs,
+                  },
                 ]}
               >
-                <Text style={[styles.bannerText, { color: muted }]}>{item.text}</Text>
+                <Text style={[typeStyle(tokens, 'tileMeta'), { textAlign: 'center' }]}>
+                  {item.text}
+                </Text>
               </View>
             );
           }
@@ -620,42 +946,34 @@ export default function SearchScreen() {
             return (
               <View style={styles.statusBlock}>
                 {item.text === 'Searching…' ? (
-                  <ActivityIndicator color={text} />
+                  <ActivityIndicator color={tokens.color.primary} />
                 ) : (
-                  <Text style={[styles.statusText, { color: muted }]}>{item.text}</Text>
+                  <Text style={[typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' }]}>
+                    {item.text}
+                  </Text>
                 )}
                 {item.action ? (
-                  <Pressable onPress={item.action} style={styles.retryBtn}>
-                    <Text style={[styles.retryText, { color: text }]}>Retry</Text>
+                  <Pressable onPress={item.action} style={{ padding: tokens.space.sm }}>
+                    <Text style={typeStyle(tokens, 'link')}>Retry</Text>
                   </Pressable>
                 ) : null}
               </View>
             );
           }
           if (item.kind === 'section') {
-            return (
-              <Text style={[styles.sectionTitle, { color: text }]}>{item.title}</Text>
-            );
+            return <SectionHeader title={item.title} />;
           }
           if (item.kind === 'collection') {
             return (
               <View style={styles.tileWrap}>
-                <CollectionTile
-                  collection={item.collection}
-                  isLight={isLight}
-                  onPress={onCollectionPress}
-                />
+                <CollectionTile collection={item.collection} onPress={onCollectionPress} />
               </View>
             );
           }
           if (item.kind === 'creator') {
             return (
               <View style={styles.cardWrap}>
-                <CreatorCard
-                  creator={item.creator}
-                  isLight={isLight}
-                  onPress={onCreatorPress}
-                />
+                <CreatorCard creator={item.creator} onPress={onCreatorPress} />
               </View>
             );
           }
@@ -664,8 +982,7 @@ export default function SearchScreen() {
               <View style={styles.cardWrap}>
                 <ProductCard
                   product={item.product}
-                  isLight={isLight}
-                  variant="standard"
+                  variant="related"
                   showIndexPrice
                   onPress={onProductPress}
                   onAddToCart={item.product.catalogProductId ? onAddToCart : undefined}
@@ -676,19 +993,10 @@ export default function SearchScreen() {
           }
           return (
             <View style={styles.footer}>
-              {loadingMore ? <ActivityIndicator color={text} /> : null}
+              {loadingMore ? <ActivityIndicator color={tokens.color.primary} /> : null}
             </View>
           );
         }}
-      />
-
-      <ProductDetailsSheet
-        visible={detailsVisible}
-        product={detailsProduct}
-        isLight={isLight}
-        onClose={() => setDetailsVisible(false)}
-        onAddToCart={detailsProduct?.catalogProductId ? onAddToCart : undefined}
-        onBuy={detailsProduct?.catalogProductId ? onBuy : undefined}
       />
     </View>
   );
@@ -697,89 +1005,46 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: 10,
     zIndex: 2,
   },
-  input: {
-    height: 48,
-    borderRadius: 12,
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    fontSize: 16,
+    paddingHorizontal: 12,
+    gap: 8,
+    minHeight: 44,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: 10,
+  },
+  pasteBusy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   suggestBox: {
-    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
   suggestRow: {
-    paddingHorizontal: 14,
     paddingVertical: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 12,
   },
-  suggestText: { flex: 1, fontSize: 15, fontWeight: '600' },
-  suggestKind: { fontSize: 12, textTransform: 'capitalize' },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 40,
-    gap: 10,
-  },
+  listContent: {},
   landing: {
-    paddingTop: 48,
-    paddingHorizontal: 8,
-    gap: 8,
-  },
-  landingTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  landingBody: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  banner: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginTop: 4,
-  },
-  bannerText: {
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  exploreGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
     paddingTop: 8,
   },
-  exploreCell: {
-    width: '31.5%',
-    flexGrow: 1,
-    maxWidth: '32.5%',
+  banner: {
+    borderWidth: StyleSheet.hairlineWidth,
   },
   statusBlock: {
     paddingTop: 40,
     alignItems: 'center',
     gap: 12,
-  },
-  statusText: {
-    fontSize: 15,
-    textAlign: 'center',
-  },
-  retryBtn: { padding: 12 },
-  retryText: { fontWeight: '700', fontSize: 16 },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: 12,
-    marginBottom: 4,
   },
   tileWrap: {
     width: '100%',

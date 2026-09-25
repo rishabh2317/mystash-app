@@ -19,6 +19,7 @@ import type { SearchStrategy } from '../interfaces/ProductSearchProvider';
 import { MatchScorer } from '../matcher/MatchScorer';
 import { ProductNormalizer } from '../normalizer/ProductNormalizer';
 import { mergeEnrichedCandidates } from '../enrichment/MetadataMergeService';
+import { resolvePersistableCategory } from '../domain/categoryTaxonomy';
 import { emitPiEvent } from '../observability';
 import { scoreProductSpecificity } from '../specificity/ProductSpecificityScorer';
 import { buildProductSearchQuery } from '../search/ProductSearchQueryBuilder';
@@ -35,7 +36,12 @@ import { resolveShoppingSelectionForProduct } from '../../shopping/ShoppingConfi
 import { decideProductVerification } from '../verification/verificationPolicy';
 import { ingestLog } from '../../pipeline/ingestLog';
 import type { CatalogService } from '../../catalog/CatalogService';
-import { merchantUrlsMatch } from '../search/directUrlIdentity';
+import {
+  isQualifyingMerchantSeedUrl,
+  merchantUrlsMatch,
+} from '../search/directUrlIdentity';
+import { pickOneOfferPerMerchant } from '../search/merchantOfferDedupe';
+import { resolveDiscoveryCountry } from '../search/discoveryCountry';
 import { discoveredProductIdentityKey } from '../discovered/identity';
 
 function aiFieldProvenance(provider = 'ai'): Record<string, { source: string; provider?: string }> {
@@ -129,6 +135,86 @@ export class ProductResolver {
    */
   async resolveForUserImport(drafts: AiDraftInput[]): Promise<ResolveDraftResult[]> {
     return this.resolveIngest(drafts, { promoteOnMiss: false });
+  }
+
+  /**
+   * Bag-critical path for user imports: local catalog hit or discovered stub from
+   * already-extracted candidate fields. Never awaits Serper/Tavily.
+   */
+  async resolveForUserImportFast(drafts: AiDraftInput[]): Promise<ResolveDraftResult[]> {
+    const out: ResolveDraftResult[] = [];
+    for (const draft of drafts) {
+      out.push(await this.resolveOneFast(draft));
+    }
+    return out;
+  }
+
+  private async resolveOneFast(draft: AiDraftInput): Promise<ResolveDraftResult> {
+    const norm = this.normalizer.normalize(draft);
+    const specificity = scoreProductSpecificity(draft, norm, this.cfg.specificityMin);
+    const category = resolvePersistableCategory(draft.category, norm.category);
+
+    const localHit = await this.catalog.localSearch(norm);
+    if (
+      localHit &&
+      localHit.score >= this.cfg.catalogHitMinScore &&
+      localHit.product.verificationStatus === 'VERIFIED'
+    ) {
+      emitPiEvent('catalog.hit', {
+        draftId: draft.draftId,
+        via: localHit.via,
+        score: localHit.score,
+        path: 'user_import_fast',
+      });
+      return this.finishWithCatalog(
+        draft,
+        norm.aiConfidence,
+        localHit.product,
+        localHit.score,
+        'local_hit',
+        localHit.via,
+        { specificityScore: specificity.score, pdpClassifierScore: null },
+        { persistDraft: false },
+      );
+    }
+
+    return this.finishAsDiscovered(
+      draft,
+      norm,
+      'user_import_fast_discovered',
+      'bag_critical_path_pending_merchant_enrichment',
+      0,
+      { specificityScore: specificity.score, pdpClassifierScore: null },
+      {
+        name: norm.name,
+        normalizedName: norm.normalizedName,
+        canonicalSlug: norm.canonicalSlugBase,
+        brand: norm.brand,
+        model: norm.model,
+        category,
+        imageUrl: norm.imageHint,
+        merchantUrl: norm.merchantUrlHint,
+        price: norm.priceHint,
+        currency: norm.currencyHint,
+        verificationStatus: 'UNVERIFIED',
+        verificationSource: 'user_import_fast',
+        verificationVersion: this.cfg.verificationVersion,
+        aiConfidence: norm.aiConfidence,
+        matchConfidence: null,
+        verificationConfidence: 0,
+        aliases: norm.aliases,
+        metadata: {
+          source: 'user_import_fast',
+          enrichmentStatus: 'pending',
+          field_provenance: {
+            title: { source: 'extraction' },
+            brand: { source: 'extraction' },
+            category: { source: category ? 'extraction' : 'none' },
+          },
+          scores: { specificity: specificity.score },
+        },
+      },
+    );
   }
 
   private async resolveOne(
@@ -270,12 +356,38 @@ export class ProductResolver {
       reason: builtQuery.reasons.join(','),
       specificityScore: specificity.score,
     });
-    const creatorUrl = draft.creatorSuppliedUrl ? draft.merchantUrl ?? null : null;
+    // Creator path: any creatorSuppliedUrl is a seed and may skip discovery when strong.
+    // User-import: only qualifying merchant PDPs are seeds; affiliate/social redirects never
+    // suppress Serper. Discovery always runs for user-import (skipDiscoveryIfSeedStrong=false).
+    const rawCreatorUrl = draft.creatorSuppliedUrl ? draft.merchantUrl ?? null : null;
+    const creatorUrl =
+      rawCreatorUrl &&
+      (promoteOnMiss || isQualifyingMerchantSeedUrl(rawCreatorUrl))
+        ? rawCreatorUrl
+        : null;
+    const userImportCountry = !promoteOnMiss
+      ? resolveDiscoveryCountry(draft.commerceCountry)
+      : null;
+    const userImportHints = promoteOnMiss
+      ? {}
+      : {
+          enrichAllCommerce: true,
+          maxAdditionalMerchantOffers: this.cfg.userImportMaxAdditionalMerchantOffers,
+          lightweightAdditionalMerchants: true,
+          commerceCountry: userImportCountry,
+        };
     const searchResult = await this.search.search(
       builtQuery.query,
       creatorUrl
-        ? { seedMerchantUrl: creatorUrl, skipDiscoveryIfSeedStrong: true }
-        : undefined,
+        ? {
+            seedMerchantUrl: creatorUrl,
+            // Creator may skip Serper when the seed PDP is strong; user-import never skips.
+            skipDiscoveryIfSeedStrong: promoteOnMiss,
+            ...userImportHints,
+          }
+        : promoteOnMiss
+          ? undefined
+          : userImportHints,
     );
 
     if (searchResult.kind === 'Failed') {
@@ -378,7 +490,7 @@ export class ProductResolver {
         (Boolean(creatorUrl && merchantUrlsMatch(c.merchantUrl, creatorUrl)) ||
           this.scorer.score(norm, c).score >= this.cfg.verificationMatchMin),
     );
-    const commerceCandidates = metadataCandidates.filter(
+    const commerceCandidatesRaw = metadataCandidates.filter(
       (c) => {
         const classification = classifyCandidatePage({
           url: c.merchantUrl,
@@ -392,6 +504,24 @@ export class ProductResolver {
         );
       },
     );
+    // Canonical-equivalent merchant URLs only (different merchants selling the same
+    // product are retained). Uses existing merchantUrlsMatch / normalizeMerchantUrl.
+    const commerceCandidatesUrlDeduped: SearchCandidate[] = [];
+    for (const candidate of commerceCandidatesRaw) {
+      if (
+        commerceCandidatesUrlDeduped.some((existing) =>
+          merchantUrlsMatch(existing.merchantUrl, candidate.merchantUrl),
+        )
+      ) {
+        continue;
+      }
+      commerceCandidatesUrlDeduped.push(candidate);
+    }
+    // User-import Product Page compare: at most one offer per merchant/domain
+    // (e.g. many Amazon ASINs → one Amazon PDP). Creator path keeps all URL-unique offers.
+    const commerceCandidates = promoteOnMiss
+      ? commerceCandidatesUrlDeduped
+      : pickOneOfferPerMerchant(commerceCandidatesUrlDeduped, userImportCountry);
 
     if (!metadataCandidates.length) {
       const metadataCandidateUrls = new Set(
@@ -493,10 +623,13 @@ export class ProductResolver {
         url: c.merchantUrl,
         sourceTier: c.sourceTier,
         merchant: c.merchant,
+        price: c.price,
+        currency: c.currency,
         sourceType: c.sourceType,
         pageType: c.pageType,
         capabilities: c.capabilities,
         sourceAuthority: c.sourceAuthority,
+        shoppingScore: c.shoppingScore,
         pdpScore: c.pdpScore,
         availability:
           typeof c.enrichmentMeta?.availability === 'string'
@@ -627,7 +760,7 @@ export class ProductResolver {
       canonicalSlug: norm.canonicalSlugBase,
       brand: (creatorUrl ? seedCandidate?.brand : null) || merged.brand || norm.brand,
       model: merged.model ?? norm.model,
-      category: merged.category ?? norm.category,
+      category: resolvePersistableCategory(merged.category, norm.category),
       description: merged.description ?? seedCandidate?.description ?? null,
       imageUrl: merged.heroImage ?? seedCandidate?.image ?? norm.imageHint,
       merchant: seedCandidate?.merchant ?? merged.offer?.merchant ?? verification?.merchant ?? null,
@@ -769,7 +902,7 @@ export class ProductResolver {
       name: catalogInput.name,
       brand: catalogInput.brand ?? null,
       model: catalogInput.model ?? null,
-      category: catalogInput.category ?? null,
+      category: resolvePersistableCategory(catalogInput.category) ?? null,
       imageUrl: catalogInput.imageUrl ?? null,
       price: catalogInput.price ?? null,
       currency: catalogInput.currency ?? null,

@@ -1,7 +1,7 @@
 import { getEnv } from '../env';
 
 /** Cache namespace for normalized inputs that affect reasoning results. */
-export const EXTRACTION_CONTEXT_VERSION = 'youtube-metadata-v2';
+export const EXTRACTION_CONTEXT_VERSION = 'youtube-text-captions-v1';
 
 function num(key: string, fallback: number): number {
   const raw = getEnv(key);
@@ -23,6 +23,8 @@ export type PipelineConfig = {
   reviewMinConfidence: number;
   transcriptMinChars: number;
   maxProductsPerIngest: number;
+  /** Discover Anywhere / user-import extraction cap (not creator ingest). */
+  maxProductsPerImport: number;
   openaiReasonerModel: string;
   openaiVisionModel: string;
   redisUrl: string;
@@ -63,6 +65,7 @@ export function getPipelineConfig(): PipelineConfig {
     reviewMinConfidence: num('REVIEW_MIN_CONFIDENCE', 0.6),
     transcriptMinChars: num('TRANSCRIPT_MIN_CHARS', 40),
     maxProductsPerIngest: num('MAX_PRODUCTS_PER_INGEST', 12),
+    maxProductsPerImport: Math.max(1, num('MAX_PRODUCTS_PER_IMPORT', 3)),
     openaiReasonerModel: reasonerModel,
     openaiVisionModel: visionModel,
     redisUrl: str('REDIS_URL', 'redis://127.0.0.1:6379'),

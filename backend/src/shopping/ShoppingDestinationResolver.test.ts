@@ -209,4 +209,95 @@ describe('ShoppingDestinationResolver', () => {
     );
     assert.equal(shopping?.preferredShoppingUrl, 'https://www.amazon.in/dp/B0CHX3QBCH');
   });
+
+  it('returns every valid commerce offer, including lower scores and missing prices', () => {
+    const commerce = {
+      metadata: true,
+      commerce: true,
+      specifications: true,
+      images: true,
+      evidence: true,
+    } as const;
+    const shopping = resolveShoppingDestination(
+      [
+        {
+          url: 'https://www.amazon.com/dp/A1',
+          merchant: 'Amazon',
+          price: '299',
+          currency: 'USD',
+          sourceType: 'MARKETPLACE',
+          pageType: 'PRODUCT',
+          pdpScore: 0.9,
+          shoppingScore: 0.95,
+          capabilities: commerce,
+        },
+        {
+          url: 'https://www.bestbuy.com/site/p/1',
+          merchant: 'Best Buy',
+          price: '309',
+          currency: 'USD',
+          sourceType: 'RETAILER',
+          pageType: 'PRODUCT',
+          pdpScore: 0.8,
+          shoppingScore: 0.8,
+          capabilities: commerce,
+        },
+        {
+          url: 'https://www.samsung.com/us/audio/p',
+          merchant: 'Samsung',
+          price: '279',
+          currency: 'USD',
+          sourceType: 'OFFICIAL',
+          pageType: 'PRODUCT',
+          pdpScore: 0.75,
+          shoppingScore: 0.7,
+          capabilities: commerce,
+        },
+        {
+          url: 'https://www.verizon.com/products/p',
+          merchant: 'Verizon',
+          sourceType: 'RETAILER',
+          pageType: 'PRODUCT',
+          pdpScore: 0.7,
+          shoppingScore: 0.4,
+          capabilities: commerce,
+        },
+        {
+          url: 'https://www.bhphotovideo.com/c/product/1',
+          merchant: 'B&H',
+          price: '289',
+          currency: 'USD',
+          sourceType: 'RETAILER',
+          pageType: 'PRODUCT',
+          pdpScore: 0.72,
+          shoppingScore: 0.55,
+          capabilities: commerce,
+        },
+        {
+          url: 'https://www.amazon.com/s?k=headphones',
+          merchant: 'Amazon Search',
+          sourceType: 'MARKETPLACE',
+          pageType: 'CATEGORY',
+          pdpScore: 0.2,
+          capabilities: {
+            metadata: false,
+            commerce: false,
+            specifications: false,
+            images: false,
+            evidence: false,
+          },
+        },
+      ],
+      ['amazon', 'official', 'merchant'],
+    );
+
+    assert.equal(shopping?.offers.length, 5);
+    assert.equal(shopping?.preferredShoppingUrl, 'https://www.amazon.com/dp/A1');
+    assert.ok(shopping?.offers.some((o) => o.merchant === 'Verizon' && o.price === null));
+    assert.ok(shopping?.offers.some((o) => o.merchant === 'Best Buy'));
+    assert.equal(
+      shopping?.offers.some((o) => /s\?k=headphones/.test(o.url)),
+      false,
+    );
+  });
 });

@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { CreatorViewModel } from '@/src/types/creator';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { outlineCardChrome } from '@/src/theme/tokens';
 
 type Props = {
   creator: CreatorViewModel;
@@ -22,8 +23,7 @@ export function CreatorCard({ creator, onPress }: Props) {
       style={({ pressed }) => [
         styles.card,
         {
-          backgroundColor: tokens.color.surface,
-          borderColor: tokens.color.border,
+          ...outlineCardChrome(tokens),
           opacity: pressed ? 0.92 : 1,
         },
       ]}

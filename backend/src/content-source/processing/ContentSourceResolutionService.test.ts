@@ -152,7 +152,10 @@ function createHarness() {
   const service = new ContentSourceResolutionService(
     sources,
     discovered,
-    { resolveForUserImport: (drafts) => resolver.resolveForUserImport(drafts) },
+    {
+      resolveForUserImport: (drafts) => resolver.resolveForUserImport(drafts),
+      resolveForUserImportFast: (drafts) => resolver.resolveForUserImportFast(drafts),
+    },
     {
       listByContentSourceId: async (id) =>
         (await imports.listByContentSourceId(id)).map((row) => ({ id: row.id, userId: row.userId })),
@@ -206,6 +209,7 @@ describe('ContentSourceResolutionService', () => {
     assert.equal(bagA.items[0]?.source?.userImportId, importA.id);
     assert.equal(bagB.items[0]?.source?.userImportId, importB.id);
     assert.equal(bagA.items[0]?.source?.surface, 'USER_IMPORT');
+    assert.equal(bagA.items[0]?.product?.category, 'electronics');
   });
 
   it('creates discovered_products only on a catalogue miss', async () => {
@@ -219,23 +223,56 @@ describe('ContentSourceResolutionService', () => {
         name: 'Mystery Gadget',
         brand: 'Acme',
         model: 'GX1',
-        category: 'gadgets',
+        category: 'headphones',
       }),
     ]);
     await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
 
     await harness.service.resolveAndFanOut(source.id);
 
+    assert.equal(harness.searched(), 0, 'Bag-critical path must not await Serper/Tavily');
     const products = await harness.sources.listProducts(source.id);
     assert.equal(products[0]?.catalogProductId, null);
     assert.ok(products[0]?.discoveredProductId);
     assert.equal(harness.catalogRepo.all().length, beforeCatalog);
     assert.equal(harness.discoveredRepo.products.size, 1);
+    const discovered = [...harness.discoveredRepo.products.values()][0];
+    assert.equal(discovered?.category, 'electronics');
     const bag = await harness.cart.getCart(USER_A);
     assert.equal(bag.itemCount, 1);
     assert.equal(bag.items[0]?.discoveredProductId, products[0]?.discoveredProductId);
     assert.equal(bag.items[0]?.catalogProductId, null);
     assert.doesNotMatch(JSON.stringify(bag.items[0]?.product), /discovered/i);
+  });
+
+  it('enriches a discovered product in place after Bag insertion', async () => {
+    const harness = createHarness();
+    const source = await insertSource(harness.sources, 'enrichVideo');
+    await harness.sources.replaceProducts(source.id, [
+      candidate(source.id, {
+        position: 1,
+        externalId: 'p1',
+        name: 'Mystery Gadget',
+        brand: 'Acme',
+        model: 'GX1',
+        category: 'headphones',
+      }),
+    ]);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await harness.service.resolveAndFanOut(source.id);
+    const product = (await harness.sources.listProducts(source.id))[0]!;
+    assert.ok(product.discoveredProductId);
+    assert.equal(harness.searched(), 0);
+
+    await harness.service.enrichDiscoveredProduct({
+      contentSourceId: source.id,
+      contentSourceProductId: product.id,
+      discoveredProductId: product.discoveredProductId!,
+    });
+    assert.ok(harness.searched() >= 1);
+    const enriched = await harness.discoveredRepo.findById(product.discoveredProductId!);
+    assert.equal(enriched?.metadata.enrichmentStatus, 'ready');
+    assert.equal((await harness.cart.getCart(USER_A)).itemCount, 1);
   });
 
   it('reuses one discovered product across users with the same identity', async () => {

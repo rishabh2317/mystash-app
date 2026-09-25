@@ -20,6 +20,9 @@ export type UserSettingsViewModel = CreatorViewModel & {
   country: string | null;
   language: string | null;
   timezone: string | null;
+  countryDetectedAt: string | null;
+  lastLocationCheckAt: string | null;
+  countrySource: 'location' | 'manual' | null;
   authProvider: string | null;
   creatorStatus: CreatorStatus;
 };
@@ -64,6 +67,9 @@ type UserSettingsDto = {
   country: string | null;
   language: string | null;
   timezone: string | null;
+  countryDetectedAt?: string | null;
+  lastLocationCheckAt?: string | null;
+  countrySource?: 'location' | 'manual' | null;
   authProvider: string | null;
 };
 
@@ -75,6 +81,12 @@ function mapSettings(user: UserSettingsDto): UserSettingsViewModel {
     country: user.country,
     language: user.language,
     timezone: user.timezone,
+    countryDetectedAt: user.countryDetectedAt ?? null,
+    lastLocationCheckAt: user.lastLocationCheckAt ?? null,
+    countrySource:
+      user.countrySource === 'location' || user.countrySource === 'manual'
+        ? user.countrySource
+        : null,
     authProvider: user.authProvider,
     creatorStatus: user.creatorStatus,
   };
@@ -127,6 +139,46 @@ export async function updateMyProfile(patch: {
       profile_photo_url: patch.profilePhotoUrl,
     }),
   });
+}
+
+export async function updateMyLocale(patch: {
+  country?: string | null;
+  language?: string | null;
+  timezone?: string | null;
+  countryDetectedAt?: string | null;
+  lastLocationCheckAt?: string | null;
+  countrySource?: 'location' | 'manual' | null;
+}): Promise<UserSettingsViewModel> {
+  return authedUserJson('/users/me/locale', {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function updateMyCommerceCountry(input: {
+  country: string;
+  source: 'location' | 'manual';
+  countryDetectedAt?: string | null;
+  lastLocationCheckAt?: string | null;
+  force?: boolean;
+}): Promise<{ user: UserSettingsViewModel; changed: boolean }> {
+  const token = await bearerToken();
+  const res = await fetch(`${apiBase()}/users/me/commerce-country`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new UserApiError(body.error ?? `User API failed (${res.status})`, res.status);
+  }
+  const body = (await res.json()) as { user: UserSettingsDto; changed?: boolean };
+  if (!body?.user) throw new UserApiError('Invalid user response', 500);
+  return { user: mapSettings(body.user), changed: body.changed === true };
 }
 
 /** NONE → ONBOARDING */

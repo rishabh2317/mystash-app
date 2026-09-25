@@ -13,30 +13,30 @@ import {
 const ROOT = join(import.meta.dirname, '..', '..');
 
 describe('public creator profile copy', () => {
-  it('formats real Collection and received Reel Like counts', () => {
+  it('formats Posts / Followers / Following from real creator counts', () => {
     assert.equal(
       publicCreatorMetaLine({
         collectionCount: 1,
         followersCount: 1,
-        totalReelLikesReceived: 1,
+        followingCount: 1,
       }),
-      '1 Collections · 1 Followers · 1 Likes',
+      '1 Posts · 1 Followers · 1 Following',
     );
     assert.equal(
       publicCreatorMetaLine({
         collectionCount: 12,
         followersCount: 8200,
-        totalReelLikesReceived: 340,
+        followingCount: 340,
       }),
-      '12 Collections · 8.2K Followers · 340 Likes',
+      '12 Posts · 8.2K Followers · 340 Following',
     );
     assert.deepEqual(
       publicCreatorStats({
         collectionCount: 12,
         followersCount: 8200,
-        totalReelLikesReceived: 340,
+        followingCount: 340,
       }).map((item) => item.id),
-      ['collections', 'followers', 'likes'],
+      ['posts', 'followers', 'following'],
     );
     assert.equal(publicCollectionProductLabel(1), '1 product');
     assert.equal(publicCollectionProductLabel(8), '8 products');
@@ -49,30 +49,53 @@ describe('public creator profile architecture', () => {
   it('uses shared identity/stats chrome and keeps personal-only surfaces off the storefront', () => {
     const profile = readFileSync(join(ROOT, 'components/creator/CreatorProfile.tsx'), 'utf8');
     const header = readFileSync(join(ROOT, 'components/creator/CreatorProfileHeader.tsx'), 'utf8');
+    const identity = readFileSync(join(ROOT, 'components/profile/ProfileIdentityHeader.tsx'), 'utf8');
     const route = readFileSync(join(ROOT, 'app/creator/[username].tsx'), 'utf8');
     const tile = readFileSync(join(ROOT, 'components/collection/CollectionTile.tsx'), 'utf8');
+    const publicTile = readFileSync(join(ROOT, 'components/collection/PublicCollectionTile.tsx'), 'utf8');
     const card = readFileSync(join(ROOT, 'components/commerce/ProductCard.tsx'), 'utf8');
 
-    assert.match(profile, /variant="public"/);
-    assert.match(profile, /variant="publicProfile"/);
+    assert.match(profile, /PublicCollectionTile/);
+    assert.match(profile, /variant="related"/);
+    assert.doesNotMatch(profile, /variant="publicProfile"/);
     assert.match(tile, /'public'/);
-    assert.match(card, /'publicProfile'/);
+    assert.match(tile, /productLabel/);
+    assert.match(tile, /bookmark/);
+    assert.match(publicTile, /useCollectionSaveHandler/);
+    assert.match(publicTile, /isCollectionSaved/);
+    assert.match(card, /'related'/);
 
     assert.match(header, /ProfileIdentityHeader/);
     assert.match(header, /ProfileStatsStrip/);
     assert.match(header, /ProfileContentTabs/);
     assert.match(header, /FollowControl/);
-    assert.match(header, /size="compact"/);
-    assert.doesNotMatch(header, /emphasis="brand"/);
+    assert.match(header, /emphasis="brand"/);
+    assert.match(header, /fullWidth/);
+    assert.match(header, /Share/);
+    assert.match(header, /onSharePress/);
+    assert.match(header, /showHandle=\{false\}/);
+    assert.match(header, /statsSlot/);
     assert.match(header, /publicCreatorStats/);
-    assert.match(header, /totalReelLikesReceived/);
+    assert.match(header, /followingCount/);
+    assert.doesNotMatch(header, /totalReelLikesReceived/);
     assert.doesNotMatch(header, /savesCount/);
-    assert.doesNotMatch(header, /followingCount/);
     assert.doesNotMatch(header, /MetaBar/);
+    assert.doesNotMatch(header, /size="compact"/);
+
+    assert.match(identity, /showHandle/);
+    assert.match(identity, /statsSlot/);
+    assert.match(identity, /typeStyle/);
 
     assert.match(route, /shareCreatorProfile/);
+    assert.match(route, /onSharePress/);
+    assert.match(route, /OverflowMenu/);
+    assert.match(route, /Report/);
+    assert.match(route, /Block/);
+    assert.doesNotMatch(route, /ContextActions/);
     assert.match(route, /onFollowPress/);
-    assert.match(route, /ProductDetailsSheet/);
+    assert.match(route, /onAddToCart/);
+    assert.match(route, /productPagePath/);
+    assert.doesNotMatch(route, /ProductDetailsSheet/);
     assert.match(route, /collectionTilePressPath/);
     assert.match(route, /reconcilePublicCollectionCount/);
 

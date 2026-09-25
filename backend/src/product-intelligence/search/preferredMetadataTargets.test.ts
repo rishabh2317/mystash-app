@@ -5,6 +5,7 @@ import {
   amazonPreferredSearchQuery,
   isAmazonPreferredMetadataCandidate,
   isOfficialPreferredMetadataCandidate,
+  marketplacePreferredSearchQueries,
   officialPreferredSearchQuery,
   pickPreferredMetadataTargets,
   shouldStopAfterPreferredMetadata,
@@ -134,5 +135,24 @@ describe('preferred discovery queries', () => {
     );
     assert.equal(officialPreferredSearchQuery('Apple MacBook Air', 'Apple'), 'Apple MacBook Air official');
     assert.equal(amazonPreferredSearchQuery('MacBook Air M4'), 'MacBook Air M4 site:amazon.com');
+  });
+
+  it('builds country-aware Amazon and marketplace discovery queries', () => {
+    assert.equal(
+      amazonPreferredSearchQuery('Sony Playstation 5 PS5', 'IN'),
+      'Sony Playstation 5 PS5 site:amazon.in',
+    );
+    assert.equal(
+      amazonPreferredSearchQuery('Sony Playstation 5 PS5', 'US'),
+      'Sony Playstation 5 PS5 site:amazon.com',
+    );
+    assert.equal(
+      amazonPreferredSearchQuery('Sony Playstation 5 PS5', 'GB'),
+      'Sony Playstation 5 PS5 site:amazon.co.uk',
+    );
+    assert.deepEqual(marketplacePreferredSearchQueries('PS5', 'IN')[0], 'PS5 site:flipkart.com');
+    assert.deepEqual(marketplacePreferredSearchQueries('PS5', 'US')[0], 'PS5 site:walmart.com');
+    assert.ok(marketplacePreferredSearchQueries('PS5', 'GB').some((q) => q.includes('site:')));
+    assert.deepEqual(marketplacePreferredSearchQueries('PS5', null), []);
   });
 });

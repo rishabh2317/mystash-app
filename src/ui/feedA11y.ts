@@ -1,14 +1,14 @@
 export const FEED_MIN_HIT_TARGET = 44;
 
 export const FEED_TEACH_COPY =
-  'Swipe for the next reel · tap a product to inspect';
+  'Swipe for the next reel · Shop this post for products';
 
 export const FEED_TEACH_STORAGE_KEY = 'mystash_home_feed_teach_dismissed';
 
 export function productChipAccessibilityLabel(name: string, price: string): string {
   const title = name.trim() || 'Product';
   const amount = price.trim() || 'Price unavailable';
-  return `${title}, ${amount}. View product.`;
+  return `${title}, ${amount}. Shop this product.`;
 }
 
 export function feedReelAnnouncement(input: {

@@ -236,7 +236,7 @@ describe('ContentSourceService processing handoff', () => {
   it('stays consistent when a concurrent writer wins the QUEUED transition', async () => {
     const { jobs, repo, service } = createHarness();
     const source = await service.getOrCreate('https://shop.example.com/p/mug');
-    // Another process already moved the row on between enqueue and compare-and-set.
+    // Another process already moved the row on before our markQueued.
     repo.markQueued = async () => null;
 
     const result = await service.requestProcessing({

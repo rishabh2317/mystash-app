@@ -1,15 +1,21 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { TopBar } from '@/components/chrome/TopBar';
 import { ProductPage } from '@/components/product/ProductPage';
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { fetchProductPage, ProductPageApiError } from '@/src/services/productPageApi';
 import { softCanvasGradient } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 import type { ProductPageView } from '@/src/types/productPage';
-import { PRODUCT_PAGE_COPY } from '@/src/ui/productPage';
+import {
+  PRODUCT_PAGE_COPY,
+  PRODUCT_PAGE_DETAILS_UPDATING_POLL_MS,
+  shouldPollProductPageDetails,
+} from '@/src/ui/productPage';
 
 function firstParam(value: string | string[] | undefined): string | null {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -31,6 +37,7 @@ export default function ProductPageScreen() {
   const [page, setPage] = useState<ProductPageView | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
+  const pollInFlight = useRef(false);
 
   const load = useCallback(async () => {
     if (!productId) {
@@ -55,10 +62,38 @@ export default function ProductPageScreen() {
     void load();
   }, [load]);
 
+  const detailsUpdating = shouldPollProductPageDetails(page);
+
+  useEffect(() => {
+    if (!productId || status !== 'ready' || !detailsUpdating) return;
+
+    let cancelled = false;
+    const timer = setInterval(() => {
+      if (cancelled || pollInFlight.current) return;
+      pollInFlight.current = true;
+      void fetchProductPage(productId, { contentSourceId, userImportId })
+        .then((next) => {
+          if (!cancelled) setPage(next);
+        })
+        .catch(() => {
+          /* keep showing last page; continue polling while still updating */
+        })
+        .finally(() => {
+          pollInFlight.current = false;
+        });
+    }, PRODUCT_PAGE_DETAILS_UPDATING_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      pollInFlight.current = false;
+    };
+  }, [contentSourceId, detailsUpdating, productId, status, userImportId]);
+
   return (
     <View style={styles.screen}>
       <LinearGradient colors={[...softCanvasGradient(tokens)]} style={StyleSheet.absoluteFill} />
-      <TopBar mode="page" title={page?.title ?? 'Product'} showBack showBag />
+      <TopBar mode="page" title={page?.title ?? 'Product'} showBack />
       {status === 'loading' ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.color.accent} />
@@ -66,17 +101,17 @@ export default function ProductPageScreen() {
       ) : null}
       {status === 'error' ? (
         <View style={styles.center}>
-          <Text style={[styles.errorTitle, { color: tokens.color.text }]}>
+          <Text style={[typeStyle(tokens, 'sectionTitle'), { textAlign: 'center' }]}>
             {PRODUCT_PAGE_COPY.loadError}
           </Text>
           {error ? (
-            <Text style={{ color: tokens.color.textMuted, textAlign: 'center' }}>{error}</Text>
+            <Text style={[typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' }]}>{error}</Text>
           ) : null}
           <Pressable
             onPress={() => void load()}
             style={[styles.retry, { backgroundColor: tokens.color.cta }]}
           >
-            <Text style={styles.retryText}>{PRODUCT_PAGE_COPY.retry}</Text>
+            <Text style={[typeStyle(tokens, 'cta'), { color: '#fff' }]}>{PRODUCT_PAGE_COPY.retry}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -94,12 +129,10 @@ const styles = StyleSheet.create({
     padding: 24,
     gap: 10,
   },
-  errorTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
   retry: {
     marginTop: 8,
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 12,
   },
-  retryText: { color: '#fff', fontWeight: '800' },
 });

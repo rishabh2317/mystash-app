@@ -12,7 +12,11 @@ import {
   bagProgressBanners,
   bagSections,
   bagSourceLabel,
+  buildStashHome,
+  formatStashCategoryTitle,
   groupBagItems,
+  stashContextLabel,
+  stashRelativeTime,
   uniqueBagProductIds,
   type BagItemView,
 } from '@/src/ui/bag';
@@ -59,8 +63,8 @@ function line(partial: Partial<CartLine> & Pick<CartLine, 'cartItemId' | 'produc
   };
 }
 
-describe('Bag presentation', () => {
-  it('renders a canonical Bag item without verification internals', () => {
+describe('Stash presentation', () => {
+  it('renders a canonical Stash item without verification internals', () => {
     const view = bagItemFromLine(
       line({
         cartItemId: 'c1',
@@ -84,14 +88,14 @@ describe('Bag presentation', () => {
     assert.equal(view.brand, 'Sony');
     assert.equal(view.priceLabel, 'USD 299.00');
     assert.equal(view.category, 'Audio');
-    assert.equal(view.sourceLabel, 'From a collection');
+    assert.equal(view.sourceLabel, 'Collection');
     assert.equal(view.canBuy, true);
     assert.equal(view.catalogProductId, 'cat-1');
     assert.equal('verificationStatus' in view, false);
     assert.equal('metadataCompleteness' in view, false);
   });
 
-  it('renders a discovered Bag item through the same view and shows price', () => {
+  it('renders a discovered Stash item through the same view and shows price', () => {
     const view = bagItemFromLine(
       line({
         cartItemId: 'c2',
@@ -119,14 +123,14 @@ describe('Bag presentation', () => {
     assert.equal(view.priceLabel, 'USD 12.00');
     assert.equal(view.canBuy, false);
     assert.equal(view.catalogProductId, null);
-    assert.equal(view.sourceLabel, 'From a shared link');
+    assert.equal(view.sourceLabel, 'Shared');
     assert.equal(view.contentSourceId, 'cs-1');
     assert.equal(view.userImportId, 'imp-1');
     assert.doesNotMatch(view.title, FORBIDDEN_COPY);
     assert.doesNotMatch(view.sourceLabel ?? '', FORBIDDEN_COPY);
   });
 
-  it('groups a mixed canonical + discovered Bag by category', () => {
+  it('groups a mixed canonical + discovered Stash by category', () => {
     const items: BagItemView[] = [
       bagItemFromLine(
         line({
@@ -171,6 +175,97 @@ describe('Bag presentation', () => {
     );
   });
 
+  it('builds Stash home with category cards and recent finds — no Ready to shop', () => {
+    const items = [
+      bagItemFromLine(
+        line({
+          cartItemId: 'c1',
+          productId: 'cat-1',
+          catalogProductId: 'cat-1',
+          availability: 'AVAILABLE',
+          addedAt: '2026-09-22T12:00:00.000Z',
+          product: product('cat-1', { title: 'Phone', category: 'electronics' }),
+        }),
+      ),
+      bagItemFromLine(
+        line({
+          cartItemId: 'c2',
+          productId: 'cat-2',
+          catalogProductId: 'cat-2',
+          availability: 'AVAILABLE',
+          addedAt: '2026-09-21T12:00:00.000Z',
+          product: product('cat-2', { title: 'Case', category: 'electronics' }),
+        }),
+      ),
+      bagItemFromLine(
+        line({
+          cartItemId: 'c3',
+          productId: 'disc-1',
+          catalogProductId: null,
+          availability: 'NO_DESTINATION',
+          addedAt: '2026-09-20T12:00:00.000Z',
+          product: product('disc-1', {
+            catalogProductId: null,
+            title: 'Mug',
+            category: 'Home',
+          }),
+        }),
+      ),
+    ];
+    const layout = buildStashHome(items);
+    assert.equal(layout.countLabel, '3 stashed');
+    assert.deepEqual(
+      layout.categories.map((category) => category.key),
+      ['electronics', 'Home'],
+    );
+    assert.equal(layout.categories[0]?.title, 'Electronics');
+    assert.equal(layout.categories[0]?.count, 2);
+    assert.equal(layout.categories[0]?.previewUrls.length, 2);
+    assert.equal(layout.recent[0]?.title, 'Phone');
+    assert.equal(layout.recent.length, 3);
+    assert.equal(
+      layout.categories.some((category) => /ready/i.test(category.title)),
+      false,
+    );
+  });
+
+  it('skips empty Ready semantics and still shows uncategorized as Other', () => {
+    const items = [
+      bagItemFromLine(
+        line({
+          cartItemId: 'c1',
+          productId: 'disc-1',
+          catalogProductId: null,
+          availability: 'NO_DESTINATION',
+          product: product('disc-1', { catalogProductId: null, category: null }),
+        }),
+      ),
+    ];
+    const layout = buildStashHome(items);
+    assert.deepEqual(
+      layout.categories.map((category) => category.key),
+      ['Other'],
+    );
+    assert.equal(layout.recent.length, 1);
+  });
+
+  it('formats quiet memory context from source + addedAt', () => {
+    const now = Date.parse('2026-09-22T14:00:00.000Z');
+    assert.equal(stashRelativeTime('2026-09-22T12:00:00.000Z', now), '2h ago');
+    assert.equal(stashRelativeTime('2026-09-21T14:00:00.000Z', now), 'yesterday');
+    assert.equal(
+      stashContextLabel(
+        {
+          source: { surface: 'USER_IMPORT' },
+          addedAt: '2026-09-22T12:00:00.000Z',
+        },
+        now,
+      ),
+      'Shared · 2h ago',
+    );
+    assert.equal(formatStashCategoryTitle('electronics'), 'Electronics');
+  });
+
   it('skips a category header when nothing is categorized', () => {
     const items = [
       bagItemFromLine(
@@ -187,7 +282,7 @@ describe('Bag presentation', () => {
     assert.equal(sections[0]?.title, '');
   });
 
-  it('keeps duplicate product ids unique at the Bag view layer', () => {
+  it('keeps duplicate product ids unique at the Stash view layer', () => {
     const items = [
       bagItemFromLine(
         line({
@@ -225,7 +320,7 @@ describe('Bag presentation', () => {
     assert.equal(view.source?.surface, 'USER_IMPORT');
     assert.equal(view.source?.contentSourceId, 'cs-9');
     assert.equal(view.source?.userImportId, 'imp-9');
-    assert.equal(bagSourceLabel(view.source), 'From a shared link');
+    assert.equal(bagSourceLabel(view.source), 'Shared');
   });
 
   it('maps share progress to user-facing banners', () => {
@@ -251,15 +346,92 @@ describe('Bag presentation', () => {
     }
   });
 
-  it('Bag UI does not use ProductCard or expose internal status copy', () => {
-    const cart = readFileSync(join(ROOT, 'app/cart.tsx'), 'utf8');
-    const card = readFileSync(join(ROOT, 'components/commerce/BagItemCard.tsx'), 'utf8');
-    assert.match(cart, /BagItemCard/);
-    assert.match(cart, /productPagePath/);
-    assert.match(cart, /fetchImportShares/);
-    assert.doesNotMatch(cart, /ProductCard/);
+  it('stops in-flight discovery polling once shares are ready', () => {
+    assert.equal(
+      bagHasInFlightShares([
+        { importId: 'i1', state: 'ready', kind: 'youtube' },
+        { importId: 'i2', state: 'nothing_yet', kind: 'web' },
+      ]),
+      false,
+    );
+    assert.equal(bagProgressBanners([{ importId: 'i1', state: 'ready', kind: 'youtube' }]).length, 0);
+  });
+
+  it('groups unknown categories under Other and keeps mapped categories', () => {
+    const sections = groupBagItems([
+      {
+        cartItemId: 'c1',
+        productId: 'p1',
+        catalogProductId: null,
+        addedAt: '2026-09-20T12:00:00.000Z',
+        title: 'Phone',
+        brand: null,
+        priceLabel: null,
+        imageUrl: 'https://cdn.example.com/p.jpg',
+        category: 'electronics',
+        sourceLabel: null,
+        availabilityLabel: null,
+        canBuy: false,
+        source: null,
+        contentSourceId: null,
+        userImportId: null,
+        product: product('p1', { category: 'electronics' }),
+      },
+      {
+        cartItemId: 'c2',
+        productId: 'p2',
+        catalogProductId: null,
+        addedAt: '2026-09-20T12:00:00.000Z',
+        title: 'Odd',
+        brand: null,
+        priceLabel: null,
+        imageUrl: 'https://cdn.example.com/p.jpg',
+        category: 'unknown',
+        sourceLabel: null,
+        availabilityLabel: null,
+        canBuy: false,
+        source: null,
+        contentSourceId: null,
+        userImportId: null,
+        product: product('p2', { category: 'unknown' }),
+      },
+    ]);
+    assert.equal(sections[0]?.title, 'electronics');
+    assert.equal(sections.some((s) => /unknown/i.test(s.title)), false);
+    assert.ok(sections.some((s) => s.title === 'Other'));
+  });
+
+  it('Stash category collage keeps transparent gutters between curved thumbnails', () => {
+    const src = readFileSync(join(ROOT, 'components/commerce/StashCategoryCard.tsx'), 'utf8');
+    assert.match(src, /COLLAGE_GUTTER/);
+    assert.match(src, /borderTopLeftRadius: collageRadius/);
+    assert.match(src, /borderTopRightRadius: collageRadius/);
+    assert.match(src, /borderBottomLeftRadius: collageRadius/);
+    assert.match(src, /borderBottomRightRadius: collageRadius/);
+    assert.match(src, /outlineCardChrome\(tokens\)/);
+    assert.match(src, /semantic\.surface\.outlineCard/);
+    assert.match(src, /styles\.row/);
+  });
+
+  it('Stash UI uses category cards + collection ProductCards, not Ready to shop', () => {
+    const cart = readFileSync(join(ROOT, 'app/(tabs)/stash.tsx'), 'utf8');
+    assert.match(cart, /StashCategoryCard/);
+    assert.match(cart, /ProductCard/);
+    assert.match(cart, /variant=\"related\"/);
+    assert.match(cart, /buildStashHome/);
+    assert.match(cart, /Your products/);
+    assert.match(cart, /renderRelatedGrid/);
+    assert.match(cart, /trash-outline/);
+    assert.match(cart, /!item\.catalogProductId/);
+    assert.doesNotMatch(cart, />\s*Remove\s*</);
+    assert.match(cart, /onBecameReady/);
+    assert.match(cart, /useFocusEffect/);
+    assert.match(cart, /void refresh\(\)/);
+    assert.doesNotMatch(cart, /ContentRail/);
+    assert.doesNotMatch(cart, /variant=\"collection\"/);
+    assert.doesNotMatch(cart, /Ready to shop/);
+    assert.doesNotMatch(cart, /bagProgressBanners/);
+    assert.doesNotMatch(cart, /BagItemCard/);
     assert.doesNotMatch(cart, /ProductDetailsSheet/);
-    assert.doesNotMatch(cart, /VerificationBadge/);
-    assert.doesNotMatch(card, /VerificationBadge/);
   });
 });

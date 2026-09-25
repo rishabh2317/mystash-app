@@ -415,4 +415,154 @@ describe('ProductAiReviewService', () => {
       assert.fail('expected unavailable');
     }
   });
+
+  it('falls back to discovered product identity when catalogue is missing', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    const reviewRepo = new InMemoryProductAiReviewRepository();
+    let geminiCalls = 0;
+    const discoveredId = 'disc-ai-1';
+    const discovered = {
+      async getById(id: string) {
+        if (id !== discoveredId) return null;
+        return {
+          id: discoveredId,
+          identityKey: 'n_pixel10discovered',
+          name: 'Google Pixel 10',
+          brand: 'Google',
+          model: 'Pixel 10',
+          category: 'Phones',
+          imageUrl: null,
+          price: null,
+          currency: null,
+          merchant: 'Amazon',
+          merchantUrl: 'https://www.amazon.in/dp/PIXEL10',
+          metadata: { specifications: { Storage: '256GB' } },
+          matchConfidence: null,
+          completeness: null,
+          internalStatus: 'ACTIVE' as const,
+          catalogProductId: null,
+          processorVersion: 'test',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          schemaVersion: 1,
+        };
+      },
+    };
+    const svc = new ProductAiReviewService(
+      catalog,
+      reviewRepo,
+      {
+        async generate(identity) {
+          geminiCalls += 1;
+          assert.equal(identity.productId, discoveredId);
+          assert.equal(identity.name, 'Google Pixel 10');
+          assert.equal(identity.merchantUrl, 'https://www.amazon.in/dp/PIXEL10');
+          return {
+            ok: true,
+            payload: validPayload('Pixel review'),
+            model: 'gemini-test',
+            sourceCount: 1,
+          };
+        },
+      },
+      async (productId, hash) => {
+        await svc.runGeneration(productId, hash);
+      },
+      discovered,
+    );
+
+    const started = await svc.getAiReview(discoveredId);
+    assert.equal(started.kind, 'response');
+    if (started.kind === 'response') {
+      assert.equal(started.body.status, 'generating');
+    }
+    // Enqueue runs generation inline in this harness; wait for the voided schedule.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const out = await svc.getAiReview(discoveredId);
+    assert.equal(out.kind, 'response');
+    if (out.kind !== 'response') return;
+    assert.equal(out.body.status, 'available');
+    if (out.body.status === 'available') {
+      assert.equal(out.body.catalogProductId, discoveredId);
+      assert.match(out.body.summary, /Pixel review/);
+    }
+    assert.equal(geminiCalls, 1);
+  });
+
+  it('linked discovered products reuse catalogue AI Review cache', async () => {
+    const catalogRepo = new InMemoryCatalogRepository();
+    catalogRepo.seed(baseProduct({ id: 'prod-1' }));
+    const catalog = new CatalogService(catalogRepo);
+    const reviewRepo = new InMemoryProductAiReviewRepository();
+    const hash = computeProductEvidenceHash(productIdentityFromCatalog(baseProduct()));
+    const now = new Date().toISOString();
+    await reviewRepo.markReady({
+      productId: 'prod-1',
+      summary: 'Catalogue cached summary',
+      pros: [{ text: 'Good sound', evidence: [] }],
+      cons: [],
+      sources: [
+        {
+          id: 's1',
+          title: 'RTINGS',
+          url: 'https://www.rtings.com/headphones/reviews/sony/wh-1000xm5',
+          domain: 'rtings.com',
+          publishedAt: null,
+        },
+      ],
+      evidenceLastCheckedAt: now,
+      summaryGeneratedAt: now,
+      evidenceHash: hash,
+      model: 'gemini-test',
+    });
+
+    let geminiCalls = 0;
+    const svc = new ProductAiReviewService(
+      catalog,
+      reviewRepo,
+      {
+        async generate() {
+          geminiCalls += 1;
+          return { ok: false, code: 'api_error', message: 'should not run' };
+        },
+      },
+      async () => undefined,
+      {
+        async getById() {
+          return {
+            id: 'disc-linked',
+            identityKey: 'n_linked',
+            name: 'Other name',
+            brand: 'X',
+            model: null,
+            category: null,
+            imageUrl: null,
+            price: null,
+            currency: null,
+            merchant: null,
+            merchantUrl: null,
+            metadata: {},
+            matchConfidence: null,
+            completeness: null,
+            internalStatus: 'ACTIVE',
+            catalogProductId: 'prod-1',
+            processorVersion: 'test',
+            createdAt: now,
+            updatedAt: now,
+            schemaVersion: 1,
+          };
+        },
+      },
+    );
+
+    const out = await svc.getAiReview('disc-linked');
+    assert.equal(out.kind, 'response');
+    if (out.kind === 'response' && out.body.status === 'available') {
+      assert.equal(out.body.catalogProductId, 'prod-1');
+      assert.equal(out.body.summary, 'Catalogue cached summary');
+    } else {
+      assert.fail('expected catalogue cache hit');
+    }
+    assert.equal(geminiCalls, 0);
+  });
 });

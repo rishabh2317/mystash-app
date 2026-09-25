@@ -26,6 +26,13 @@ export const CONTENT_PROCESSING_STATUSES: readonly ContentProcessingStatus[] = [
  */
 export const ENQUEUEABLE_STATUSES: readonly ContentProcessingStatus[] = ['RECEIVED', 'FAILED'];
 
+/** Explicit user-import retry may re-enter the queue from READY as well. */
+export const REPROCESSABLE_STATUSES: readonly ContentProcessingStatus[] = [
+  'RECEIVED',
+  'FAILED',
+  'READY',
+];
+
 export const PROCESSING_CLAIM_STATUSES: readonly ContentProcessingStatus[] = [
   'QUEUED',
   'PROCESSING',
@@ -47,6 +54,11 @@ export function isContentProcessingStatus(value: string): value is ContentProces
 /** Whether a share should hand global work to the queue, given the current status. */
 export function shouldEnqueueProcessing(status: ContentProcessingStatus): boolean {
   return ENQUEUEABLE_STATUSES.includes(status);
+}
+
+/** Whether an explicit retry may re-queue global work (includes READY). */
+export function shouldReprocess(status: ContentProcessingStatus): boolean {
+  return REPROCESSABLE_STATUSES.includes(status);
 }
 
 /** Whether a worker may claim this row and run extraction. */

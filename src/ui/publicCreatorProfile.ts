@@ -1,28 +1,31 @@
 import { formatEngagementCount } from './formatEngagementCount';
 
-export type PublicCreatorMetaId = 'collections' | 'followers' | 'likes';
+export type PublicCreatorMetaId = 'posts' | 'followers' | 'following';
 
 function count(value: number): number {
   return Math.max(0, Math.floor(value));
 }
 
-/** Quiet public-profile figures — real CreatorViewModel counts only. */
+/**
+ * Quiet public-profile figures — Instagram-style hierarchy using real
+ * CreatorViewModel counts (posts = published collections).
+ */
 export function publicCreatorStats(input: {
   collectionCount: number;
   followersCount: number;
-  totalReelLikesReceived: number;
+  followingCount: number;
 }): { id: PublicCreatorMetaId; value: number; label: string }[] {
   return [
-    { id: 'collections', value: count(input.collectionCount), label: 'Collections' },
+    { id: 'posts', value: count(input.collectionCount), label: 'Posts' },
     { id: 'followers', value: count(input.followersCount), label: 'Followers' },
-    { id: 'likes', value: count(input.totalReelLikesReceived), label: 'Likes' },
+    { id: 'following', value: count(input.followingCount), label: 'Following' },
   ];
 }
 
 export function publicCreatorMetaLine(input: {
   collectionCount: number;
   followersCount: number;
-  totalReelLikesReceived: number;
+  followingCount: number;
 }): string {
   return publicCreatorStats(input)
     .map((item) => `${formatEngagementCount(item.value)} ${item.label}`)

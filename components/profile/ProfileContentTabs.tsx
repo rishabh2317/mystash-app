@@ -1,7 +1,9 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { typeStyle } from '@/src/theme/typography';
 
 export type ProfileContentTab<Id extends string = string> = {
   id: Id;
@@ -41,17 +43,16 @@ export function ProfileContentTabs<Id extends string>({ tabs, active, onChange }
             style={[
               styles.tab,
               {
-                borderBottomWidth: tokens.stroke.strong,
+                borderBottomWidth: StyleSheet.hairlineWidth * 2,
                 borderBottomColor: selected ? tokens.color.primary : 'transparent',
               },
             ]}
           >
             <Text
-              style={{
-                color: selected ? tokens.color.text : tokens.color.textMuted,
-                fontSize: tokens.fontSize.bodyStrong,
-                fontWeight: selected ? tokens.fontWeight.bold : tokens.fontWeight.semibold,
-              }}
+              style={[
+                typeStyle(tokens, selected ? 'tileTitle' : 'tileMeta'),
+                { color: selected ? tokens.color.text : tokens.color.textMuted },
+              ]}
             >
               {tab.label}
             </Text>
@@ -70,7 +71,7 @@ const styles = StyleSheet.create({
   tab: {
     paddingVertical: 10,
     paddingHorizontal: 2,
-    minHeight: 44,
+    minHeight: 40,
     justifyContent: 'center',
   },
 });

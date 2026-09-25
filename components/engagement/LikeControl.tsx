@@ -45,7 +45,7 @@ export function LikeControl({
       style={[
         styles.button,
         {
-          backgroundColor: immersive ? tokens.immersive.control : tokens.color.overlay,
+          backgroundColor: immersive ? 'transparent' : tokens.color.overlay,
           borderRadius: tokens.radius.pill,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },

@@ -21,6 +21,12 @@ export type ProductIntelligenceConfig = {
   backgroundResolve: boolean;
   /** Max trusted PDPs to enrich per draft (cost control). */
   metadataEnrichMaxCandidates: number;
+  /**
+   * User-import only: max ADDITIONAL merchant offers discovered per identified product.
+   * A qualifying seed PDP may be retained in addition to this count.
+   * Independent of MAX_PRODUCTS_PER_IMPORT (products per shared URL).
+   */
+  userImportMaxAdditionalMerchantOffers: number;
   /** Default product web search provider (DI can override). */
   searchProvider: ProductSearchProviderId;
   serperApiKey: string | null;
@@ -47,6 +53,10 @@ export function getProductIntelligenceConfig(): ProductIntelligenceConfig {
     affiliateCacheTtlMs: num('AFFILIATE_CACHE_TTL_DAYS', 30) * 24 * 3600_000,
     backgroundResolve: (getEnv('PRODUCT_RESOLVE_BACKGROUND') ?? 'true').toLowerCase() !== 'false',
     metadataEnrichMaxCandidates: Math.max(1, Math.min(10, num('METADATA_ENRICH_MAX_CANDIDATES', 5))),
+    userImportMaxAdditionalMerchantOffers: Math.max(
+      1,
+      Math.min(12, num('USER_IMPORT_MAX_ADDITIONAL_MERCHANT_OFFERS', 6)),
+    ),
     searchProvider: parseSearchProvider(getEnv('PRODUCT_SEARCH_PROVIDER')),
     serperApiKey: getEnv('SERPER_API_KEY')?.trim() || null,
     googleCseApiKey: getEnv('GOOGLE_CSE_API_KEY')?.trim() || null,

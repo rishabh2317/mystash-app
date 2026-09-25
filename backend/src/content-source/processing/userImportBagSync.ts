@@ -19,7 +19,10 @@ export function createUserImportBagSync(admin: SupabaseClient): UserImportBagSyn
     ? new ContentSourceResolutionService(
         sources,
         createDiscoveredProductService(admin),
-        { resolveForUserImport: (drafts) => pi.resolver.resolveForUserImport(drafts) },
+        {
+          resolveForUserImport: (drafts) => pi.resolver.resolveForUserImport(drafts),
+          resolveForUserImportFast: (drafts) => pi.resolver.resolveForUserImportFast(drafts),
+        },
         userImports,
         createCartService(admin),
       )

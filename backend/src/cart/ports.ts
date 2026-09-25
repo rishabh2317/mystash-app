@@ -1,5 +1,6 @@
 import type { DiscoveredProductRecord } from '../discovered/domain/types';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
+import { resolvePersistableCategory } from '../product-intelligence/domain/categoryTaxonomy';
 import type { CartProductProjection } from './domain/types';
 
 /**
@@ -37,7 +38,7 @@ export function mapDiscoveredToCartProjection(
     currency: product.currency,
     lastVerifiedAt: null,
     metadataCompleteness: null,
-    category: product.category,
+    category: resolvePersistableCategory(product.category),
   };
 }
 
@@ -78,6 +79,6 @@ export function mapCatalogToCartProjection(product: CatalogProduct): CartProduct
     currency: product.currency,
     lastVerifiedAt: product.lastVerifiedAt,
     metadataCompleteness: completeness,
-    category: product.category ?? null,
+    category: resolvePersistableCategory(product.category) ?? product.category ?? null,
   };
 }

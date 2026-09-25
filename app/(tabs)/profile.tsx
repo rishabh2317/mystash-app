@@ -29,6 +29,7 @@ import { requestAddToCart } from '@/src/services/cartBoundary';
 import { listCreatorCollections } from '@/src/services/collectionApi';
 import { followCreator, saveCollection } from '@/src/services/engagementApi';
 import { loadSavedCollections } from '@/src/services/personalProfileContent';
+import { shareCreatorProfile } from '@/src/services/shareLinks';
 import { collectionTilePressPath } from '@/src/ui/collectionLayout';
 import { reconcilePublicCollectionCount } from '@/src/ui/publicCreatorProfile';
 import { pageCanvasGradient } from '@/src/theme/tokens';
@@ -209,6 +210,20 @@ export default function ProfileScreen() {
     },
     [router],
   );
+
+  const onSharePress = useCallback(async () => {
+    if (!creator) return;
+    try {
+      await shareCreatorProfile({
+        username: creator.username,
+        displayName: creator.displayName,
+        creatorId: creator.userId,
+        surface: 'personal_profile',
+      });
+    } catch (e) {
+      Alert.alert('Share', e instanceof Error ? e.message : 'Could not share profile.');
+    }
+  }, [creator]);
 
   const onSaveProfile = useCallback(
     async (patch: { displayName: string; bio: string }) => {
@@ -413,10 +428,10 @@ export default function ProfileScreen() {
       <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
       <TopBar
         mode="page"
-        title=""
+        title={creator ? `@${creator.username}` : 'Profile'}
         showBag={false}
         trailing={
-          <View style={{ flexDirection: 'row', gap: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 4 }}>
             <Pressable
               onPress={() => router.push('/settings')}
               hitSlop={8}
@@ -459,6 +474,7 @@ export default function ProfileScreen() {
           collectionsLoading={collectionsLoading}
           savedLoading={savedLoading}
           onEditPress={() => setEditVisible(true)}
+          onSharePress={() => void onSharePress()}
           onPressCollection={onPressCollection}
           onPressStat={(id) => router.push(`/profile/${id}` as Href)}
           onCreateCollection={() => router.push('/(tabs)/create' as Href)}
@@ -499,8 +515,8 @@ const styles = StyleSheet.create({
   stateBody: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   retry: { marginTop: 12, padding: 12 },
   menuBtn: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },

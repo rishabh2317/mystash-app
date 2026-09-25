@@ -1,31 +1,38 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { softCanvasGradient } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 import type { TopBarMode } from '@/src/ui/chrome';
 
 import { BackButton } from './BackButton';
-import { BagButton } from './BagButton';
 
 type Props = {
   mode: TopBarMode;
   title?: string;
   showBack?: boolean;
+  /**
+   * @deprecated Stash lives in the tab bar. Ignored — kept so call sites stay stable.
+   */
   showBag?: boolean;
   backAccessibilityLabel?: string;
   onBack?: () => void;
-  /** Inserted before BagButton (Save / Share / Follow). */
+  /** Trailing actions (Save / Share / overflow). */
   trailing?: React.ReactNode;
 };
 
+/**
+ * Canonical page / immersive header.
+ * Page titles are left-aligned; with a back control the title sits beside it.
+ * Page chrome uses canvasSoft so TopBar + tab bar + scaffold read as one surface.
+ * Stash entry is the tab bar only — no TopBar bag control.
+ */
 export function TopBar({
   mode,
   title,
   showBack = false,
-  showBag = true,
   backAccessibilityLabel,
   onBack,
   trailing,
@@ -44,28 +51,22 @@ export function TopBar({
           paddingTop: insets.top + tokens.space.xs,
           paddingHorizontal: tokens.space.md,
           paddingBottom: tokens.space.sm,
+          gap: tokens.space.xs,
         },
       ]}
     >
       {showBack ? (
         <BackButton mode={mode} accessibilityLabel={backAccessibilityLabel} onPress={onBack} />
-      ) : (
-        <View style={styles.slot} pointerEvents="none" />
-      )}
+      ) : null}
       <Text
         pointerEvents="none"
-        style={[styles.title, { color: textColor, fontSize: tokens.fontSize.title }]}
+        style={[styles.title, typeStyle(tokens, 'chromeTitle'), { color: textColor }]}
         numberOfLines={1}
       >
         {title ?? ''}
       </Text>
       <View style={styles.trailing} pointerEvents="box-none">
-        {trailing}
-        {showBag ? (
-          <BagButton mode={mode} />
-        ) : trailing ? null : (
-          <View style={styles.slot} pointerEvents="none" />
-        )}
+        {trailing ?? (showBack ? null : <View style={styles.slot} pointerEvents="none" />)}
       </View>
     </View>
   );
@@ -79,9 +80,7 @@ export function TopBar({
   }
 
   return (
-    <LinearGradient colors={[...softCanvasGradient(tokens)]} style={styles.pageWrap}>
-      {row}
-    </LinearGradient>
+    <View style={[styles.pageWrap, { backgroundColor: tokens.color.canvasSoft }]}>{row}</View>
   );
 }
 
@@ -99,19 +98,19 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
   title: {
     flex: 1,
-    fontWeight: '800',
-    textAlign: 'center',
+    textAlign: 'left',
+    minWidth: 0,
   },
   trailing: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 6,
-    minWidth: 40,
+    flexShrink: 0,
+    minHeight: 40,
   },
   slot: {
     width: 40,

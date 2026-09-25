@@ -12,7 +12,7 @@ interface SharedHeaderProps {
 export default function SharedHeader({
   title = 'MYSTASH',
   showBackButton = false,
-  showBagButton = true,
+  showBagButton = false,
 }: SharedHeaderProps) {
   return <TopBar mode="page" title={title} showBack={showBackButton} showBag={showBagButton} />;
 }

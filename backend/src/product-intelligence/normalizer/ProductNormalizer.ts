@@ -1,4 +1,5 @@
 import type { AiDraftInput, NormalizedProduct } from '../domain/types';
+import { resolvePersistableCategory } from '../domain/categoryTaxonomy';
 import { canonicalizeProductIdentityText } from './ProductIdentityCanonicalizer';
 
 const BRAND_ALIASES: Record<string, string> = {
@@ -85,7 +86,9 @@ export class ProductNormalizer {
     );
     const model = canonicalModel ? collapseWs(canonicalModel) : null;
 
-    const category = (draft.category || 'unknown').toString().trim().toLowerCase() || 'unknown';
+    // Prefer a mapped Mystash category; keep 'unknown' only when nothing defensible exists
+    // so LocalCatalogSearch / creator paths that key on the string still work.
+    const category = resolvePersistableCategory(draft.category) ?? 'unknown';
     const normalizedName = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     const normalizedBrand = brand ? brand.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() : null;
 

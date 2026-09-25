@@ -101,4 +101,33 @@ export class SupabaseDiscoveredProductRepository implements DiscoveredProductRep
     if (error) throw error;
     return mapRow(data as Row);
   }
+
+  async update(
+    id: string,
+    patch: import('./DiscoveredProductRepository').UpdateDiscoveredProductPatch,
+  ): Promise<DiscoveredProductRecord | null> {
+    const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (patch.name !== undefined) row.name = patch.name;
+    if (patch.brand !== undefined) row.brand = patch.brand;
+    if (patch.model !== undefined) row.model = patch.model;
+    if (patch.category !== undefined) row.category = patch.category;
+    if (patch.imageUrl !== undefined) row.image_url = patch.imageUrl;
+    if (patch.price !== undefined) row.price = patch.price;
+    if (patch.currency !== undefined) row.currency = patch.currency;
+    if (patch.merchant !== undefined) row.merchant = patch.merchant;
+    if (patch.merchantUrl !== undefined) row.merchant_url = patch.merchantUrl;
+    if (patch.metadata !== undefined) row.metadata = patch.metadata;
+    if (patch.matchConfidence !== undefined) row.match_confidence = patch.matchConfidence;
+    if (patch.completeness !== undefined) row.completeness = patch.completeness;
+    if (patch.processorVersion !== undefined) row.processor_version = patch.processorVersion;
+
+    const { data, error } = await this.admin
+      .from('discovered_products')
+      .update(row)
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapRow(data as Row) : null;
+  }
 }

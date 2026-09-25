@@ -1,4 +1,5 @@
 import type { CatalogProduct } from '../product-intelligence/domain/types';
+import { resolvePersistableCategory } from '../product-intelligence/domain/categoryTaxonomy';
 import type { DiscoveredProductRecord } from '../discovered/domain/types';
 import {
   catalogShoppingSource,
@@ -14,8 +15,10 @@ import {
   contentSourceToRelatedMedia,
   finalizeRelatedMedia,
   isUsableMediaUrl,
+  mediaIdentityKey,
 } from './domain/media';
 import { pageLevelPrice, projectPageOffers } from './domain/offers';
+import { detailsUpdatingFromMetadata } from './domain/detailsUpdating';
 import type {
   ProductPageQuery,
   ProductPageRelatedMedia,
@@ -93,7 +96,7 @@ export class ProductPageService {
       shoppingProductId: product.id,
       title: product.name,
       brand: product.brand,
-      category: product.category ?? null,
+      category: resolvePersistableCategory(product.category) ?? product.category ?? null,
       heroImage: product.imageUrl,
       galleryImages: extractGallery(product.metadata, product.imageUrl),
       price: listed.price,
@@ -107,6 +110,7 @@ export class ProductPageService {
       relatedMedia,
       reviews,
       compareAvailable: true,
+      detailsUpdating: false,
     };
   }
 
@@ -130,10 +134,11 @@ export class ProductPageService {
 
     return {
       productId: product.id,
-      shoppingProductId: null,
+      // Catalogue id when linked — ShoppingResolver + AI review. Listing-only stays null.
+      shoppingProductId: product.catalogProductId,
       title: product.name,
       brand: product.brand,
-      category: product.category,
+      category: resolvePersistableCategory(product.category) ?? product.category,
       heroImage: product.imageUrl,
       galleryImages: product.imageUrl ? [product.imageUrl] : [],
       price: listed.price,
@@ -147,6 +152,7 @@ export class ProductPageService {
       relatedMedia,
       reviews,
       compareAvailable: true,
+      detailsUpdating: detailsUpdatingFromMetadata(product.metadata),
     };
   }
 
@@ -180,6 +186,13 @@ export class ProductPageService {
     }
 
     const gathered: ProductPageRelatedMedia[] = [];
+    if (source) {
+      try {
+        gathered.push(...(await this.relatedMedia.listMatchingUrls([source.url], 1)));
+      } catch {
+        /* collection match for discovery is optional */
+      }
+    }
     if (input.catalogProductId) {
       try {
         gathered.push(
@@ -211,6 +224,24 @@ export class ProductPageService {
       for (const record of otherSources) {
         const mapped = contentSourceToRelatedMedia(record);
         if (mapped) gathered.push(mapped);
+      }
+    }
+
+    // Prefer in-app reel playback when discovery is already a published collection.
+    if (source && !source.collectionId) {
+      const sourceKey = mediaIdentityKey(source.url);
+      const match = gathered.find(
+        (item) =>
+          Boolean(item.collectionId) &&
+          (item.url === source!.url ||
+            (Boolean(sourceKey) && mediaIdentityKey(item.url) === sourceKey)),
+      );
+      if (match?.collectionId) {
+        source = {
+          ...source,
+          collectionId: match.collectionId,
+          title: source.title ?? match.title,
+        };
       }
     }
 

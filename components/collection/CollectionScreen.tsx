@@ -1,32 +1,32 @@
-import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useIsFocused } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   ScrollView,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
 
-import { ProductCard, ProductDetailsSheet } from '@/components/commerce';
-import { AiReviewSheet } from '@/components/commerce/AiReviewSheet';
-import { ProductAiReviewCard } from '@/components/commerce/ProductAiReviewCard';
-import { CollectionTile } from '@/components/collection/CollectionTile';
+import { ProductCard } from '@/components/commerce';
+import { PublicCollectionTile } from '@/components/collection/PublicCollectionTile';
 import { ContentRail } from '@/components/ui/ContentRail';
 import { ListRowGroup, type ListRowSpec } from '@/components/ui/ListRowGroup';
 import { SectionHeader } from '@/components/ui/SectionHeader';
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { listCreatorCollections } from '@/src/services/collectionApi';
 import { loadCollectionRelatedProducts } from '@/src/services/collectionRelatedProducts';
 import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
+import { fetchProductPage } from '@/src/services/productPageApi';
 import { openProductShopping } from '@/src/services/shoppingClick';
+import { softCanvasGradient } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
-import type { ProductAiReviewResult } from '@/src/types/productAiReview';
 import {
   CREATOR_MORE_COLLECTIONS_PREVIEW,
   filterCreatorCollectionsPreview,
@@ -40,14 +40,15 @@ import {
 import { COLLECTION_PRODUCT_COPY } from '@/src/ui/collectionProductActions';
 import {
   COLLECTION_SECTION_COPY,
-  collectionVerificationSummary,
-  formatCollectionDate,
+  collectionMerchantPreviewsFromOffers,
+  collectionMerchantPreviewsFromProduct,
   productsSectionTitle,
-  shouldGroupProductInsights,
-  verificationSummaryLabel,
+  type CollectionMerchantPreview,
 } from '@/src/ui/collectionSections';
+import { productPagePath } from '@/src/ui/productPage';
 import { railCardWidth } from '@/src/ui/rail';
 
+import { CollectionCuratorCredit } from './CollectionCuratorCredit';
 import { CollectionHero } from './CollectionHero';
 import { CollectionMediaReference } from './CollectionMediaReference';
 import { CollectionPageHeader } from './CollectionPageHeader';
@@ -67,12 +68,11 @@ type Props = {
 };
 
 const RELATED_RAIL = { visible: 2, peek: 56, minWidth: 140, maxWidth: 200 };
-const CREATOR_RAIL = { visible: 3, peek: 28, minWidth: 96, maxWidth: 150 };
+const CREATOR_RAIL = { visible: 2.4, peek: 36, minWidth: 120, maxWidth: 148 };
 
 /**
- * Collection: an editorial decision environment.
- * Creator context → collection context → evidence (reel) → products →
- * product intelligence → related discovery → more from creator → trust → intent.
+ * Collection: curated editorial page.
+ * Title → media → curator credit → products → related → more from creator → explore.
  */
 export function CollectionScreen({
   collection,
@@ -87,35 +87,22 @@ export function CollectionScreen({
 }: Props) {
   const router = useRouter();
   const { tokens } = useThemeMode();
+  const tabBarHeight = useBottomTabBarHeight();
   const { width: screenWidth } = useWindowDimensions();
   const onAddToCart = useProductAddToCartHandler();
-  const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
-  const [detailsVisible, setDetailsVisible] = useState(false);
-  const [aiReviewProduct, setAiReviewProduct] = useState<CatalogProductViewModel | null>(null);
-  const [aiReviewVisible, setAiReviewVisible] = useState(false);
-  const [aiResults, setAiResults] = useState<Record<string, ProductAiReviewResult>>({});
   const [relatedProducts, setRelatedProducts] = useState<CatalogProductViewModel[]>([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [creatorCollections, setCreatorCollections] = useState<CollectionViewModel[]>([]);
   const [creatorCollectionsNextCursor, setCreatorCollectionsNextCursor] = useState<string | null>(null);
   const [creatorCollectionsLoading, setCreatorCollectionsLoading] = useState(false);
+  const [merchantsByProduct, setMerchantsByProduct] = useState<
+    Record<string, CollectionMerchantPreview[]>
+  >({});
 
-  const muted = tokens.color.textMuted;
   const gutter = COLLECTION_SCROLL_HORIZONTAL_PADDING;
   const railGap = tokens.space.sm;
   const media = useMemo(() => collectionMediaReference(collection), [collection]);
   const products = collection.products;
-  const groupInsights = shouldGroupProductInsights(products.length);
-  const insightProducts = useMemo(
-    () => products.filter((product) => Boolean(product.catalogProductId)),
-    [products],
-  );
-  const verification = useMemo(
-    () => collectionVerificationSummary(products),
-    [products],
-  );
-  const verificationLabel = verificationSummaryLabel(verification);
-  const verificationCheckedOn = formatCollectionDate(verification.lastVerifiedAt);
 
   const relatedCardWidth = railCardWidth({
     screenWidth,
@@ -130,23 +117,34 @@ export function CollectionScreen({
     ...CREATOR_RAIL,
   });
 
-  const onBuy = useCallback(
-    async (product: CatalogProductViewModel) => {
-      if (!product.catalogProductId) {
-        Alert.alert('Link unavailable', 'No shopping destination is available for this product yet.');
+  const openProduct = useCallback(
+    (product: CatalogProductViewModel) => {
+      const id = (product.catalogProductId ?? product.id).trim();
+      if (!id) return;
+      router.push(productPagePath(id) as Href);
+    },
+    [router],
+  );
+
+  const onMerchantPress = useCallback(
+    async (merchant: CollectionMerchantPreview, product: CatalogProductViewModel) => {
+      const catalogProductId = product.catalogProductId?.trim();
+      if (!catalogProductId) {
+        openProduct(product);
         return;
       }
       try {
         await openProductShopping({
-          catalogProductId: product.catalogProductId,
+          catalogProductId,
+          offerId: merchant.id.startsWith('merchant-') ? null : merchant.id,
           collectionId: collection.collectionId,
           creatorId: collection.creator.id,
         });
       } catch {
-        Alert.alert('Error', 'Could not open the product link.');
+        openProduct(product);
       }
     },
-    [collection.collectionId, collection.creator.id],
+    [collection.collectionId, collection.creator.id, openProduct],
   );
 
   const creatorHandle = collection.creator.username?.trim() || null;
@@ -156,40 +154,6 @@ export function CollectionScreen({
       router.push(`/creator/${encodeURIComponent(creatorHandle)}`);
     }
   }, [creatorHandle, router]);
-
-  const openDetails = useCallback((p: CatalogProductViewModel) => {
-    setDetailsProduct(p);
-    setDetailsVisible(true);
-  }, []);
-
-  const openAiReview = useCallback((p: CatalogProductViewModel) => {
-    setAiReviewProduct(p);
-    setAiReviewVisible(true);
-  }, []);
-
-  const onAiReviewResult = useCallback(
-    (catalogProductId: string, result: ProductAiReviewResult) => {
-      setAiResults((prev) => ({ ...prev, [catalogProductId]: result }));
-    },
-    [],
-  );
-
-  const onMerchantShortcut = useCallback(
-    async (product: CatalogProductViewModel) => {
-      await onBuy(product);
-    },
-    [onBuy],
-  );
-
-  const productCardProps = useCallback(
-    (product: CatalogProductViewModel) => ({
-      onPress: openDetails,
-      onAddToCart: product.catalogProductId ? onAddToCart : undefined,
-      onAiReview: product.catalogProductId ? openAiReview : undefined,
-      onMerchantShortcut: product.catalogProductId ? onMerchantShortcut : undefined,
-    }),
-    [onAddToCart, onMerchantShortcut, openAiReview, openDetails],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -205,6 +169,45 @@ export function CollectionScreen({
       cancelled = true;
     };
   }, [collection]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ids = products
+      .map((p) => (p.catalogProductId ?? p.id).trim())
+      .filter(Boolean);
+    if (ids.length === 0) {
+      setMerchantsByProduct({});
+      return;
+    }
+    void Promise.all(
+      products.map(async (product) => {
+        const key = (product.catalogProductId ?? product.id).trim();
+        const fallback = collectionMerchantPreviewsFromProduct(product);
+        if (!product.catalogProductId) return [key, fallback] as const;
+        try {
+          const page = await fetchProductPage(product.catalogProductId);
+          const fromOffers = collectionMerchantPreviewsFromOffers(page.offers);
+          if (fromOffers.length === 0) return [key, fallback] as const;
+          if (fallback.length === 0) return [key, fromOffers] as const;
+          const seen = new Set(fromOffers.map((m) => m.label.toLowerCase()));
+          const merged = [...fromOffers];
+          for (const row of fallback) {
+            if (seen.has(row.label.toLowerCase())) continue;
+            seen.add(row.label.toLowerCase());
+            merged.push(row);
+          }
+          return [key, merged] as const;
+        } catch {
+          return [key, fallback] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!cancelled) setMerchantsByProduct(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [products]);
 
   useEffect(() => {
     const creatorId = collection.creator.id?.trim();
@@ -298,21 +301,18 @@ export function CollectionScreen({
   }, [creatorHandle, isSaved, onSavePress, openCreator, savePending]);
 
   const isFocused = useIsFocused();
-  /** Section heading → its content. */
   const sectionGap = { gap: tokens.space.sm };
-  /** A product and its own AI Review read as one block, with room to breathe. */
-  const productGap = { gap: tokens.space.md };
+  const mutedStyle = typeStyle(tokens, 'bodyMuted');
 
   return (
-    <View style={[styles.root, { backgroundColor: tokens.color.canvas }]}>
+    <View style={styles.root}>
+      <LinearGradient colors={[...softCanvasGradient(tokens)]} style={StyleSheet.absoluteFill} />
       <CollectionPageHeader
+        title="Shop"
         isSaved={isSaved}
         savePending={savePending}
         onSavePress={onSavePress}
         onSharePress={onSharePress}
-        overflowItems={[
-          { id: 'bag', label: 'View Bag', icon: 'bag-outline', onPress: () => router.push('/cart') },
-        ]}
       />
       <ScrollView
         contentContainerStyle={[
@@ -320,20 +320,14 @@ export function CollectionScreen({
           {
             paddingHorizontal: gutter,
             paddingTop: tokens.space.md,
-            paddingBottom: tokens.space.xxl,
+            paddingBottom: tabBarHeight + tokens.space.xl,
             gap: tokens.space.xl,
           },
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <CollectionHero
-          collection={collection}
-          onCreatorPress={creatorHandle ? openCreator : undefined}
-          isFollowing={isFollowing}
-          followPending={followPending}
-          onFollowPress={!isSelf && onFollowPress ? onFollowPress : undefined}
-        />
+        <CollectionHero collection={collection} />
 
         {media ? (
           <CollectionMediaReference
@@ -343,71 +337,44 @@ export function CollectionScreen({
           />
         ) : null}
 
+        <CollectionCuratorCredit
+          collection={collection}
+          onCreatorPress={creatorHandle ? openCreator : undefined}
+          isFollowing={isFollowing}
+          followPending={followPending}
+          onFollowPress={!isSelf && onFollowPress ? onFollowPress : undefined}
+        />
+
         <View style={sectionGap}>
           <SectionHeader title={productsSectionTitle(products.length)} />
           {products.length === 0 ? (
-            <Text
-              style={{
-                color: muted,
-                fontSize: tokens.fontSize.body,
-                lineHeight: tokens.lineHeight.body,
-              }}
-            >
-              No products in this collection yet.
-            </Text>
+            <Text style={mutedStyle}>No products in this collection yet.</Text>
           ) : (
-            products.map((product) => (
-              <View key={product.id} style={productGap}>
-                <ProductCard
-                  product={product}
-                  variant="collection"
-                  {...productCardProps(product)}
-                />
-                {!groupInsights && product.catalogProductId ? (
-                  <ProductAiReviewCard
+            <View style={{ gap: tokens.space.sm }}>
+              {products.map((product) => {
+                const key = (product.catalogProductId ?? product.id).trim();
+                return (
+                  <ProductCard
+                    key={product.id}
                     product={product}
-                    variant="standalone"
-                    onOpen={openAiReview}
-                    onResult={onAiReviewResult}
+                    variant="collection"
+                    onPress={openProduct}
+                    onAddToCart={product.catalogProductId ? onAddToCart : undefined}
+                    merchantPreviews={merchantsByProduct[key]}
+                    onMerchantPress={onMerchantPress}
+                    onViewMoreMerchants={openProduct}
                   />
-                ) : null}
-              </View>
-            ))
+                );
+              })}
+            </View>
           )}
         </View>
-
-        {groupInsights && insightProducts.length > 0 ? (
-          <View style={sectionGap}>
-            <SectionHeader
-              title={COLLECTION_SECTION_COPY.productInsights}
-              subtitle="AI Review for each product in this collection"
-            />
-            {/* Multi-product Collections stack one AI Review per product. */}
-            {insightProducts.map((product) => (
-              <ProductAiReviewCard
-                key={`insight-${product.id}`}
-                product={product}
-                variant="withProduct"
-                onOpen={openAiReview}
-                onResult={onAiReviewResult}
-              />
-            ))}
-          </View>
-        ) : null}
 
         {relatedLoading || relatedProducts.length > 0 ? (
           <View style={sectionGap}>
             <SectionHeader title={COLLECTION_PRODUCT_COPY.relatedProducts} />
             {relatedLoading && relatedProducts.length === 0 ? (
-              <Text
-                style={{
-                  color: muted,
-                  fontSize: tokens.fontSize.body,
-                  lineHeight: tokens.lineHeight.body,
-                }}
-              >
-                Loading related products…
-              </Text>
+              <Text style={mutedStyle}>Loading related products…</Text>
             ) : (
               <ContentRail
                 gutter={gutter}
@@ -426,7 +393,7 @@ export function CollectionScreen({
                     <ProductCard
                       product={product}
                       variant="related"
-                      onPress={openDetails}
+                      onPress={openProduct}
                       onAddToCart={product.catalogProductId ? onAddToCart : undefined}
                     />
                   </View>
@@ -445,15 +412,7 @@ export function CollectionScreen({
               actionAccessibilityLabel={`${COLLECTION_PRODUCT_COPY.viewAll} ${COLLECTION_PRODUCT_COPY.moreFromCreator}`}
             />
             {creatorCollectionsLoading && moreFromCreator.length === 0 ? (
-              <Text
-                style={{
-                  color: muted,
-                  fontSize: tokens.fontSize.body,
-                  lineHeight: tokens.lineHeight.body,
-                }}
-              >
-                Loading collections…
-              </Text>
+              <Text style={mutedStyle}>Loading collections…</Text>
             ) : (
               <ContentRail
                 gutter={gutter}
@@ -468,56 +427,14 @@ export function CollectionScreen({
                       marginRight: index === moreFromCreator.length - 1 ? 0 : railGap,
                     }}
                   >
-                    <CollectionTile
+                    <PublicCollectionTile
                       collection={item}
-                      variant="creatorRail"
                       onPress={onPressCreatorCollection}
                     />
                   </View>
                 ))}
               </ContentRail>
             )}
-          </View>
-        ) : null}
-
-        {verificationLabel ? (
-          <View
-            style={[
-              styles.trustCard,
-              {
-                backgroundColor: tokens.color.surface,
-                borderColor: tokens.color.border,
-                borderRadius: tokens.radius.xl,
-                padding: tokens.space.md,
-                gap: tokens.space.sm,
-              },
-            ]}
-          >
-            <Ionicons name="shield-checkmark" size={20} color={tokens.color.primary} />
-            <View style={styles.trustCopy}>
-              <Text
-                style={{
-                  color: tokens.color.text,
-                  fontSize: tokens.fontSize.bodyStrong,
-                  lineHeight: tokens.lineHeight.bodyStrong,
-                  fontWeight: tokens.fontWeight.bold,
-                }}
-              >
-                {verificationLabel}
-              </Text>
-              {verificationCheckedOn ? (
-                <Text
-                  style={{
-                    color: muted,
-                    fontSize: tokens.fontSize.caption,
-                    lineHeight: tokens.lineHeight.caption,
-                    marginTop: tokens.space.xxs / 2,
-                  }}
-                >
-                  {`${COLLECTION_SECTION_COPY.lastVerified} ${verificationCheckedOn}`}
-                </Text>
-              ) : null}
-            </View>
           </View>
         ) : null}
 
@@ -528,27 +445,6 @@ export function CollectionScreen({
           </View>
         ) : null}
       </ScrollView>
-
-      <AiReviewSheet
-        visible={aiReviewVisible}
-        product={aiReviewProduct}
-        preloaded={
-          aiReviewProduct?.catalogProductId
-            ? aiResults[aiReviewProduct.catalogProductId] ?? null
-            : null
-        }
-        onClose={() => {
-          setAiReviewVisible(false);
-          setAiReviewProduct(null);
-        }}
-      />
-      <ProductDetailsSheet
-        visible={detailsVisible}
-        product={detailsProduct}
-        onClose={() => setDetailsVisible(false)}
-        onAddToCart={detailsProduct?.catalogProductId ? onAddToCart : undefined}
-        onBuy={detailsProduct?.catalogProductId ? onBuy : undefined}
-      />
     </View>
   );
 }
@@ -557,14 +453,5 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: {
     flexGrow: 1,
-  },
-  trustCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  trustCopy: {
-    flex: 1,
-    minWidth: 0,
   },
 });

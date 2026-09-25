@@ -14,13 +14,20 @@ type Props = {
   isFollowing: boolean;
   pending?: boolean;
   disabled?: boolean;
-  /** Compact chip for inline placement beside a name. */
-  size?: 'default' | 'compact';
+  /**
+   * `compact` — inline chip beside a name.
+   * `micro` — quiet credit line (e.g. Collection “Curated by”).
+   */
+  size?: 'default' | 'compact' | 'micro';
   /**
    * Unfollowed default CTA fills with inverse text (Collection).
    * `brand` uses the shared primary — public creator storefront only.
    */
   emphasis?: 'default' | 'brand';
+  /** Stretch to parent width (public profile Follow | Share row). */
+  fullWidth?: boolean;
+  /** Shorter profile CTA height (LTK-style stretched row). */
+  slim?: boolean;
   /** White-on-dark styling for controls resting on media (reel overlays). */
   immersive?: boolean;
   /** @deprecated Colors come from ThemeMode tokens. */
@@ -35,6 +42,8 @@ export function FollowControl({
   disabled = false,
   size = 'default',
   emphasis = 'default',
+  fullWidth = false,
+  slim = false,
   immersive = false,
   labelOverride,
   onPress,
@@ -48,17 +57,27 @@ export function FollowControl({
     pressed,
   });
   const compact = size === 'compact';
-  const hit = compact ? hitSlopToMinTarget(28) : hitSlopToMinTarget(40);
+  const micro = size === 'micro';
+  const inline = compact || micro;
+  const hit = micro
+    ? hitSlopToMinTarget(24)
+    : compact
+      ? hitSlopToMinTarget(28)
+      : hitSlopToMinTarget(40);
   const label = labelOverride ?? (isFollowing ? 'Following' : 'Follow');
-  /** Compact (Home identity) stays secondary; Collection keeps the filled CTA. */
-  const onAccent = !isFollowing && !labelOverride && !compact;
+  /** Compact / micro stay secondary; default Collection CTA fills. */
+  const onAccent = !isFollowing && !labelOverride && !inline;
   const brand = onAccent && emphasis === 'brand';
   const restingText = immersive ? tokens.immersive.text : tokens.color.text;
   const accentFill = brand ? tokens.color.primary : tokens.color.text;
   const accentLabel = brand ? tokens.color.onPrimary : tokens.color.textOnAccent;
   const spinnerColor = onAccent ? accentLabel : restingText;
   const labelColor = onAccent ? accentLabel : restingText;
-  const labelSize = compact ? tokens.fontSize.caption : tokens.fontSize.body;
+  const labelSize = micro
+    ? tokens.fontSize.micro
+    : compact || slim
+      ? tokens.fontSize.caption
+      : tokens.fontSize.body;
   const surface = immersive ? tokens.immersive.control : tokens.color.overlay;
   const surfaceBorder = immersive ? tokens.immersive.borderStrong : tokens.color.border;
 
@@ -73,20 +92,50 @@ export function FollowControl({
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       style={[
-        compact ? styles.compactBtn : styles.btn,
+        micro ? styles.microBtn : compact ? styles.compactBtn : styles.btn,
+        fullWidth ? styles.fullWidth : null,
+        slim ? styles.slimBtn : null,
         {
-          borderRadius: compact ? tokens.radius.sm : tokens.radius.md,
+          borderRadius: micro || compact
+            ? tokens.radius.sm
+            : fullWidth
+              ? tokens.radius.pill
+              : tokens.radius.md,
           borderWidth: tokens.stroke.hairline,
           backgroundColor: onAccent ? accentFill : surface,
           borderColor: onAccent ? 'transparent' : surfaceBorder,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
+          ...(micro
+            ? {
+                // Taller than micro type so glyphs/descenders aren’t clipped.
+                height: tokens.lineHeight.caption,
+                paddingHorizontal: tokens.space.xs,
+                paddingBottom: 1,
+              }
+            : null),
         },
       ]}
     >
       {pending ? (
-        <ActivityIndicator color={spinnerColor} size={compact ? 'small' : undefined} />
+        <ActivityIndicator color={spinnerColor} size={inline ? 'small' : undefined} />
       ) : (
-        <Text style={[styles.label, { color: labelColor, fontSize: labelSize }]}>
+        <Text
+          style={[
+            styles.label,
+            {
+              color: labelColor,
+              fontSize: labelSize,
+              fontWeight: micro ? '600' : '700',
+              ...(micro
+                ? {
+                    lineHeight: tokens.lineHeight.caption,
+                    includeFontPadding: false,
+                    textAlignVertical: 'center' as const,
+                  }
+                : null),
+            },
+          ]}
+        >
           {label}
         </Text>
       )}
@@ -108,6 +157,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 10,
+  },
+  microBtn: {
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  fullWidth: {
+    width: '100%',
+    minWidth: 0,
+  },
+  slimBtn: {
+    height: 32,
+    paddingHorizontal: 12,
   },
   label: {
     fontWeight: '700',

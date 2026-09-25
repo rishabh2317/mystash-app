@@ -10,6 +10,7 @@ import { ContentSourceService } from '../content-source/ContentSourceService';
 import { InMemoryContentSourceRepository } from '../content-source/InMemoryContentSourceRepository';
 import { contentSourceProcessingJobId } from '../content-source/jobs/contentSourceQueue';
 import type { ContentProcessingQueuePort } from '../content-source/ports';
+import { USER_IMPORT_TIMEOUT_MS } from './domain/shareProgress';
 import { InMemoryUserImportRepository } from './InMemoryUserImportRepository';
 import type { UserImportBagSyncPort, UserImportContentSourcePort } from './ports';
 import { UserImportService, UserImportServiceError } from './UserImportService';
@@ -29,11 +30,14 @@ function createHarness(
     enqueue?: ContentProcessingQueuePort['enqueue'];
     repo?: InMemoryUserImportRepository;
     bagSync?: UserImportBagSyncPort | null;
+    scheduleTimeout?: (userImportId: string) => Promise<void>;
+    nowMs?: () => number;
   } = {},
 ) {
   const repo = options.repo ?? new InMemoryUserImportRepository();
   const sourceRepo = new InMemoryContentSourceRepository();
   const jobs: RecordedJob[] = [];
+  const timeoutJobs: string[] = [];
   const queue: ContentProcessingQueuePort = {
     enqueue: async (data) => {
       const jobId = options.enqueue
@@ -47,13 +51,27 @@ function createHarness(
   const port: UserImportContentSourcePort = {
     getOrCreate: (normalizedUrl) => contentSource.getOrCreate(normalizedUrl),
     getById: (id) => contentSource.getById(id),
+    listProducts: (id) => contentSource.listProducts(id),
     requestProcessing: (params) => contentSource.requestProcessing(params),
+    requestReprocessing: (params) => contentSource.requestReprocessing(params),
   };
+  const scheduleTimeout =
+    options.scheduleTimeout ??
+    (async (userImportId: string) => {
+      timeoutJobs.push(userImportId);
+    });
   return {
     repo,
     sourceRepo,
     jobs,
-    service: new UserImportService(repo, port, options.bagSync ?? null),
+    timeoutJobs,
+    service: new UserImportService(
+      repo,
+      port,
+      options.bagSync ?? null,
+      scheduleTimeout,
+      options.nowMs,
+    ),
   };
 }
 
@@ -354,6 +372,12 @@ describe('UserImportService content source relationship', () => {
     assert.equal(looking[0]?.importId, submitted.record.id);
     assert.equal(looking[0]?.state, 'looking');
     assert.equal(looking[0]?.kind, 'instagram');
+    assert.equal(looking[0]?.createdAt, submitted.record.createdAt);
+    assert.equal(looking[0]?.productCount, 0);
+    assert.equal(looking[0]?.contentSourceId, submitted.record.contentSourceId);
+    assert.equal(looking[0]?.sourceUrl, submitted.record.sourceUrl);
+    assert.equal(looking[0]?.primaryProduct, null);
+    assert.deepEqual(looking[0]?.products, []);
 
     const source = await sourceRepo.findById(submitted.record.contentSourceId!);
     assert.ok(source);
@@ -364,11 +388,194 @@ describe('UserImportService content source relationship', () => {
     });
     const empty = await service.listRecent(USER_A);
     assert.equal(empty[0]?.state, 'nothing_yet');
+    assert.equal(empty[0]?.productCount, 0);
+    assert.equal(empty[0]?.primaryProduct, null);
 
+    const catalogId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const discoveredId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    await sourceRepo.replaceProducts(source.id, [
+      {
+        contentSourceId: source.id,
+        position: 0,
+        externalId: 'p1',
+        name: 'Ceramic Mug',
+        brand: null,
+        model: null,
+        category: null,
+        price: null,
+        currency: null,
+        image: 'https://cdn.example.com/mug.jpg',
+        merchantUrl: null,
+        confidence: null,
+        extractionMethod: 'ai_extract',
+        sources: [],
+        evidence: {},
+        processorVersion: 'test',
+        catalogProductId: catalogId,
+        discoveredProductId: null,
+      },
+      {
+        contentSourceId: source.id,
+        position: 1,
+        externalId: 'p2',
+        name: 'Other',
+        brand: null,
+        model: null,
+        category: null,
+        price: null,
+        currency: null,
+        image: null,
+        merchantUrl: null,
+        confidence: null,
+        extractionMethod: 'ai_extract',
+        sources: [],
+        evidence: {},
+        processorVersion: 'test',
+        catalogProductId: null,
+        discoveredProductId: discoveredId,
+      },
+    ]);
     sourceRepo.sources.set(source.id, { ...source, processingStatus: 'READY', candidateCount: 2 });
-    assert.equal((await service.listRecent(USER_A))[0]?.state, 'ready');
+    const ready = await service.listRecent(USER_A);
+    assert.equal(ready[0]?.state, 'ready');
+    assert.equal(ready[0]?.productCount, 2);
+    assert.deepEqual(ready[0]?.primaryProduct, {
+      productId: catalogId,
+      title: 'Ceramic Mug',
+      imageUrl: 'https://cdn.example.com/mug.jpg',
+    });
 
     sourceRepo.sources.set(source.id, { ...source, processingStatus: 'FAILED', candidateCount: 0 });
     assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
+  });
+
+  it('uses discovered product id when catalog id is absent', async () => {
+    const { service, sourceRepo } = createHarness();
+    const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
+    const source = await sourceRepo.findById(submitted.record.contentSourceId!);
+    assert.ok(source);
+    const discoveredId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    await sourceRepo.replaceProducts(source.id, [
+      {
+        contentSourceId: source.id,
+        position: 0,
+        externalId: 'p1',
+        name: 'Discovered Only',
+        brand: null,
+        model: null,
+        category: null,
+        price: null,
+        currency: null,
+        image: null,
+        merchantUrl: null,
+        confidence: null,
+        extractionMethod: 'ai_extract',
+        sources: [],
+        evidence: {},
+        processorVersion: 'test',
+        catalogProductId: null,
+        discoveredProductId: discoveredId,
+      },
+    ]);
+    sourceRepo.sources.set(source.id, { ...source, processingStatus: 'READY', candidateCount: 1 });
+    const items = await service.listRecent(USER_A);
+    assert.equal(items[0]?.primaryProduct?.productId, discoveredId);
+    assert.equal(items[0]?.productCount, 1);
+  });
+
+  it('retries a timed-out import without creating a second submission', async () => {
+    const { service, repo, jobs, sourceRepo } = createHarness();
+    const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
+    await repo.markTimedOut(submitted.record.id, new Date().toISOString());
+    assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
+
+    const beforeJobs = jobs.length;
+    const retried = await service.retry(USER_A, submitted.record.id);
+    assert.equal(retried.id, submitted.record.id);
+    assert.equal(repo.imports.size, 1);
+    assert.equal(repo.imports.get(submitted.record.id)?.timedOutAt, null);
+    assert.ok(jobs.length >= beforeJobs);
+    assert.equal((await service.listRecent(USER_A))[0]?.state, 'looking');
+
+    // READY late path: bag sync is idempotent — still one import row.
+    const source = await sourceRepo.findById(submitted.record.contentSourceId!);
+    assert.ok(source);
+    sourceRepo.sources.set(source.id, { ...source, processingStatus: 'READY', candidateCount: 1 });
+    await service.retry(USER_A, submitted.record.id);
+    assert.equal(repo.imports.size, 1);
+  });
+
+  it('deletes only the user import row', async () => {
+    const { service, repo, sourceRepo } = createHarness();
+    const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
+    const sourceId = submitted.record.contentSourceId!;
+    await service.delete(USER_A, submitted.record.id);
+    assert.equal(repo.imports.size, 0);
+    assert.ok(await sourceRepo.findById(sourceId));
+    assert.equal((await service.listRecent(USER_A)).length, 0);
+  });
+
+  it('enqueues content-source processing on submit', async () => {
+    const { service, jobs, timeoutJobs } = createHarness();
+    const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0]?.contentSourceId, submitted.record.contentSourceId);
+    assert.equal(jobs[0]?.userImportId, submitted.record.id);
+    assert.deepEqual(timeoutJobs, [submitted.record.id]);
+  });
+
+  it('times out looking imports after 10 minutes via listRecent self-heal', async () => {
+    const createdAt = '2026-09-22T10:00:00.000Z';
+    let nowMs = Date.parse(createdAt) + 1000;
+    const { service, repo, sourceRepo } = createHarness({
+      nowMs: () => nowMs,
+    });
+    const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
+    // Pin createdAt for age calculation.
+    const row = repo.imports.get(submitted.record.id)!;
+    repo.imports.set(submitted.record.id, { ...row, createdAt });
+
+    assert.equal((await service.listRecent(USER_A))[0]?.state, 'looking');
+
+    nowMs = Date.parse(createdAt) + USER_IMPORT_TIMEOUT_MS;
+    const timedOut = await service.listRecent(USER_A);
+    assert.equal(timedOut[0]?.state, 'couldnt_finish');
+    assert.ok(repo.imports.get(submitted.record.id)?.timedOutAt);
+
+    // Late READY must not resurrect the timed-out import.
+    const source = await sourceRepo.findById(submitted.record.contentSourceId!);
+    assert.ok(source);
+    sourceRepo.sources.set(source.id, {
+      ...source,
+      processingStatus: 'READY',
+      candidateCount: 2,
+    });
+    assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
+  });
+
+  it('applyTimeout freezes looking imports without mutating content_sources', async () => {
+    const { service, repo, sourceRepo } = createHarness();
+    const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
+    const before = await sourceRepo.findById(submitted.record.contentSourceId!);
+    assert.ok(before);
+    assert.equal(before.processingStatus, 'QUEUED');
+
+    const applied = await service.applyTimeout(submitted.record.id);
+    assert.equal(applied, true);
+    assert.ok(repo.imports.get(submitted.record.id)?.timedOutAt);
+    assert.equal(
+      (await sourceRepo.findById(submitted.record.contentSourceId!))?.processingStatus,
+      'QUEUED',
+    );
+    assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
+
+    // Late worker READY still does not resurrect.
+    sourceRepo.sources.set(before.id, {
+      ...before,
+      processingStatus: 'READY',
+      candidateCount: 1,
+    });
+    assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
+    assert.equal(await service.applyTimeout(submitted.record.id), false);
   });
 });

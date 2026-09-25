@@ -7,10 +7,16 @@ import { createCatalogService } from '../catalog/factory';
 import { createDiscoveredProductService } from '../discovered/factory';
 import { createEngagementService } from '../engagement/factory';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
+import { resolveCountryCode } from '../merchant-pricing/country';
+import { resolveMerchantRegion } from '../merchant-pricing/MerchantRegionResolver';
 import { AffiliateService } from './AffiliateService';
 import { getAffiliateConfig } from './affiliateConfig';
 import { ShoppingResolver, type ShoppingResolution } from './ShoppingResolver';
-import { discoveredShoppingSource, findStoredShoppingDestination } from './storedDestinations';
+import {
+  discoveredShoppingSource,
+  findStoredShoppingDestination,
+  listStoredShoppingDestinations,
+} from './storedDestinations';
 import { validHttpUrl } from './urlValidation';
 
 function queryString(value: unknown): string | null {
@@ -19,6 +25,13 @@ function queryString(value: unknown): string | null {
 
 function headerString(value: string | string[] | undefined): string | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function wantsJson(req: Request): boolean {
+  const format = queryString(req.query.format)?.toLowerCase();
+  if (format === 'json') return true;
+  const accept = headerString(req.headers.accept) ?? '';
+  return accept.includes('application/json') && !accept.includes('text/html');
 }
 
 async function authenticatedUserId(req: Request): Promise<string | null> {
@@ -32,6 +45,14 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+function resolveRequestCountry(req: Request): string {
+  return resolveCountryCode({
+    explicit: queryString(req.query.country),
+    profile: queryString(req.query.profileCountry),
+    deviceLocale: queryString(req.query.locale) ?? headerString(req.headers['accept-language']),
+  });
 }
 
 async function redirectCatalog(
@@ -58,11 +79,7 @@ async function redirectCatalog(
 
   const platform =
     queryString(req.query.platform) ?? headerString(req.headers['sec-ch-ua-platform']) ?? null;
-  const country =
-    queryString(req.query.country) ??
-    headerString(req.headers['cf-ipcountry']) ??
-    headerString(req.headers['x-vercel-ip-country']) ??
-    null;
+  const country = resolveRequestCountry(req);
   const userId = await authenticatedUserId(req);
   const timestamp = new Date().toISOString();
   const eventId = queryString(req.query.eventId) ?? randomUUID();
@@ -129,6 +146,14 @@ async function redirectCatalog(
   }
 
   logger.info(analytics, 'shopping.redirect.completed');
+  if (wantsJson(req)) {
+    res.json({
+      url: destination.url,
+      merchantName: destination.merchantName ?? product.merchant ?? null,
+      country,
+    });
+    return;
+  }
   res.redirect(302, destination.url);
 }
 
@@ -141,9 +166,10 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
   return async (req: Request, res: Response): Promise<void> => {
     const productId = req.params.id;
     const offerId = queryString(req.query.offerId);
+    const country = resolveRequestCountry(req);
     const product = await catalog.resolveActiveProduct(productId);
     if (product && product.status !== 'HIDDEN') {
-      const destination = resolver.resolve(product, { offerId });
+      const destination = resolver.resolve(product, { offerId, country });
       if (!destination) {
         res.status(404).json({ error: 'No shopping destination is available for this product' });
         return;
@@ -157,14 +183,28 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
-    const listing = offerId
-      ? validHttpUrl(findStoredShoppingDestination(discoveredShoppingSource(imported), offerId)?.url)
-      : validHttpUrl(imported.merchantUrl);
+    const source = discoveredShoppingSource(imported);
+    const dest = offerId
+      ? findStoredShoppingDestination(source, offerId)
+      : listStoredShoppingDestinations(source)[0] ?? null;
+    const baseUrl = dest?.url ?? imported.merchantUrl;
+    const regional = dest
+      ? resolveMerchantRegion({ url: dest.url, regionalUrls: dest.regionalUrls }, country)
+      : { url: validHttpUrl(baseUrl) ?? '', usedRegional: false };
+    const listing = validHttpUrl(regional.url);
     if (!listing) {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
-    logger.info({ productId, offerId, destinationUrl: listing }, 'shopping.redirect.listing');
+    logger.info({ productId, offerId, destinationUrl: listing, country }, 'shopping.redirect.listing');
+    if (wantsJson(req)) {
+      res.json({
+        url: listing,
+        merchantName: dest?.merchant ?? imported.merchant ?? null,
+        country,
+      });
+      return;
+    }
     res.redirect(302, listing);
   };
 }

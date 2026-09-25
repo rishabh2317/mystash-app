@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { getPipelineConfig } from '../config/pipelineConfig';
 import type { EvidenceSource, ProductCandidate, ProductEvidence } from '../domain/types';
+import { resolvePersistableCategory } from '../product-intelligence/domain/categoryTaxonomy';
 
 function normalizeName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -44,7 +45,8 @@ export class ProductValidator {
       confidence = Math.max(0, Math.min(1, confidence));
       if (confidence < cfg.reviewMinConfidence) continue;
 
-      let category = (p.category ?? 'unknown').toString().trim().toLowerCase() || 'unknown';
+      const mapped = resolvePersistableCategory(p.category);
+      let category = mapped ?? 'unknown';
       if (!cfg.categoryAllowlist.has(category)) category = 'unknown';
 
       let brand = p.brand == null || p.brand === '' ? null : String(p.brand).trim();

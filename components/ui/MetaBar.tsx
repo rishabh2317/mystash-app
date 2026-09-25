@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { typeStyle } from '@/src/theme/typography';
 
 export type MetaBarItem = {
   id: string;
@@ -18,19 +20,14 @@ type Props = {
 const ICON_SIZE = 13;
 
 /**
- * Quiet metadata strip (count / views / date). Filled but borderless: metadata
- * should read as supporting evidence, never as a card or a CTA.
+ * Quiet metadata strip (count / views / date). Borderless and unfilled —
+ * supporting evidence through type and spacing, never a card.
  */
 export function MetaBar({ items, accessibilityLabel }: Props) {
   const { tokens } = useThemeMode();
   if (items.length === 0) return null;
 
-  const metaText = {
-    color: tokens.color.textMuted,
-    fontSize: tokens.fontSize.caption,
-    lineHeight: tokens.lineHeight.caption,
-    fontWeight: tokens.fontWeight.semibold,
-  };
+  const metaText = typeStyle(tokens, 'tileMeta');
 
   return (
     <View
@@ -39,11 +36,8 @@ export function MetaBar({ items, accessibilityLabel }: Props) {
       style={[
         styles.bar,
         {
-          backgroundColor: tokens.color.surfaceSubtle,
-          borderRadius: tokens.radius.md,
-          paddingHorizontal: tokens.space.sm,
-          paddingVertical: tokens.space.xs,
           gap: tokens.space.xs,
+          paddingVertical: tokens.space.xxs,
         },
       ]}
     >

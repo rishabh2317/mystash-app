@@ -171,6 +171,27 @@ export function getBullmqCommandRedis(): Redis {
   return commandRedis;
 }
 
+/**
+ * Dedicated ioredis client for BullMQ Workers.
+ *
+ * Enqueue/command clients intentionally use `retryStrategy: () => null` when Redis is
+ * optional so HTTP paths fail fast. That same policy on a Worker is fatal: after the
+ * first disconnect the blocking connection ends permanently, `waitUntilReady` has
+ * already resolved, and jobs sit in `wait` forever while only the stalled-checker
+ * keeps the command client alive. Workers always reconnect.
+ */
+export function duplicateBullmqWorkerRedis(role = 'worker'): Redis {
+  const workerRedis = getBullmqCommandRedis().duplicate({
+    maxRetriesPerRequest: null,
+    enableReadyCheck: true,
+    enableOfflineQueue: false,
+    lazyConnect: true,
+    retryStrategy: (times: number) => Math.min(times * 200, 2_000),
+  });
+  attachRedisStateLogs(workerRedis, role);
+  return workerRedis;
+}
+
 export type RedisEnqueueState = {
   status: string;
   host?: string;

@@ -35,7 +35,8 @@ describe('personal profile architecture', () => {
     assert.doesNotMatch(landing, /PERSONAL_PROFILE_COPY\.reels/);
     assert.match(landing, /PERSONAL_PROFILE_COPY\.emptySaved/);
     assert.match(landing, /ProfileContentTabs/);
-    assert.match(landing, /variant="public"/);
+    assert.match(landing, /PublicCollectionTile/);
+    assert.match(landing, /DiscoverCreatorsSection/);
   });
 
   it('View as others still opens the public creator route from Settings', () => {
@@ -75,8 +76,13 @@ describe('personal profile content', () => {
 
   it('keeps Saved Collections separate from received Reel Likes', () => {
     const landing = readFileSync(join(ROOT, 'components/profile/PersonalProfile.tsx'), 'utf8');
-    assert.match(landing, /totalReelLikesReceived/);
+    const header = readFileSync(join(ROOT, 'components/profile/PersonalProfileHeader.tsx'), 'utf8');
+    assert.match(header, /publicCreatorStats/);
+    assert.match(header, /editProfile/);
+    assert.match(header, /Share/);
+    assert.match(header, /onSharePress/);
     assert.match(landing, /activeTab === 'collections' \? collections : saved/);
+    assert.doesNotMatch(landing, /PersonalStatsBar/);
     assert.doesNotMatch(landing, /savedCount:/);
   });
 });

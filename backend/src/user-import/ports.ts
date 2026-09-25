@@ -1,4 +1,5 @@
 import type {
+  ContentSourceProductRecord,
   ContentSourceRecord,
   RequestProcessingResult,
   ResolveContentSourceResult,
@@ -13,7 +14,12 @@ import type {
 export type UserImportContentSourcePort = {
   getOrCreate(normalizedUrl: string): Promise<ResolveContentSourceResult>;
   getById(id: string): Promise<ContentSourceRecord | null>;
+  listProducts(contentSourceId: string): Promise<ContentSourceProductRecord[]>;
   requestProcessing(params: {
+    contentSource: ContentSourceRecord;
+    userImportId: string;
+  }): Promise<RequestProcessingResult>;
+  requestReprocessing(params: {
     contentSource: ContentSourceRecord;
     userImportId: string;
   }): Promise<RequestProcessingResult>;

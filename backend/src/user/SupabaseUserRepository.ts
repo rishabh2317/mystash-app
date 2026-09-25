@@ -43,6 +43,12 @@ function mapUser(row: UserRow): User {
     country: (row.country as string | null) ?? null,
     language: (row.language as string | null) ?? null,
     timezone: (row.timezone as string | null) ?? null,
+    countryDetectedAt: (row.country_detected_at as string | null) ?? null,
+    lastLocationCheckAt: (row.last_location_check_at as string | null) ?? null,
+    countrySource:
+      row.country_source === 'location' || row.country_source === 'manual'
+        ? row.country_source
+        : null,
     joinedAt: String(row.joined_at),
     deletedAt: (row.deleted_at as string | null) ?? null,
     emailMirrored: (row.email_mirrored as string | null) ?? null,
@@ -84,6 +90,9 @@ const PATCH_MAP: Record<string, string> = {
   country: 'country',
   language: 'language',
   timezone: 'timezone',
+  countryDetectedAt: 'country_detected_at',
+  lastLocationCheckAt: 'last_location_check_at',
+  countrySource: 'country_source',
   deletedAt: 'deleted_at',
   emailMirrored: 'email_mirrored',
   followersCount: 'followers_count',

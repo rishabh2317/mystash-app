@@ -1,47 +1,53 @@
-import { Image } from 'expo-image';
-import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
 import { useRouter, type Href } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
 
 import { AiReviewSheet } from '@/components/commerce/AiReviewSheet';
+import { ProductAiReviewCard } from '@/components/commerce/ProductAiReviewCard';
 import { ProductCard } from '@/components/commerce/ProductCard';
 import { ProductHeroImage } from '@/components/commerce/ProductHeroImage';
-import { SpecificationGrid } from '@/components/commerce/SpecificationGrid';
-import { ProductPageReviews } from '@/components/product/ProductPageReviews';
-import { ProductSourceMedia } from '@/components/product/ProductSourceMedia';
-import { ActionButton } from '@/components/ui/ActionButton';
+import { PublicCollectionTile } from '@/components/collection/PublicCollectionTile';
 import { ContentRail } from '@/components/ui/ContentRail';
-import { ExpandableText } from '@/components/ui/ExpandableText';
-import { SectionHeader } from '@/components/ui/SectionHeader';
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { hydrateSearchProducts } from '@/src/mappers/searchProductHydration';
 import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
+import { fetchLivePrices } from '@/src/services/livePricesApi';
 import { searchBlended } from '@/src/services/searchApi';
 import { openProductShopping } from '@/src/services/shoppingClick';
+import { getCommerceCountry } from '@/src/services/commerceCountry';
+import { outlineCardChrome } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
+import type { LivePriceResult } from '@/src/types/livePrices';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
-import type { ProductPageView } from '@/src/types/productPage';
+import type { CollectionViewModel } from '@/src/types/collection';
+import type { ProductPageOffer, ProductPageRelatedMedia, ProductPageView } from '@/src/types/productPage';
 import { pickRelatedProducts } from '@/src/ui/collectionRelatedProducts';
 import { BAG_COPY } from '@/src/ui/contracts';
 import {
   PRODUCT_PAGE_COPY,
   catalogViewFromProductPage,
+  collectionViewFromRelatedMedia,
+  featuredMediaFromPage,
   productAiReviewFromPage,
   productPageAvailabilityLabel,
+  productPageBestPriceLabel,
+  productPageBuyingFreshnessLine,
   productPageOfferCta,
   productPagePath,
+  productPagePriceFreshnessLabel,
   productPagePriceLabel,
+  productPagePricesFromLabel,
   productPageSections,
   relatedMediaPath,
-  relatedMediaWatchLabel,
   similarProductsQuery,
 } from '@/src/ui/productPage';
 import { comparePath } from '@/src/ui/productCompare';
@@ -51,6 +57,49 @@ type Props = {
   page: ProductPageView;
 };
 
+type OfferDisplay = ProductPageOffer & {
+  freshness: 'loading' | 'live' | 'stale' | 'stored';
+  merchantUrl?: string | null;
+};
+
+const IDENTITY_IMAGE = 128;
+const GUTTER = 16;
+const CREATOR_RAIL = { visible: 2.35, peek: 32, minWidth: 118, maxWidth: 172 };
+const RELATED_RAIL = { visible: 2.4, peek: 20, minWidth: 118, maxWidth: 148 };
+
+function mergeLiveOffer(
+  base: ProductPageOffer,
+  live: LivePriceResult | undefined,
+  loading: boolean,
+): OfferDisplay {
+  if (loading && !live) {
+    return { ...base, freshness: 'loading' };
+  }
+  if (!live) {
+    return { ...base, freshness: 'stored' };
+  }
+  if (live.source === 'live' && live.status === 'success' && live.price) {
+    return {
+      ...base,
+      price: live.price,
+      currency: live.currency ?? base.currency,
+      availability: live.availability ?? base.availability,
+      merchant: live.merchantName ?? base.merchant,
+      freshness: 'live',
+      merchantUrl: live.merchantUrl,
+    };
+  }
+  return {
+    ...base,
+    price: live.price ?? base.price,
+    currency: live.currency ?? base.currency,
+    availability: live.availability ?? base.availability,
+    merchant: live.merchantName ?? base.merchant,
+    freshness: 'stale',
+    merchantUrl: live.merchantUrl,
+  };
+}
+
 export function ProductPage({ page }: Props) {
   const router = useRouter();
   const { tokens } = useThemeMode();
@@ -59,20 +108,55 @@ export function ProductPage({ page }: Props) {
   const product = useMemo(() => catalogViewFromProductPage(page), [page]);
   const sections = productPageSections(page);
   const priceLabel = productPagePriceLabel(page);
-  const gutter = tokens.space.lg;
-  const similarWidth = railCardWidth({
+  // Catalogue shopping id when linked; otherwise discovered id for on-demand AI Review.
+  const showAiBanner = Boolean(page.shoppingProductId ?? page.productId);
+
+  const relatedWidth = railCardWidth({
     screenWidth,
-    gutter,
+    gutter: GUTTER,
     gap: tokens.space.sm,
-    visible: 2,
-    peek: 28,
-    minWidth: 140,
-    maxWidth: 180,
+    visible: RELATED_RAIL.visible,
+    peek: RELATED_RAIL.peek,
+    minWidth: RELATED_RAIL.minWidth,
+    maxWidth: RELATED_RAIL.maxWidth,
+  });
+  const creatorCardWidth = railCardWidth({
+    screenWidth,
+    gutter: GUTTER,
+    gap: tokens.space.sm,
+    ...CREATOR_RAIL,
   });
 
   const [similar, setSimilar] = useState<CatalogProductViewModel[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [liveByOfferId, setLiveByOfferId] = useState<Record<string, LivePriceResult>>({});
+  const [pricesLoading, setPricesLoading] = useState(page.offers.length > 0);
+  const [countryCtx, setCountryCtx] = useState<{
+    country: string;
+    profileCountry: string | null;
+    locale: string | null;
+  } | null>(null);
   const reviewResult = useMemo(() => productAiReviewFromPage(page), [page]);
+
+  const featuredItems = useMemo(() => featuredMediaFromPage(page), [page]);
+
+  const featuredCollections = useMemo(
+    () =>
+      featuredItems.map((item) => ({
+        media: item,
+        collection: collectionViewFromRelatedMedia(item),
+      })),
+    [featuredItems],
+  );
+
+  const displayOffers = useMemo(
+    () => page.offers.map((offer) => mergeLiveOffer(offer, liveByOfferId[offer.id], pricesLoading)),
+    [page.offers, liveByOfferId, pricesLoading],
+  );
+
+  const buyingSummary =
+    productPageBestPriceLabel(displayOffers) ?? productPagePricesFromLabel(displayOffers);
+  const buyingFreshness = productPageBuyingFreshnessLine(displayOffers.map((o) => o.freshness));
 
   useEffect(() => {
     if (!sections.similar) {
@@ -103,196 +187,257 @@ export function ProductPage({ page }: Props) {
     };
   }, [page, sections.similar]);
 
+  useEffect(() => {
+    if (page.offers.length === 0) {
+      setPricesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPricesLoading(true);
+    void (async () => {
+      try {
+        const geo = await getCommerceCountry();
+        if (cancelled) return;
+        setCountryCtx(geo);
+        const live = await fetchLivePrices(page.productId, {
+          country: geo.country,
+          profileCountry: geo.profileCountry,
+          locale: geo.locale,
+        });
+        if (cancelled) return;
+        const map: Record<string, LivePriceResult> = {};
+        for (const row of live.results) map[row.offerId] = row;
+        setLiveByOfferId(map);
+      } catch {
+        if (!cancelled) setLiveByOfferId({});
+      } finally {
+        if (!cancelled) setPricesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [page.productId, page.offers]);
+
   const onShop = async (offerId: string) => {
     try {
       await openProductShopping({
         catalogProductId: page.shoppingProductId ?? page.productId,
         offerId,
+        country: countryCtx?.country,
+        profileCountry: countryCtx?.profileCountry,
+        locale: countryCtx?.locale,
       });
     } catch {
       Alert.alert('Error', 'Could not open the product link.');
     }
   };
 
+  const onFeaturedPress = (
+    collection: CollectionViewModel,
+    media: ProductPageRelatedMedia,
+  ) => {
+    const path = relatedMediaPath(media);
+    if (path) {
+      router.push(path as Href);
+    }
+    // No external YouTube/Instagram handoff — in-app reel only.
+  };
+
   return (
     <ScrollView
       contentContainerStyle={{
-        paddingHorizontal: gutter,
+        paddingHorizontal: GUTTER,
+        paddingTop: tokens.space.md,
         paddingBottom: tokens.space.xxl,
-        gap: tokens.space.lg,
+        gap: tokens.space.xl,
       }}
+      showsVerticalScrollIndicator={false}
     >
-      <ProductHeroImage
-        productId={page.productId}
-        uri={page.heroImage ?? page.galleryImages[0] ?? null}
-        alt={page.title}
-        style={[styles.hero, { borderRadius: tokens.radius.xl }]}
-      />
-
-      <View style={{ gap: tokens.space.xxs }}>
-        {page.brand ? (
-          <Text
-            style={{
-              color: tokens.color.textMuted,
-              fontSize: tokens.fontSize.micro,
-              fontWeight: tokens.fontWeight.bold,
-              letterSpacing: 0.6,
-              textTransform: 'uppercase',
-            }}
-          >
-            {page.brand}
-          </Text>
-        ) : null}
-        <Text
-          style={{
-            color: tokens.color.text,
-            fontSize: tokens.fontSize.headline,
-            lineHeight: tokens.lineHeight.headline,
-            fontWeight: tokens.fontWeight.extraBold,
-          }}
+      {/* 1. Compact product identity */}
+      <View style={[styles.identity, { gap: tokens.space.md }]}>
+        <View
+          style={[
+            styles.identityImageWrap,
+            {
+              padding: 4,
+              borderRadius: tokens.radius.lg,
+              ...outlineCardChrome(tokens),
+            },
+          ]}
         >
-          {page.title}
-        </Text>
-        {priceLabel ? (
-          <Text
-            style={{
-              color: tokens.color.primary,
-              fontSize: tokens.fontSize.title,
-              fontWeight: tokens.fontWeight.extraBold,
-            }}
-          >
-            {priceLabel}
+          <ProductHeroImage
+            productId={page.productId}
+            uri={page.heroImage ?? page.galleryImages[0] ?? null}
+            alt={page.title}
+            style={[
+              styles.identityImage,
+              {
+                width: IDENTITY_IMAGE,
+                height: IDENTITY_IMAGE,
+                borderRadius: tokens.radius.md,
+                backgroundColor: tokens.color.surfaceSubtle,
+              },
+            ]}
+          />
+        </View>
+        <View style={[styles.identityCopy, { gap: tokens.space.xxs }]}>
+          {page.brand ? <Text style={typeStyle(tokens, 'identityBrand')}>{page.brand}</Text> : null}
+          <Text style={typeStyle(tokens, 'identityTitle')} numberOfLines={3}>
+            {page.title}
           </Text>
-        ) : null}
-      </View>
-
-      {sections.offers ? (
-        <View style={{ gap: tokens.space.sm }}>
-          <SectionHeader title={PRODUCT_PAGE_COPY.offers} />
-          {page.offers.map((offer) => {
-            const cta = productPageOfferCta(offer);
-            const availability = productPageAvailabilityLabel(offer);
-            return (
-              <View
-                key={offer.id}
-                style={[
-                  styles.offer,
-                  {
-                    backgroundColor: tokens.color.surface,
-                    borderColor: tokens.color.border,
-                    borderRadius: tokens.radius.xl,
-                    padding: tokens.space.md,
-                    gap: tokens.space.xs,
-                  },
-                ]}
-              >
-                <View style={styles.offerRow}>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    {offer.merchant ? (
-                      <Text style={{ color: tokens.color.text, fontWeight: tokens.fontWeight.extraBold }}>
-                        {offer.merchant}
-                      </Text>
-                    ) : null}
-                    {availability ? (
-                      <Text style={{ color: tokens.color.textMuted, fontSize: tokens.fontSize.micro }}>
-                        {availability}
-                      </Text>
-                    ) : null}
-                  </View>
-                  {offer.price ? (
-                    <Text
-                      style={{
-                        color: tokens.color.text,
-                        fontSize: tokens.fontSize.title,
-                        fontWeight: tokens.fontWeight.extraBold,
-                      }}
-                    >
-                      {productPagePriceLabel(offer)}
-                    </Text>
-                  ) : null}
-                </View>
-                {cta ? (
-                  <ActionButton label={cta} onPress={() => void onShop(offer.id)} variant="filled" />
-                ) : null}
-              </View>
-            );
-          })}
+          {page.category?.trim() ? (
+            <Text style={typeStyle(tokens, 'tileMeta')} numberOfLines={1}>
+              {page.category.trim()}
+            </Text>
+          ) : null}
+          {page.description?.trim() ? (
+            <Text style={typeStyle(tokens, 'bodyMuted')} numberOfLines={2}>
+              {page.description.trim()}
+            </Text>
+          ) : null}
+          {page.detailsUpdating ? (
+            <View style={styles.updatingRow}>
+              <ActivityIndicator size="small" color={tokens.color.primary} />
+              <Text style={typeStyle(tokens, 'tileMeta')}>{PRODUCT_PAGE_COPY.detailsUpdating}</Text>
+            </View>
+          ) : null}
+          {priceLabel && !sections.offers ? (
+            <Text style={typeStyle(tokens, 'tilePrice')}>{priceLabel}</Text>
+          ) : null}
           {page.shoppingProductId ? (
-            <ActionButton
-              label={BAG_COPY.add}
+            <Pressable
               onPress={() => void onAddToCart(product)}
-              variant="secondary"
-            />
+              accessibilityRole="button"
+              accessibilityLabel={BAG_COPY.add}
+              style={{ marginTop: tokens.space.xs }}
+            >
+              <Text style={typeStyle(tokens, 'link')}>{BAG_COPY.add}</Text>
+            </Pressable>
           ) : null}
         </View>
-      ) : page.shoppingProductId ? (
-        <ActionButton label={BAG_COPY.add} onPress={() => void onAddToCart(product)} variant="secondary" />
-      ) : null}
+      </View>
 
-      {page.source ? (
+      {/* 2. Buying options */}
+      {sections.offers ? (
         <View style={{ gap: tokens.space.sm }}>
-          <SectionHeader title={PRODUCT_PAGE_COPY.discovery} subtitle={page.source.label} />
-          <ProductSourceMedia source={page.source} />
+          <Text style={typeStyle(tokens, 'sectionTitle')}>{PRODUCT_PAGE_COPY.offers}</Text>
+          {buyingSummary ? <Text style={typeStyle(tokens, 'bodyMuted')}>{buyingSummary}</Text> : null}
+          {buyingFreshness ? <Text style={typeStyle(tokens, 'tileMeta')}>{buyingFreshness}</Text> : null}
+
+          <View style={{ marginTop: tokens.space.xs }}>
+            {displayOffers.map((offer, index) => {
+              const cta = productPageOfferCta(offer);
+              const availability = productPageAvailabilityLabel(offer);
+              const freshness =
+                offer.freshness === 'loading'
+                  ? productPagePriceFreshnessLabel(offer.freshness)
+                  : null;
+              const offerPrice = productPagePriceLabel(offer);
+              const metaBits = [availability, freshness].filter(Boolean);
+              return (
+                <View
+                  key={offer.id}
+                  style={[
+                    styles.offerRow,
+                    {
+                      borderTopWidth: index === 0 ? StyleSheet.hairlineWidth : 0,
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderColor: tokens.color.divider,
+                      paddingVertical: tokens.space.md,
+                      gap: tokens.space.sm,
+                    },
+                  ]}
+                >
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text style={typeStyle(tokens, 'offerMerchant')} numberOfLines={1}>
+                      {offer.merchant?.trim() || PRODUCT_PAGE_COPY.soldBy}
+                    </Text>
+                    {metaBits.length ? (
+                      <View style={styles.freshnessRow}>
+                        {offer.freshness === 'loading' ? (
+                          <ActivityIndicator size="small" color={tokens.color.primary} />
+                        ) : null}
+                        <Text style={typeStyle(tokens, 'offerMeta')} numberOfLines={1}>
+                          {metaBits.join(' · ')}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    {offerPrice ? (
+                      <Text style={typeStyle(tokens, 'offerPrice')}>{offerPrice}</Text>
+                    ) : null}
+                    {cta ? (
+                      <Pressable
+                        onPress={() => void onShop(offer.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${cta} at ${offer.merchant ?? 'merchant'}`}
+                      >
+                        <Text style={typeStyle(tokens, 'cta')}>{`${cta} →`}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
         </View>
       ) : null}
 
-      {sections.relatedMedia ? (
+      {/* 3. AI review — catalogue or discovered (on-demand) */}
+      {showAiBanner ? (
+        <ProductAiReviewCard
+          product={product}
+          variant="standalone"
+          preloaded={reviewResult}
+          onOpen={() => setReviewOpen(true)}
+        />
+      ) : null}
+
+      {/* 4. Featured — discovery + related collections */}
+      {sections.featured ? (
         <View style={{ gap: tokens.space.sm }}>
-          <SectionHeader title={PRODUCT_PAGE_COPY.relatedMedia} />
-          <ContentRail gutter={gutter} itemPitch={similarWidth + tokens.space.sm}>
-            {page.relatedMedia.map((item) => (
-              <Pressable
-                key={item.id}
-                onPress={() => {
-                  const path = relatedMediaPath(item);
-                  if (path) {
-                    router.push(path as Href);
-                    return;
-                  }
-                  void openBrowserAsync(item.url, {
-                    presentationStyle: WebBrowserPresentationStyle.AUTOMATIC,
-                  });
+          <Text style={typeStyle(tokens, 'sectionTitle')}>{PRODUCT_PAGE_COPY.relatedMedia}</Text>
+          <ContentRail gutter={GUTTER} itemPitch={creatorCardWidth + tokens.space.sm} itemGap={tokens.space.sm}>
+            {featuredCollections.map(({ media, collection }, index) => (
+              <View
+                key={media.id}
+                style={{
+                  width: creatorCardWidth,
+                  gap: tokens.space.xxs,
                 }}
-                style={[
-                  styles.relatedCard,
-                  {
-                    width: similarWidth,
-                    backgroundColor: tokens.color.surface,
-                    borderColor: tokens.color.border,
-                    borderRadius: tokens.radius.lg,
-                  },
-                ]}
               >
-                {item.thumbnailUrl ? (
-                  <Image source={{ uri: item.thumbnailUrl }} style={styles.relatedThumb} contentFit="cover" />
-                ) : (
-                  <View style={[styles.relatedThumb, { backgroundColor: tokens.color.border }]} />
-                )}
-                <View style={{ padding: tokens.space.sm, gap: 2 }}>
-                  <Text style={{ color: tokens.color.text, fontWeight: tokens.fontWeight.bold }} numberOfLines={2}>
-                    {item.title ?? item.label}
+                {media.fromDiscovery ? (
+                  <Text style={typeStyle(tokens, 'tileMeta')} numberOfLines={1}>
+                    {PRODUCT_PAGE_COPY.discoveryTag}
                   </Text>
-                  <Text style={{ color: tokens.color.primary }}>{relatedMediaWatchLabel(item.kind)}</Text>
-                </View>
-              </Pressable>
+                ) : (
+                  <View style={{ height: tokens.lineHeight.micro }} />
+                )}
+                <PublicCollectionTile
+                  collection={collection}
+                  onPress={(next) => onFeaturedPress(next, media)}
+                />
+              </View>
             ))}
           </ContentRail>
         </View>
       ) : null}
 
-      {sections.reviews && page.reviews ? (
-        <ProductPageReviews
-          reviews={page.reviews}
-          onReadReviews={page.shoppingProductId ? () => setReviewOpen(true) : undefined}
-        />
-      ) : null}
-
+      {/* 5. Related products */}
       {similar.length > 0 ? (
         <View style={{ gap: tokens.space.sm }}>
-          <SectionHeader title={PRODUCT_PAGE_COPY.similar} />
-          <ContentRail gutter={gutter} itemPitch={similarWidth + tokens.space.sm}>
-            {similar.map((item) => (
-              <View key={item.id} style={{ width: similarWidth }}>
+          <Text style={typeStyle(tokens, 'sectionTitle')}>{PRODUCT_PAGE_COPY.similar}</Text>
+          <ContentRail gutter={GUTTER} itemPitch={relatedWidth + tokens.space.sm}>
+            {similar.map((item, index) => (
+              <View
+                key={item.id}
+                style={{
+                  width: relatedWidth,
+                  marginRight: index === similar.length - 1 ? 0 : tokens.space.sm,
+                }}
+              >
                 <ProductCard
                   product={item}
                   variant="related"
@@ -308,34 +453,17 @@ export function ProductPage({ page }: Props) {
         </View>
       ) : null}
 
-      <View style={{ gap: tokens.space.xs }}>
-        <SectionHeader title={PRODUCT_PAGE_COPY.compare} subtitle={PRODUCT_PAGE_COPY.compareHint} />
-        <ActionButton
-          label={PRODUCT_PAGE_COPY.compare}
-          onPress={() => router.push(comparePath([page.productId]) as Href)}
-          variant="quiet"
-        />
-      </View>
-
-      {sections.description && page.description ? (
-        <View style={{ gap: tokens.space.sm }}>
-          <SectionHeader title={PRODUCT_PAGE_COPY.details} />
-          <ExpandableText
-            text={page.description}
-            collapsedLines={4}
-            style={{
-              color: tokens.color.textMuted,
-              fontSize: tokens.fontSize.body,
-              lineHeight: tokens.lineHeight.body,
-            }}
-          />
-        </View>
-      ) : null}
-
-      {sections.specs ? (
-        <View style={{ gap: tokens.space.sm }}>
-          <SectionHeader title={PRODUCT_PAGE_COPY.specs} />
-          <SpecificationGrid specifications={page.specifications} />
+      {/* 6. Compare — quiet, gated */}
+      {sections.compare ? (
+        <View style={{ gap: tokens.space.xs }}>
+          <Pressable
+            onPress={() => router.push(comparePath([page.productId]) as Href)}
+            accessibilityRole="button"
+            accessibilityLabel={PRODUCT_PAGE_COPY.compare}
+          >
+            <Text style={typeStyle(tokens, 'link')}>{`${PRODUCT_PAGE_COPY.compare} →`}</Text>
+          </Pressable>
+          <Text style={typeStyle(tokens, 'tileMeta')}>{PRODUCT_PAGE_COPY.compareHint}</Text>
         </View>
       ) : null}
 
@@ -351,24 +479,33 @@ export function ProductPage({ page }: Props) {
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    width: '100%',
-    aspectRatio: 1,
+  identity: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
-  offer: {
+  identityImageWrap: {
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  identityImage: {
+    overflow: 'hidden',
+  },
+  identityCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   offerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
   },
-  relatedCard: {
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
+  freshnessRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  relatedThumb: {
-    width: '100%',
-    aspectRatio: 9 / 16,
+  updatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
   },
 });

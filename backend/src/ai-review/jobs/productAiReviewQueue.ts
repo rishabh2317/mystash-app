@@ -1,6 +1,7 @@
 import { Queue, Worker } from 'bullmq';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createCatalogService } from '../../catalog/factory';
+import { createDiscoveredProductService } from '../../discovered/factory';
 import { logger } from '../../logger';
 import {
   getBullmqConnection,
@@ -53,6 +54,7 @@ export async function enqueueProductAiReview(data: ProductAiReviewJobData): Prom
 
 export function createProductAiReviewService(admin: SupabaseClient): ProductAiReviewService {
   const catalog = createCatalogService(admin);
+  const discovered = createDiscoveredProductService(admin);
   const repo = new SupabaseProductAiReviewRepository(admin);
   const generator = createGeminiAiReviewGenerator();
 
@@ -61,7 +63,7 @@ export function createProductAiReviewService(admin: SupabaseClient): ProductAiRe
       await enqueueProductAiReview({ productId, evidenceHash, refresh: options?.refresh });
     } catch (e) {
       if ((e as Error).message === REDIS_UNAVAILABLE_ENQUEUE_ERROR) {
-        const svc = new ProductAiReviewService(catalog, repo, generator, async () => undefined);
+        const svc = new ProductAiReviewService(catalog, repo, generator, async () => undefined, discovered);
         void svc
           .runGeneration(productId, evidenceHash, { refresh: options?.refresh })
           .catch((err: unknown) => {
@@ -73,7 +75,7 @@ export function createProductAiReviewService(admin: SupabaseClient): ProductAiRe
     }
   };
 
-  return new ProductAiReviewService(catalog, repo, generator, enqueue);
+  return new ProductAiReviewService(catalog, repo, generator, enqueue, discovered);
 }
 
 export function startProductAiReviewWorker(admin: SupabaseClient): Worker<ProductAiReviewJobData> {

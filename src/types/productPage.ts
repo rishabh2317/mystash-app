@@ -18,6 +18,15 @@ export type ProductPageSource = {
   label: string;
   url: string;
   title: string | null;
+  /** Published collection for in-app reel playback when the source URL is tagged. */
+  collectionId: string | null;
+};
+
+export type ProductPageRelatedMediaCreator = {
+  id: string;
+  username: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
 };
 
 export type ProductPageRelatedMedia = {
@@ -28,6 +37,11 @@ export type ProductPageRelatedMedia = {
   title: string | null;
   thumbnailUrl: string | null;
   collectionId: string | null;
+  creator: ProductPageRelatedMediaCreator | null;
+  views: number;
+  saves: number;
+  /** True when this tile is the user's original discovery source. */
+  fromDiscovery?: boolean;
 };
 
 export type ProductPageReviewSource = {
@@ -63,4 +77,6 @@ export type ProductPageView = {
   relatedMedia: ProductPageRelatedMedia[];
   reviews: ProductPageReviews | null;
   compareAvailable: boolean;
+  /** True while imported product details are still being filled in. */
+  detailsUpdating: boolean;
 };

@@ -1,6 +1,11 @@
 import type { SearchCandidate } from '../domain/types';
 import { isAmazonMarketplaceHost, isExactProductBuyingUrl } from '../../shopping/productUrlIdentity';
 import type { ShortlistedCandidate } from './CandidateShortlister';
+import {
+  amazonSiteHostForCountry,
+  isCountryPreferredAmazonHost,
+  marketplaceSiteHostsForCountry,
+} from './discoveryCountry';
 
 export const PREFERRED_METADATA_STOP_COMPLETENESS = 90;
 
@@ -49,17 +54,27 @@ export function pickCanonicalOfficialPdp<T extends SearchCandidate>(candidates: 
   return [...official].sort((a, b) => preferredRank(b) - preferredRank(a))[0];
 }
 
-/** One Amazon PDP: prefer an exact buying URL when present. */
-export function pickCanonicalAmazonPdp<T extends SearchCandidate>(candidates: T[]): T | undefined {
+/** One Amazon PDP: prefer an exact buying URL when present; country-aligned host wins ties. */
+export function pickCanonicalAmazonPdp<T extends SearchCandidate>(
+  candidates: T[],
+  country?: string | null,
+): T | undefined {
   const amazon = candidates.filter(isAmazonPreferredMetadataCandidate);
   if (!amazon.length) return undefined;
-  return [...amazon].sort((a, b) => preferredRank(b) - preferredRank(a))[0];
+  return [...amazon].sort((a, b) => {
+    const boost = (c: SearchCandidate) =>
+      country && isCountryPreferredAmazonHost(c.merchantUrl, country) ? 100 : 0;
+    return preferredRank(b) + boost(b) - (preferredRank(a) + boost(a));
+  })[0];
 }
 
 /** Official brand PDP then Amazon PDP — at most one URL per merchant family. */
-export function pickPreferredMetadataTargets<T extends SearchCandidate>(candidates: T[]): T[] {
+export function pickPreferredMetadataTargets<T extends SearchCandidate>(
+  candidates: T[],
+  country?: string | null,
+): T[] {
   const official = pickCanonicalOfficialPdp(candidates);
-  const amazon = pickCanonicalAmazonPdp(candidates);
+  const amazon = pickCanonicalAmazonPdp(candidates, country);
   return [official, amazon].filter((candidate): candidate is T => Boolean(candidate));
 }
 
@@ -76,8 +91,22 @@ export function officialPreferredSearchQuery(productQuery: string, brand?: strin
   return `${base} official`;
 }
 
-export function amazonPreferredSearchQuery(productQuery: string): string {
-  return `${productQuery.trim()} site:amazon.com`;
+export function amazonPreferredSearchQuery(
+  productQuery: string,
+  country?: string | null,
+): string {
+  const host = amazonSiteHostForCountry(country);
+  return `${productQuery.trim()} site:${host}`;
+}
+
+/** Country marketplace site queries (user-import preferred discovery only). */
+export function marketplacePreferredSearchQueries(
+  productQuery: string,
+  country?: string | null,
+): string[] {
+  const q = productQuery.trim();
+  if (!q) return [];
+  return marketplaceSiteHostsForCountry(country).map((host) => `${q} site:${host}`);
 }
 
 export function mergeSearchCandidates(

@@ -114,6 +114,23 @@ describe('local Redis optional fallback', () => {
     assert.equal(REDIS_UNAVAILABLE_ENQUEUE_ERROR, 'ingest.queue.redis_unavailable');
   });
 
+  it('keeps enqueue fail-fast but gives Workers a reconnecting Redis client', async () => {
+    const { buildBullmqConnectionOptions, duplicateBullmqWorkerRedis } = await import(
+      './redisConnection'
+    );
+    const enqueue = buildBullmqConnectionOptions('redis://127.0.0.1:6379');
+    assert.equal(enqueue.retryStrategy?.(1), null);
+
+    const workerRedis = duplicateBullmqWorkerRedis('test-worker');
+    try {
+      assert.equal(workerRedis.options.maxRetriesPerRequest, null);
+      assert.equal(typeof workerRedis.options.retryStrategy?.(3), 'number');
+      assert.notEqual(workerRedis.options.retryStrategy?.(3), null);
+    } finally {
+      workerRedis.disconnect();
+    }
+  });
+
   it('probes a closed port as unavailable without hanging', async () => {
     const { probeRedisTcp } = await import('./redisConnection');
     const start = Date.now();

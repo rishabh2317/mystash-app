@@ -53,6 +53,21 @@ export function hydrateProductPage(raw: unknown): ProductPageView | null {
         title: asString(media.title),
         thumbnailUrl: asString(media.thumbnailUrl),
         collectionId: asString(media.collectionId),
+        creator: (() => {
+          if (!media.creator || typeof media.creator !== 'object') return null;
+          const c = media.creator as Record<string, unknown>;
+          const creatorId = asString(c.id);
+          if (!creatorId) return null;
+          return {
+            id: creatorId,
+            username: asString(c.username),
+            displayName: asString(c.displayName),
+            avatarUrl: asString(c.avatarUrl),
+          };
+        })(),
+        views: typeof media.views === 'number' && Number.isFinite(media.views) ? Math.max(0, Math.floor(media.views)) : 0,
+        saves: typeof media.saves === 'number' && Number.isFinite(media.saves) ? Math.max(0, Math.floor(media.saves)) : 0,
+        fromDiscovery: media.fromDiscovery === true,
       });
     }
   }
@@ -70,6 +85,7 @@ export function hydrateProductPage(raw: unknown): ProductPageView | null {
         label: asString(s.label) ?? 'Found from this page',
         url,
         title: asString(s.title),
+        collectionId: asString(s.collectionId),
       };
     }
   }
@@ -138,5 +154,6 @@ export function hydrateProductPage(raw: unknown): ProductPageView | null {
     relatedMedia,
     reviews,
     compareAvailable: row.compareAvailable === true,
+    detailsUpdating: row.detailsUpdating === true,
   };
 }

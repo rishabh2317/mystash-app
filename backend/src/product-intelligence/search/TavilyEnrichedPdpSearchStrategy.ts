@@ -10,12 +10,14 @@ import { classifyCandidatePage } from './CandidatePageClassifier';
 import { decoratePdpCandidates, shortlistPdpCandidates, type ShortlistedCandidate } from './CandidateShortlister';
 import { scoreCandidateDecisions } from '../scoring/CandidateScoring';
 import { isStrongDirectUrlCandidate, merchantUrlsMatch } from './directUrlIdentity';
+import { isExactProductBuyingUrl } from '../../shopping/productUrlIdentity';
 import {
   amazonPreferredSearchQuery,
   mergeSearchCandidates,
   officialPreferredSearchQuery,
   isAmazonPreferredMetadataCandidate,
   isOfficialPreferredMetadataCandidate,
+  marketplacePreferredSearchQueries,
   pickPreferredMetadataTargets,
   shouldStopAfterPreferredMetadata,
   toDiscoveryCandidates,
@@ -35,9 +37,11 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
   ) {}
 
   async search(query: string, hints?: SearchStrategyHints): Promise<SearchResult> {
+    const userImportExpansion = Boolean(hints?.enrichAllCommerce);
     const seed = hints?.seedMerchantUrl
       ? await this.enrichSeedUrl(hints.seedMerchantUrl)
       : null;
+    const seedRetained = Boolean(seed);
 
     if (hints?.skipDiscoveryIfSeedStrong && seed && isStrongDirectUrlCandidate(seed)) {
       ingestLog('info', 'search.direct_url.used', {
@@ -46,11 +50,45 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         skippedDiscovery: true,
         pdpScore: seed.pdpScore,
       });
+      if (userImportExpansion) {
+        // Should not happen for user-import (skipDiscoveryIfSeedStrong=false), but log clearly.
+        ingestLog('info', 'merchant_discovery.skipped', {
+          svc: 'product-intelligence',
+          reason: 'strong_seed_skip_enabled',
+          seedRetained: true,
+          skippedDiscovery: true,
+        });
+      }
       return { kind: 'Succeeded', candidates: [seed], provider: 'direct_url' };
+    }
+
+    if (userImportExpansion) {
+      ingestLog('info', 'merchant_discovery.started', {
+        svc: 'product-intelligence',
+        skippedDiscovery: false,
+        seedRetained,
+        skipDiscoveryIfSeedStrong: Boolean(hints?.skipDiscoveryIfSeedStrong),
+        maxAdditionalMerchantOffers: hints?.maxAdditionalMerchantOffers ?? null,
+        lightweightAdditionalMerchants: Boolean(hints?.lightweightAdditionalMerchants),
+        reason: seedRetained
+          ? 'user_import_seed_plus_discovery'
+          : 'user_import_discovery_without_seed',
+      });
     }
 
     const discovery = await this.discovery.search(query);
     if (discovery.kind === 'Failed') {
+      if (userImportExpansion) {
+        ingestLog('info', 'merchant_discovery.completed', {
+          svc: 'product-intelligence',
+          candidate_count: 0,
+          qualifying_count: seedRetained ? 1 : 0,
+          seed_retained: seedRetained,
+          duplicates_removed: 0,
+          final_offer_count: seedRetained ? 1 : 0,
+          discoveryFailed: true,
+        });
+      }
       return seed
         ? { kind: 'Succeeded', candidates: [seed], provider: 'direct_url' }
         : discovery;
@@ -58,6 +96,17 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
 
     const pdpHints = getPdpSearchHints();
     if (!discovery.candidates.length) {
+      if (userImportExpansion) {
+        ingestLog('info', 'merchant_discovery.completed', {
+          svc: 'product-intelligence',
+          candidate_count: 0,
+          qualifying_count: seedRetained ? 1 : 0,
+          seed_retained: seedRetained,
+          duplicates_removed: 0,
+          final_offer_count: seedRetained ? 1 : 0,
+          discoveryEmpty: true,
+        });
+      }
       return {
         kind: 'Succeeded',
         candidates: seed ? [seed] : [],
@@ -72,7 +121,10 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       name: pdpHints.name ?? query,
       category: pdpHints.category,
     };
-    const shortlisted = shortlistPdpCandidates(discoveryCandidates, identityHints, this.maxCandidates);
+    const shortlistLimit = userImportExpansion
+      ? Math.max(1, hints?.maxAdditionalMerchantOffers ?? this.maxCandidates)
+      : this.maxCandidates;
+    const shortlisted = shortlistPdpCandidates(discoveryCandidates, identityHints, shortlistLimit);
 
     if (!shortlisted.length && !discoveryCandidates.length) {
       ingestLog('info', 'search.pdp.rank_empty', {
@@ -88,21 +140,29 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
     }
 
     let pool = decoratePdpCandidates(discoveryCandidates, identityHints);
-    let preferred = pickPreferredMetadataTargets(pool);
+    const commerceCountry = hints?.commerceCountry ?? null;
+    let preferred = pickPreferredMetadataTargets(pool, commerceCountry);
     let officialQueryUsed: string | null = null;
     let amazonQueryUsed: string | null = null;
+    const marketplaceQueriesUsed: string[] = [];
     const hasOfficial = Boolean(preferred.find(isOfficialPreferredMetadataCandidate));
     const hasAmazon = Boolean(preferred.find(isAmazonPreferredMetadataCandidate));
 
-    if (!hasOfficial || !hasAmazon) {
+    if (!hasOfficial || !hasAmazon || userImportExpansion) {
       const extraQueries: string[] = [];
       if (!hasOfficial) {
         officialQueryUsed = officialPreferredSearchQuery(query, pdpHints.brand);
         extraQueries.push(officialQueryUsed);
       }
-      if (!hasAmazon) {
-        amazonQueryUsed = amazonPreferredSearchQuery(query);
+      if (!hasAmazon || userImportExpansion) {
+        amazonQueryUsed = amazonPreferredSearchQuery(query, commerceCountry);
         extraQueries.push(amazonQueryUsed);
+      }
+      if (userImportExpansion) {
+        for (const mq of marketplacePreferredSearchQueries(query, commerceCountry)) {
+          marketplaceQueriesUsed.push(mq);
+          extraQueries.push(mq);
+        }
       }
       const extraResults = await Promise.all(
         extraQueries.map((q) => this.discovery.search(q)),
@@ -115,7 +175,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
           mergeSearchCandidates(discoveryCandidates, extraCandidates),
           identityHints,
         );
-        preferred = pickPreferredMetadataTargets(pool);
+        preferred = pickPreferredMetadataTargets(pool, commerceCountry);
       }
     }
 
@@ -125,12 +185,31 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       preferredUrlList: preferred.map((c) => c.merchantUrl.slice(0, 160)).join(','),
       officialQueryUsed,
       amazonQueryUsed,
+      marketplaceQueriesUsed: marketplaceQueriesUsed.join(' | ') || null,
+      commerceCountry: commerceCountry ?? null,
     });
 
-    const remaining = shortlisted.filter(
-      (candidate) =>
-        !preferred.some((target) => merchantUrlsMatch(target.merchantUrl, candidate.merchantUrl)),
-    );
+    // User-import: seed is retained separately; cap ADDITIONAL discovered merchants.
+    // Preferred Official+Amazon always count first (full enrich for identity), then
+    // fill remaining slots with lightweight URL-qualified merchants.
+    const preferredForOffers = userImportExpansion
+      ? preferred.slice(0, shortlistLimit)
+      : preferred;
+    const slotsLeft = userImportExpansion
+      ? Math.max(0, shortlistLimit - preferredForOffers.length)
+      : shortlisted.length;
+    const remainingSource = userImportExpansion
+      ? shortlistPdpCandidates(pool, identityHints, shortlistLimit + preferredForOffers.length)
+      : shortlisted;
+    const remaining = remainingSource
+      .filter(
+        (candidate) =>
+          !preferredForOffers.some((target) =>
+            merchantUrlsMatch(target.merchantUrl, candidate.merchantUrl),
+          ),
+      )
+      .slice(0, userImportExpansion ? slotsLeft : remainingSource.length);
+    preferred = preferredForOffers;
 
     const preferredResults =
       preferred.length > 0
@@ -157,17 +236,22 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
     });
 
     let enrichedCandidates = preferredEnriched;
+    // Creator path may stop after Official+Amazon when metadata is already rich.
+    // User-import (`enrichAllCommerce`) always continues so all valid merchants remain.
     const stopAfterPreferred =
-      preferred.length > 0 && shouldStopAfterPreferredMetadata(preferredCompleteness);
+      !hints?.enrichAllCommerce &&
+      preferred.length > 0 &&
+      shouldStopAfterPreferredMetadata(preferredCompleteness);
     if (!stopAfterPreferred) {
       ingestLog('info', 'metadata.enrichment.fallback_pass', {
         svc: 'product-intelligence',
         remainingCount: remaining.length,
         mergedCompleteness: preferredCompleteness,
+        lightweight: Boolean(hints?.lightweightAdditionalMerchants),
       });
-      const fallbackResults = await Promise.all(
-        remaining.map((best) => this.enrichShortlisted(best, pdpHints)),
-      );
+      const fallbackResults = hints?.lightweightAdditionalMerchants
+        ? remaining.map((best) => this.toLightweightCommerceCandidate(best, pdpHints))
+        : await Promise.all(remaining.map((best) => this.enrichShortlisted(best, pdpHints)));
       enrichedCandidates = [
         ...preferredEnriched,
         ...fallbackResults.filter((candidate): candidate is SearchCandidate => candidate !== null),
@@ -180,18 +264,162 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       });
     }
 
-    const merged = seed
-      ? [
-          seed,
-          ...enrichedCandidates.filter((c) => !merchantUrlsMatch(c.merchantUrl, seed.merchantUrl)),
-        ]
+    const beforeDedupe = seed
+      ? [seed, ...enrichedCandidates]
       : enrichedCandidates;
+    const merged: SearchCandidate[] = [];
+    let duplicatesRemoved = 0;
+    for (const candidate of beforeDedupe) {
+      if (merged.some((existing) => merchantUrlsMatch(existing.merchantUrl, candidate.merchantUrl))) {
+        duplicatesRemoved += 1;
+        continue;
+      }
+      merged.push(candidate);
+    }
+
+    if (userImportExpansion) {
+      const qualifying = merged.filter(
+        (c) =>
+          c.enrichmentSucceeded === true &&
+          (c.capabilities?.commerce ?? false) &&
+          c.pdpVerdict === 'pdp',
+      );
+      ingestLog('info', 'merchant_discovery.completed', {
+        svc: 'product-intelligence',
+        candidate_count: discoveryCandidates.length,
+        qualifying_count: qualifying.length,
+        seed_retained: seedRetained,
+        duplicates_removed: duplicatesRemoved,
+        final_offer_count: merged.length,
+      });
+      ingestLog('info', 'merchant_discovery.candidate_count', {
+        svc: 'product-intelligence',
+        count: discoveryCandidates.length,
+      });
+      ingestLog('info', 'merchant_discovery.qualifying_count', {
+        svc: 'product-intelligence',
+        count: qualifying.length,
+      });
+      ingestLog('info', 'merchant_discovery.seed_retained', {
+        svc: 'product-intelligence',
+        retained: seedRetained,
+      });
+      ingestLog('info', 'merchant_discovery.duplicates_removed', {
+        svc: 'product-intelligence',
+        count: duplicatesRemoved,
+      });
+      ingestLog('info', 'merchant_discovery.final_offer_count', {
+        svc: 'product-intelligence',
+        count: merged.length,
+      });
+    }
 
     return {
       kind: 'Succeeded',
       candidates: merged,
       provider: this.discovery.name,
     };
+  }
+
+  /**
+   * URL-only commerce candidate for user-import additional merchants.
+   * Qualifies via existing shortlist + page/PDP classifiers; does not call Tavily.
+   * Live price is deferred to MerchantPricingService.
+   */
+  private toLightweightCommerceCandidate(
+    best: ShortlistedCandidate,
+    pdpHints: ReturnType<typeof getPdpSearchHints>,
+  ): SearchCandidate | null {
+    if (!best.capabilities.commerce) return null;
+    if (best.pdpVerdict === 'not_pdp') {
+      ingestLog('info', 'search.pdp.rejected', {
+        svc: 'product-intelligence',
+        merchantUrl: best.merchantUrl.slice(0, 160),
+        reason: 'lightweight_not_pdp',
+      });
+      return null;
+    }
+
+    const classification = classifyPdp({
+      url: best.merchantUrl,
+      title: best.title,
+      snippet: best.snippet,
+      expectedBrand: pdpHints.brand,
+    });
+    if (classification.verdict === 'not_pdp') {
+      ingestLog('info', 'search.pdp.rejected', {
+        svc: 'product-intelligence',
+        merchantUrl: best.merchantUrl.slice(0, 160),
+        reason: 'lightweight_not_pdp',
+        pdpClassifierScore: classification.score,
+      });
+      return null;
+    }
+
+    // URL-only enrichment lacks Tavily metadata signals. Accept shortlisted commerce
+    // PDPs when the page classifier already admitted them, or the URL is an exact
+    // product buying path (same helpers used elsewhere for qualification).
+    const rankScore01 =
+      typeof best.pdpScore === 'number' && Number.isFinite(best.pdpScore)
+        ? Math.min(1, Math.max(0, best.pdpScore / 100))
+        : 0;
+    const exactBuying = isExactProductBuyingUrl(best.merchantUrl);
+    const score = Math.max(
+      classification.score,
+      rankScore01,
+      exactBuying ? 0.5 : 0,
+      classification.verdict === 'pdp' ? classification.score : 0,
+    );
+    if (score < 0.45 && classification.verdict !== 'pdp' && !exactBuying) {
+      return null;
+    }
+
+    const merchant =
+      best.merchant?.trim() ||
+      (() => {
+        try {
+          return new URL(best.merchantUrl).hostname.replace(/^www\./i, '');
+        } catch {
+          return 'merchant';
+        }
+      })();
+
+    const candidate: SearchCandidate = {
+      merchant,
+      merchantUrl: best.merchantUrl,
+      title: best.title,
+      image: best.image,
+      score: Math.min(1, Math.max(0.5, best.pdpScore / 100)),
+      snippet: best.snippet,
+      brand: best.brand,
+      pdpScore: score,
+      pdpVerdict: 'pdp',
+      pdpReasons: [
+        ...classification.reasons,
+        ...(exactBuying ? ['exact_product_buying_url'] : []),
+        'lightweight_shortlist',
+      ],
+      enrichmentSucceeded: true,
+      sourceTier: best.sourceTier,
+      sourceType: best.sourceType,
+      pageType: best.pageType,
+      capabilities: best.capabilities,
+      candidatePageType: best.candidatePageType,
+      shoppingEligible: true,
+      enrichmentMeta: {
+        enrichmentProvider: 'discovery_url_only',
+        pdp_rank_score: best.pdpScore,
+        pdp_classifier_score: score,
+        pdp_classifier_reasons: classification.reasons,
+        source_tier: classification.sourceTier,
+        lightweight: true,
+      },
+    };
+    const decisionScores = scoreCandidateDecisions(candidate);
+    candidate.sourceAuthority = decisionScores.sourceAuthority;
+    candidate.metadataScore = decisionScores.metadataScore;
+    candidate.shoppingScore = decisionScores.shoppingScore;
+    return candidate;
   }
 
   private async enrichShortlisted(

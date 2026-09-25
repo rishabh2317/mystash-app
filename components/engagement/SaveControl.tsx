@@ -62,7 +62,11 @@ export function SaveControl({
       style={[
         iconOnly ? styles.iconBtn : styles.btn,
         {
-          backgroundColor: immersive ? tokens.immersive.control : tokens.color.overlay,
+          backgroundColor: immersive
+            ? 'transparent'
+            : iconOnly
+              ? 'transparent'
+              : tokens.color.overlay,
           borderRadius: iconOnly ? tokens.radius.pill : tokens.radius.md,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
         },

@@ -877,5 +877,363 @@ describe('TavilyEnrichedPdpSearchStrategy integration', () => {
     assert.equal(extracted[0], 'https://www.apple.com/in/macbook-air/');
     assert.ok(extracted.includes('https://www.bestbuy.com/site/macbook-air/6509650.p'));
   });
+
+  it('user-import with a genuine seed PDP retains the seed AND still runs Serper discovery', async () => {
+    let discoveryCalls = 0;
+    let enrichCalls = 0;
+    const seed = 'https://www.amazon.com/dp/B0747YTV7B';
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        discoveryCalls += 1;
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'amazon.com',
+              merchantUrl: seed,
+              title: 'PlayStation VR Camera Bundle',
+              image: null,
+              score: 0.95,
+            },
+            {
+              merchant: 'zara.com',
+              merchantUrl: 'https://www.zara.com/in/en/product-p12345678.html',
+              title: 'PlayStation VR Camera Bundle',
+              image: null,
+              score: 0.8,
+            },
+            {
+              merchant: 'myntra.com',
+              merchantUrl: 'https://www.myntra.com/dresses/brand/product/12345',
+              title: 'PlayStation VR Camera Bundle',
+              image: null,
+              score: 0.75,
+            },
+          ],
+        };
+      },
+    };
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        enrichCalls += 1;
+        return {
+          title: 'PlayStation VR Camera Bundle',
+          brand: 'Sony',
+          image: 'https://m.media-amazon.com/I/p.jpg',
+          primaryImage: 'https://m.media-amazon.com/I/p.jpg',
+          merchantUrl: input.merchantUrl,
+          price: '205.02',
+          currency: 'USD',
+          specifications: { Platform: 'PS4' },
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-ui',
+      'trace-ui',
+    );
+    const result = await pdpSearchHintsAls.run(
+      { brand: 'Sony', name: 'PlayStation VR Camera Bundle', category: 'gaming' },
+      () =>
+        strategy.search('PlayStation VR Camera Bundle', {
+          seedMerchantUrl: seed,
+          skipDiscoveryIfSeedStrong: false,
+          enrichAllCommerce: true,
+          maxAdditionalMerchantOffers: 6,
+          lightweightAdditionalMerchants: true,
+        }),
+    );
+    assert.ok(discoveryCalls >= 1);
+    assert.equal(result.kind, 'Succeeded');
+    if (result.kind === 'Succeeded') {
+      assert.ok(result.candidates.some((c) => c.merchantUrl === seed));
+      assert.ok(result.candidates.length >= 2);
+      // Additional merchants use lightweight path — not every URL needs Tavily.
+      const lightweight = result.candidates.filter(
+        (c) => c.enrichmentMeta?.enrichmentProvider === 'discovery_url_only',
+      );
+      assert.ok(lightweight.length >= 1);
+    }
+  });
+
+  it('user-import without a seed (media-only) still runs merchant discovery', async () => {
+    let discoveryCalls = 0;
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        discoveryCalls += 1;
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'amazon.com',
+              merchantUrl: 'https://www.amazon.com/dp/B0747YTV7B',
+              title: 'Summer Linen Dress',
+              image: null,
+              score: 0.9,
+            },
+          ],
+        };
+      },
+    };
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        return {
+          title: 'Summer Linen Dress',
+          brand: 'Zara',
+          merchantUrl: input.merchantUrl,
+          price: '49.90',
+          currency: 'USD',
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-ui',
+      'trace-ui',
+    );
+    const result = await pdpSearchHintsAls.run(
+      { brand: 'Zara', name: 'Summer Linen Dress', category: 'fashion' },
+      () =>
+        strategy.search('Summer Linen Dress', {
+          enrichAllCommerce: true,
+          maxAdditionalMerchantOffers: 6,
+          lightweightAdditionalMerchants: true,
+        }),
+    );
+    assert.ok(discoveryCalls >= 1);
+    assert.equal(result.kind, 'Succeeded');
+    if (result.kind === 'Succeeded') {
+      assert.ok(result.candidates.length >= 1);
+    }
+  });
+
+  it('user-import respects max additional merchant offers and dedupes canonical URLs', async () => {
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'amazon.com',
+              merchantUrl: 'https://www.amazon.com/dp/B0747YTV7B',
+              title: 'Product X',
+              image: null,
+              score: 0.95,
+            },
+            {
+              merchant: 'amazon.com',
+              merchantUrl: 'https://amazon.com/dp/B0747YTV7B/',
+              title: 'Product X',
+              image: null,
+              score: 0.94,
+            },
+            {
+              merchant: 'zara.com',
+              merchantUrl: 'https://www.zara.com/in/en/product-p111.html',
+              title: 'Product X',
+              image: null,
+              score: 0.9,
+            },
+            {
+              merchant: 'myntra.com',
+              merchantUrl: 'https://www.myntra.com/dresses/brand/product/1',
+              title: 'Product X',
+              image: null,
+              score: 0.88,
+            },
+            {
+              merchant: 'ajio.com',
+              merchantUrl: 'https://www.ajio.com/p/123',
+              title: 'Product X',
+              image: null,
+              score: 0.86,
+            },
+            {
+              merchant: 'bestbuy.com',
+              merchantUrl: 'https://www.bestbuy.com/site/product/6509650.p',
+              title: 'Product X',
+              image: null,
+              score: 0.84,
+            },
+            {
+              merchant: 'walmart.com',
+              merchantUrl: 'https://www.walmart.com/ip/product/123',
+              title: 'Product X',
+              image: null,
+              score: 0.82,
+            },
+            {
+              merchant: 'target.com',
+              merchantUrl: 'https://www.target.com/p/product/-/A-123',
+              title: 'Product X',
+              image: null,
+              score: 0.8,
+            },
+          ],
+        };
+      },
+    };
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        return {
+          title: 'Product X',
+          brand: 'Brand',
+          merchantUrl: input.merchantUrl,
+          price: '10',
+          currency: 'USD',
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-ui',
+      'trace-ui',
+      5,
+    );
+    const result = await pdpSearchHintsAls.run(
+      { brand: 'Brand', name: 'Product X', category: 'fashion' },
+      () =>
+        strategy.search('Product X', {
+          enrichAllCommerce: true,
+          maxAdditionalMerchantOffers: 3,
+          lightweightAdditionalMerchants: true,
+        }),
+    );
+    assert.equal(result.kind, 'Succeeded');
+    if (result.kind === 'Succeeded') {
+      assert.ok(result.candidates.length <= 3);
+      const amazonHits = result.candidates.filter((c) =>
+        /amazon\.com/i.test(c.merchantUrl),
+      );
+      assert.ok(amazonHits.length <= 1);
+    }
+  });
+
+  it('user-import discovery failure still returns the seed candidate', async () => {
+    const seed = 'https://www.amazon.com/dp/B0747YTV7B';
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(): Promise<SearchResult> {
+        return {
+          kind: 'Failed',
+          provider: 'serper',
+          errorKind: 'unknown',
+          message: 'serper down',
+        };
+      },
+    };
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        return {
+          title: 'PlayStation VR Camera Bundle',
+          brand: 'Sony',
+          merchantUrl: input.merchantUrl,
+          price: '205.02',
+          currency: 'USD',
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-ui',
+      'trace-ui',
+    );
+    const result = await pdpSearchHintsAls.run(
+      { brand: 'Sony', name: 'PlayStation VR Camera Bundle', category: 'gaming' },
+      () =>
+        strategy.search('PlayStation VR Camera Bundle', {
+          seedMerchantUrl: seed,
+          skipDiscoveryIfSeedStrong: false,
+          enrichAllCommerce: true,
+          lightweightAdditionalMerchants: true,
+        }),
+    );
+    assert.equal(result.kind, 'Succeeded');
+    if (result.kind === 'Succeeded') {
+      assert.equal(result.candidates.length, 1);
+      assert.equal(result.candidates[0]?.merchantUrl, seed);
+    }
+  });
+
+  it('user-import discovery uses country-aware Amazon site queries', async () => {
+    const queries: string[] = [];
+    const discovery: ProductSearchProvider = {
+      name: 'serper',
+      async search(q): Promise<SearchResult> {
+        queries.push(q);
+        return {
+          kind: 'Succeeded',
+          provider: 'serper',
+          candidates: [
+            {
+              merchant: 'amazon.in',
+              merchantUrl: 'https://www.amazon.in/dp/B0IN',
+              title: 'PlayStation 5',
+              image: null,
+              score: 0.9,
+            },
+          ],
+        };
+      },
+    };
+    const extractor: MerchantExtractor = {
+      name: 'mock',
+      async extract(input) {
+        return {
+          title: 'PlayStation 5',
+          brand: 'Sony',
+          merchantUrl: input.merchantUrl,
+          price: '49999',
+          currency: 'INR',
+          provider: 'mock',
+          extractedAt: new Date().toISOString(),
+        };
+      },
+    };
+    const strategy = new TavilyEnrichedPdpSearchStrategy(
+      discovery,
+      new MerchantEnrichmentService(extractor),
+      'ingest-ui',
+      'trace-ui',
+    );
+    await pdpSearchHintsAls.run(
+      { brand: 'Sony', name: 'PlayStation 5', category: 'gaming' },
+      () =>
+        strategy.search('Sony Playstation 5 PS5', {
+          enrichAllCommerce: true,
+          commerceCountry: 'IN',
+          maxAdditionalMerchantOffers: 6,
+          lightweightAdditionalMerchants: true,
+        }),
+    );
+    assert.ok(queries.some((q) => /site:amazon\.in\b/.test(q)));
+    assert.equal(
+      queries.some((q) => /site:amazon\.com\b/.test(q)),
+      false,
+    );
+  });
 });
 

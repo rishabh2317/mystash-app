@@ -88,16 +88,24 @@ export type ProductIdentityContext = {
   category: string | null;
   canonicalSlug: string;
   specifications: Record<string, string>;
+  /** Optional listing URL — used for discovered products only. */
+  merchantUrl?: string | null;
 };
 
-export function productIdentityFromCatalog(product: CatalogProduct): ProductIdentityContext {
-  const specsRaw = product.metadata?.specifications;
+function specificationsFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): Record<string, string> {
+  const specsRaw = metadata?.specifications;
   const specifications: Record<string, string> = {};
   if (specsRaw && typeof specsRaw === 'object' && !Array.isArray(specsRaw)) {
     for (const [k, v] of Object.entries(specsRaw as Record<string, unknown>)) {
       if (typeof v === 'string' && v.trim()) specifications[k] = v.trim();
     }
   }
+  return specifications;
+}
+
+export function productIdentityFromCatalog(product: CatalogProduct): ProductIdentityContext {
   return {
     productId: product.id,
     name: product.name,
@@ -105,6 +113,30 @@ export function productIdentityFromCatalog(product: CatalogProduct): ProductIden
     model: product.model,
     category: product.category,
     canonicalSlug: product.canonicalSlug,
-    specifications,
+    specifications: specificationsFromMetadata(product.metadata),
+  };
+}
+
+/** Same Gemini identity shape for share-imported / Search products (no catalogue row). */
+export function productIdentityFromDiscovered(product: {
+  id: string;
+  identityKey: string;
+  name: string;
+  brand: string | null;
+  model: string | null;
+  category: string | null;
+  merchantUrl: string | null;
+  metadata: Record<string, unknown>;
+}): ProductIdentityContext {
+  const slug = product.identityKey.trim() || product.id;
+  return {
+    productId: product.id,
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    canonicalSlug: slug,
+    specifications: specificationsFromMetadata(product.metadata),
+    merchantUrl: product.merchantUrl,
   };
 }

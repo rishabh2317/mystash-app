@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ProductHeroImage } from '@/components/commerce/ProductHeroImage';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { outlineCardChrome } from '@/src/theme/tokens';
 import type { ProductPageView } from '@/src/types/productPage';
 import {
   COMPARE_COPY,
@@ -37,8 +38,7 @@ export function ProductCompare({ pages, onRemove }: Props) {
                   styles.card,
                   {
                     width: COL_WIDTH,
-                    backgroundColor: tokens.color.surface,
-                    borderColor: tokens.color.border,
+                    ...outlineCardChrome(tokens),
                     borderRadius: tokens.radius.lg,
                     padding: tokens.space.sm,
                     gap: tokens.space.xs,

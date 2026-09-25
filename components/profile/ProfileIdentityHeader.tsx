@@ -1,81 +1,108 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ExpandableText } from '@/components/ui/ExpandableText';
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { typeStyle } from '@/src/theme/typography';
 import type { CreatorViewModel } from '@/src/types/creator';
 
-const AVATAR_SIZE = 88;
+const AVATAR_SIZE = 72;
 
 type Props = {
   creator: CreatorViewModel;
-  /** Edit profile, Follow, or other identity action — sits under the handle. */
+  /** Edit profile, Follow+Share row, or other identity action. */
   action?: React.ReactNode;
+  /** When false, hide @handle (e.g. public profile — handle lives in TopBar). */
+  showHandle?: boolean;
+  /**
+   * Instagram-style layout: avatar | (name above stats), then bio / action below.
+   * When omitted, keeps the legacy personal layout (avatar | copy column).
+   */
+  statsSlot?: React.ReactNode;
 };
 
 /**
  * Shared creator identity for public storefront and personal You.
- * Large avatar + name + handle + optional bio; the action is owned by the parent.
  */
-export function ProfileIdentityHeader({ creator, action }: Props) {
+export function ProfileIdentityHeader({
+  creator,
+  action,
+  showHandle = true,
+  statsSlot,
+}: Props) {
   const { tokens } = useThemeMode();
   const name = creator.displayName?.trim() || `@${creator.username}`;
   const bio = creator.bio?.trim() ?? '';
 
+  const avatar = creator.avatarUrl ? (
+    <Image source={{ uri: creator.avatarUrl }} style={styles.avatar} contentFit="cover" />
+  ) : (
+    <View
+      style={[
+        styles.avatar,
+        styles.avatarFallback,
+        {
+          backgroundColor: tokens.color.surfaceSubtle,
+          borderColor: tokens.color.border,
+          borderWidth: StyleSheet.hairlineWidth,
+        },
+      ]}
+      accessibilityLabel="Default profile picture"
+    >
+      <Ionicons name="person-outline" size={28} color={tokens.color.textMuted} />
+    </View>
+  );
+
+  if (statsSlot) {
+    return (
+      <View style={{ gap: tokens.space.md }}>
+        <View style={[styles.heroRow, { gap: tokens.space.md }]}>
+          {avatar}
+          <View style={[styles.statsFlex, { gap: 6 }]}>
+            <Text style={[typeStyle(tokens, 'tileTitle'), styles.nameAlign]} numberOfLines={2}>
+              {name}
+            </Text>
+            {showHandle ? (
+              <Text style={[typeStyle(tokens, 'tileMeta'), styles.nameAlign]} numberOfLines={1}>
+                @{creator.username}
+              </Text>
+            ) : null}
+            {statsSlot}
+          </View>
+        </View>
+        {bio ? (
+          <ExpandableText
+            text={bio}
+            collapsedLines={3}
+            style={typeStyle(tokens, 'bodyMuted')}
+          />
+        ) : null}
+        {action ? <View style={styles.actionRow}>{action}</View> : null}
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.identity, { gap: tokens.space.md }]}>
-      {creator.avatarUrl ? (
-        <Image
-          source={{ uri: creator.avatarUrl }}
-          style={styles.avatar}
-          contentFit="cover"
-        />
-      ) : (
-        <View
-          style={[
-            styles.avatar,
-            styles.avatarFallback,
-            { backgroundColor: tokens.color.surfaceSubtle },
-          ]}
-          accessibilityLabel="Default profile picture"
-        >
-          <Ionicons name="person" size={32} color={tokens.color.textMuted} />
-        </View>
-      )}
+      {avatar}
       <View style={[styles.copy, { gap: tokens.space.xs }]}>
-        <Text
-          style={{
-            color: tokens.color.text,
-            fontSize: tokens.fontSize.title,
-            lineHeight: tokens.lineHeight.title,
-            fontWeight: tokens.fontWeight.bold,
-          }}
-          numberOfLines={2}
-        >
+        <Text style={typeStyle(tokens, 'tileTitle')} numberOfLines={2}>
           {name}
         </Text>
-        <Text
-          style={{
-            color: tokens.color.textMuted,
-            fontSize: tokens.fontSize.label,
-            lineHeight: tokens.lineHeight.label,
-          }}
-          numberOfLines={1}
-        >
-          @{creator.username}
-        </Text>
+        {showHandle ? (
+          <Text style={typeStyle(tokens, 'tileMeta')} numberOfLines={1}>
+            @{creator.username}
+          </Text>
+        ) : null}
         {action ? <View style={styles.action}>{action}</View> : null}
         {bio ? (
           <ExpandableText
             text={bio}
             collapsedLines={3}
-            style={{
-              color: tokens.color.textMuted,
-              fontSize: tokens.fontSize.caption,
-              lineHeight: tokens.lineHeight.caption,
-            }}
+            style={typeStyle(tokens, 'bodyMuted')}
           />
         ) : null}
       </View>
@@ -87,6 +114,19 @@ const styles = StyleSheet.create({
   identity: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statsFlex: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  nameAlign: {
+    textAlign: 'left',
+    alignSelf: 'stretch',
   },
   avatar: {
     width: AVATAR_SIZE,
@@ -103,5 +143,9 @@ const styles = StyleSheet.create({
   },
   action: {
     alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  actionRow: {
+    width: '100%',
   },
 });

@@ -24,6 +24,8 @@ import {
 export type ShoppingOffer = {
   url: string;
   merchant?: string | null;
+  price?: string | null;
+  currency?: string | null;
   sourceType?: SourceType;
   pageType?: PageType;
   capabilities?: PageCapabilities;
@@ -42,6 +44,8 @@ export type ShoppingOffer = {
 type ScoredShoppingOffer = {
   url: string;
   merchant: string | null;
+  price: string | null;
+  currency: string | null;
   sourceType: SourceType;
   pageType: PageType;
   capabilities: PageCapabilities;
@@ -60,6 +64,10 @@ export type ShoppingDestinationChoice = {
   shoppingProvider: string;
   offers: Array<{
     url: string;
+    merchant: string | null;
+    price: string | null;
+    currency: string | null;
+    availability: string | null;
     shoppingProvider: string;
     sourceTier: string | null;
     sourceType: SourceType;
@@ -133,6 +141,9 @@ function scoreOffers(offers: ShoppingOffer[], priority: string[]): ScoredShoppin
       const base: ScoredShoppingOffer = {
         url,
         merchant: offer.merchant ?? null,
+        price: typeof offer.price === 'string' && offer.price.trim() ? offer.price.trim() : null,
+        currency:
+          typeof offer.currency === 'string' && offer.currency.trim() ? offer.currency.trim() : null,
         sourceType,
         pageType,
         capabilities,
@@ -202,6 +213,10 @@ export function resolveShoppingDestination(
     shoppingProvider: winner.shoppingProvider,
     offers: scored.map((offer) => ({
       url: offer.url,
+      merchant: offer.merchant,
+      price: offer.price,
+      currency: offer.currency,
+      availability: offer.availability,
       shoppingProvider: offer.shoppingProvider,
       sourceTier: offer.sourceTier ?? null,
       sourceType: offer.sourceType,

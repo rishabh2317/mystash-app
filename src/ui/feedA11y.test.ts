@@ -11,10 +11,10 @@ import {
 } from './feedA11y';
 
 describe('feedA11y', () => {
-  it('names chips as inspect actions', () => {
+  it('names chips as shop actions', () => {
     assert.equal(
       productChipAccessibilityLabel('Air Max', '$120'),
-      'Air Max, $120. View product.',
+      'Air Max, $120. Shop this product.',
     );
   });
 
@@ -44,6 +44,7 @@ describe('feedA11y', () => {
       false,
     );
     assert.match(FEED_TEACH_COPY, /Swipe for the next reel/);
+    assert.match(FEED_TEACH_COPY, /Shop this post/);
   });
 
   it('expands hit slop to a 44pt target and shortens reduced-motion fades', () => {

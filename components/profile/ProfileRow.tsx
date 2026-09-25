@@ -3,6 +3,7 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { outlineCardChrome } from '@/src/theme/tokens';
 
 export function ProfileRow({
   icon,
@@ -23,8 +24,7 @@ export function ProfileRow({
         style={[
           styles.rowCard,
           {
-            backgroundColor: tokens.color.surfaceRaised,
-            borderColor: tokens.color.border,
+            ...outlineCardChrome(tokens),
             borderRadius: tokens.radius.lg,
           },
         ]}
@@ -35,7 +35,7 @@ export function ProfileRow({
           <Text style={[styles.rowValue, { color: tokens.color.text }]}>{value}</Text>
         </View>
         {action ? (
-          <Ionicons name="chevron-forward" size={16} color={tokens.color.textMuted} />
+          <Ionicons name="chevron-forward-outline" size={16} color={tokens.color.textMuted} />
         ) : null}
       </View>
     </TouchableOpacity>

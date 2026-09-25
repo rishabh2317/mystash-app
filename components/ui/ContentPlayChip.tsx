@@ -48,7 +48,7 @@ export function ContentPlayChip({
         },
       ]}
     >
-      <Ionicons name="play" size={iconSize} color={icon} />
+      <Ionicons name="play-outline" size={iconSize} color={icon} />
       <Text
         style={{
           flexShrink: 1,

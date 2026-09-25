@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { typeStyle } from '@/src/theme/typography';
 
 export type ActionButtonVariant = 'primary' | 'secondary' | 'quiet' | 'filled';
 
@@ -82,12 +84,15 @@ export function ActionButton({
           <Ionicons name={leadingIcon} size={ICON_SIZE} color={fg} />
         ) : null}
         <Text
-          style={{
-            color: fg,
-            fontSize: tokens.fontSize.bodyStrong,
-            lineHeight: tokens.lineHeight.bodyStrong,
-            fontWeight: tokens.fontWeight.bold,
-          }}
+          style={[
+            typeStyle(tokens, 'cta'),
+            {
+              color: fg,
+              fontSize: tokens.fontSize.bodyStrong,
+              lineHeight: tokens.lineHeight.bodyStrong,
+              fontFamily: tokens.fontFamily.semibold,
+            },
+          ]}
           numberOfLines={1}
         >
           {label}

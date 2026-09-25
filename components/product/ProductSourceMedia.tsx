@@ -1,100 +1,101 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
+import { useRouter, type Href } from 'expo-router';
 import React, { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 import type { ProductPageSource } from '@/src/types/productPage';
-import { collectionMediaFrameSize, COLLECTION_YOUTUBE_CROP_SCALE } from '@/src/ui/collectionLayout';
-import { relatedMediaWatchLabel } from '@/src/ui/productPage';
-import { getVideoUrlInfo } from '@/src/utils/videoUtils';
-import { buildInstagramEmbedHtml } from '@/src/utils/instagramWebViewEmbed';
 import {
-  buildYoutubeWebHtml,
-  extractYoutubeVideoIdFromUrl,
-  resolveYoutubeParentOrigin,
-} from '@/src/utils/youtubeWebViewEmbed';
+  PRODUCT_PAGE_COPY,
+  discoverySourcePath,
+  discoveryWatchLabel,
+  relatedMediaPosterUrl,
+} from '@/src/ui/productPage';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 
 type Props = {
   source: ProductPageSource;
+  /**
+   * Full-width editorial post (default). Avoids autoplay WebViews so Shorts /
+   * Reel chrome never shows on the Product Page.
+   */
+  compact?: boolean;
 };
 
+const PLAY_SIZE = 52;
+const GUTTER = 16;
+
+/**
+ * Discovery media as a quiet post: poster + play.
+ * When the source is a published collection, tap opens the same in-app reel
+ * host as Featured collections; otherwise opens the original URL.
+ */
 export function ProductSourceMedia({ source }: Props) {
+  const router = useRouter();
   const { tokens } = useThemeMode();
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const { width, height } = collectionMediaFrameSize({ screenWidth, screenHeight });
-  const urlInfo = getVideoUrlInfo(source.url);
-  const parentOrigin = useMemo(() => resolveYoutubeParentOrigin(), []);
-  const youtubeId = extractYoutubeVideoIdFromUrl(source.url);
-  const youtubeHtml = useMemo(
-    () =>
-      youtubeId
-        ? buildYoutubeWebHtml(youtubeId, parentOrigin, COLLECTION_YOUTUBE_CROP_SCALE, { loop: true })
-        : null,
-    [youtubeId, parentOrigin],
+  const { width: screenWidth } = useWindowDimensions();
+  const width = Math.max(0, screenWidth - GUTTER * 2);
+  const height = Math.round(width * 1.12);
+  const posterUrl = useMemo(
+    () => relatedMediaPosterUrl({ url: source.url, thumbnailUrl: null }),
+    [source.url],
   );
-  const instagramHtml = useMemo(
-    () =>
-      urlInfo?.platform === 'instagram' ? buildInstagramEmbedHtml(source.url, { crop: 'collection' }) : null,
-    [source.url, urlInfo?.platform],
-  );
-  const canEmbed =
-    urlInfo?.isValid &&
-    ((urlInfo.platform === 'youtube' && youtubeHtml) || (urlInfo.platform === 'instagram' && instagramHtml));
+  const watchLabel = discoveryWatchLabel(source);
 
   const openSource = () => {
+    const reelPath = discoverySourcePath(source);
+    if (reelPath) {
+      router.push(reelPath as Href);
+      return;
+    }
     void openBrowserAsync(source.url, { presentationStyle: WebBrowserPresentationStyle.AUTOMATIC });
   };
 
   return (
-    <View style={{ gap: tokens.space.sm }}>
-      {canEmbed ? (
+    <View style={{ gap: tokens.space.sm, width: '100%' }}>
+      <Pressable
+        onPress={openSource}
+        accessibilityRole="button"
+        accessibilityLabel={PRODUCT_PAGE_COPY.viewOriginal}
+        style={({ pressed }) => [
+          styles.frame,
+          {
+            width,
+            height,
+            borderRadius: tokens.radius.lg,
+            backgroundColor: IMMERSIVE_TOKENS.stage,
+            borderColor: tokens.color.border,
+            opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
+          },
+        ]}
+      >
+        {posterUrl ? (
+          <Image source={{ uri: posterUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: tokens.color.surfaceSubtle }]} />
+        )}
         <View
           style={[
-            styles.frame,
+            styles.play,
             {
-              width,
-              height,
-              borderRadius: tokens.radius.xl,
-              backgroundColor: IMMERSIVE_TOKENS.stage,
-              borderColor: tokens.color.border,
-              alignSelf: 'center',
+              width: PLAY_SIZE,
+              height: PLAY_SIZE,
+              borderRadius: tokens.radius.pill,
+              backgroundColor: IMMERSIVE_TOKENS.control,
             },
           ]}
+          pointerEvents="none"
         >
-          {urlInfo?.platform === 'youtube' && youtubeHtml ? (
-            <WebView
-              source={{ html: youtubeHtml, baseUrl: `${parentOrigin}/` }}
-              style={styles.webView}
-              originWhitelist={['*']}
-              javaScriptEnabled
-              allowsInlineMediaPlayback
-              mediaPlaybackRequiresUserAction={false}
-              scrollEnabled={false}
-            />
-          ) : null}
-          {urlInfo?.platform === 'instagram' && instagramHtml ? (
-            <WebView
-              source={{ html: instagramHtml }}
-              style={styles.webView}
-              originWhitelist={['*']}
-              javaScriptEnabled
-              scrollEnabled={false}
-            />
-          ) : null}
+          <Ionicons name="play-outline" size={22} color={IMMERSIVE_TOKENS.icon} style={{ marginLeft: 2 }} />
         </View>
-      ) : null}
-      <Pressable onPress={openSource} accessibilityRole="link" accessibilityLabel={source.label}>
-        <Text
-          style={{
-            color: tokens.color.primary,
-            fontSize: tokens.fontSize.bodyStrong,
-            fontWeight: tokens.fontWeight.bold,
-          }}
-        >
-          {relatedMediaWatchLabel(source.kind)}
-        </Text>
+      </Pressable>
+      <Pressable onPress={openSource} accessibilityRole="link" accessibilityLabel={watchLabel}>
+        <Text style={typeStyle(tokens, 'link')}>{`${watchLabel} →`}</Text>
       </Pressable>
     </View>
   );
@@ -104,9 +105,12 @@ const styles = StyleSheet.create({
   frame: {
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
   },
-  webView: {
-    flex: 1,
-    backgroundColor: '#000',
+  play: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

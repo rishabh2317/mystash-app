@@ -29,11 +29,39 @@ export const SETTINGS_COPY = {
   paymentValue: 'Visa •••• 2189 (placeholder)',
   shipping: 'Shipping address',
   shippingValue: 'Add primary address',
+  shoppingCountry: 'Shopping country',
+  shoppingCountryHint: 'Used for merchant prices and Buy links',
+  shoppingCountryUseLocation: 'Use my location',
+  shoppingCountryManual: 'Manual',
+  shoppingCountryAuto: 'From location',
   bag: 'Bag',
   signOut: 'Sign out',
   signInPrompt: 'Sign in from Profile to manage settings.',
   goToProfile: 'Go to Profile',
 } as const;
+
+export const SHOPPING_COUNTRY_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: 'IN', label: 'India' },
+  { code: 'US', label: 'United States' },
+  { code: 'GB', label: 'United Kingdom' },
+  { code: 'CA', label: 'Canada' },
+  { code: 'AU', label: 'Australia' },
+  { code: 'AE', label: 'United Arab Emirates' },
+  { code: 'SG', label: 'Singapore' },
+];
+
+export function settingsShoppingCountryValue(input: {
+  country: string | null | undefined;
+  countrySource: 'location' | 'manual' | null | undefined;
+}): string {
+  const code = input.country?.trim().toUpperCase();
+  if (!code) return 'Not set';
+  const option = SHOPPING_COUNTRY_OPTIONS.find((row) => row.code === code);
+  const label = option?.label ?? code;
+  if (input.countrySource === 'manual') return `${label} · ${SETTINGS_COPY.shoppingCountryManual}`;
+  if (input.countrySource === 'location') return `${label} · ${SETTINGS_COPY.shoppingCountryAuto}`;
+  return label;
+}
 
 export function settingsAppearanceValue(isLight: boolean): string {
   return isLight ? SETTINGS_COPY.appearanceLight : SETTINGS_COPY.appearanceDark;

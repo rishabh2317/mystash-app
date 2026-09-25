@@ -94,6 +94,7 @@ PRODUCT IDENTITY
 - model: ${identity.model ?? 'unknown'}
 - category: ${identity.category ?? 'unknown'}
 - canonicalSlug: ${identity.canonicalSlug}
+${identity.merchantUrl?.trim() ? `- merchantUrl: ${identity.merchantUrl.trim()}` : ''}
 ${specs ? `Specifications:\n${specs}` : ''}
 
 RESEARCH RULES

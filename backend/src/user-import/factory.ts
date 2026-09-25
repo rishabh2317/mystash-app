@@ -12,7 +12,9 @@ export function createUserImportContentSourcePort(
   return {
     getOrCreate: (normalizedUrl) => contentSource.getOrCreate(normalizedUrl),
     getById: (id) => contentSource.getById(id),
+    listProducts: (id) => contentSource.listProducts(id),
     requestProcessing: (params) => contentSource.requestProcessing(params),
+    requestReprocessing: (params) => contentSource.requestReprocessing(params),
   };
 }
 

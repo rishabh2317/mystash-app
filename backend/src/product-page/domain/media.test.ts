@@ -18,6 +18,9 @@ function media(
     title: null,
     thumbnailUrl: null,
     collectionId: null,
+    creator: null,
+    views: 0,
+    saves: 0,
     ...partial,
   };
 }
@@ -57,6 +60,7 @@ describe('product page media identity', () => {
         label: 'Found from this Short',
         url: 'https://youtu.be/dQw4w9WgXcQ',
         title: null,
+        collectionId: null,
       },
       6,
     );
@@ -74,6 +78,7 @@ describe('product page media identity', () => {
           label: 'Found from this Reel',
           url: 'https://www.instagram.com/reel/ABC/',
           title: null,
+          collectionId: null,
         },
       ),
       [],

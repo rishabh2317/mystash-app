@@ -28,6 +28,7 @@ import { registerCartRoutes } from './cart/routes';
 import { registerUserImportRoutes } from './user-import/routes';
 import { registerProductAiReviewRoutes } from './ai-review/routes';
 import { registerProductPageRoutes } from './product-page/routes';
+import { registerMerchantPricingRoutes } from './merchant-pricing/routes';
 
 if (typeof globalThis.btoa !== 'function') {
   Object.assign(globalThis, {
@@ -51,6 +52,7 @@ app.get('/health', (_req, res) => {
 app.get('/products/:id/redirect', createProductRedirectHandler(createSupabaseAdmin()));
 registerProductAiReviewRoutes(app, createSupabaseAdmin());
 registerProductPageRoutes(app);
+registerMerchantPricingRoutes(app);
 
 registerCollectionRoutes(app);
 registerUserRoutes(app);

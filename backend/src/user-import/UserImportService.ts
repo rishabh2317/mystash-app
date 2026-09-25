@@ -1,3 +1,4 @@
+import { enqueueUserImportTimeout } from '../content-source/jobs/contentSourceQueue';
 import { buildUserImportEventPayload } from './domain/events';
 import {
   normalizeSharedInput,
@@ -6,11 +7,16 @@ import {
 } from './domain/sharedInput';
 import type {
   ShareProgressItem,
+  ShareProgressPrimaryProduct,
   SubmitUserImportInput,
   SubmitUserImportResult,
   UserImportRecord,
 } from './domain/types';
-import { shareProgressState } from './domain/shareProgress';
+import {
+  resolveShareProgressState,
+  shouldPersistImportTimeout,
+  shareProgressState,
+} from './domain/shareProgress';
 import { emitUserImportEvent } from './observability';
 import type { UserImportBagSyncPort, UserImportContentSourcePort } from './ports';
 import type { UserImportRepository } from './UserImportRepository';
@@ -44,6 +50,27 @@ function isUniqueViolation(err: unknown): boolean {
   return e.code === '23505' || Boolean(e.message?.toLowerCase().includes('duplicate'));
 }
 
+function mapBoundProducts(
+  products: Array<{
+    catalogProductId: string | null;
+    discoveredProductId: string | null;
+    name: string;
+    image: string | null;
+  }>,
+): ShareProgressPrimaryProduct[] {
+  const out: ShareProgressPrimaryProduct[] = [];
+  for (const p of products) {
+    const productId = p.catalogProductId ?? p.discoveredProductId;
+    if (!productId) continue;
+    out.push({
+      productId,
+      title: p.name,
+      imageUrl: p.image,
+    });
+  }
+  return out;
+}
+
 /**
  * User Import application boundary — submission SoT.
  *
@@ -56,6 +83,8 @@ export class UserImportService {
     private readonly repo: UserImportRepository,
     private readonly contentSource: UserImportContentSourcePort,
     private readonly bagSync: UserImportBagSyncPort | null = null,
+    private readonly scheduleTimeout: (userImportId: string) => Promise<void> = defaultScheduleTimeout,
+    private readonly nowMs: () => number = () => Date.now(),
   ) {}
 
   async submit(
@@ -88,15 +117,17 @@ export class UserImportService {
 
     const existing = await this.repo.findByUserAndDedupeKey(userId, dedupeKey);
     if (existing) {
-      // Re-sharing is the user-level retry: if the source was never queued (or failed),
-      // this hands the work over again. Already-queued work is suppressed downstream.
+      // Deliberate re-share: clear a prior timeout freeze and retry processing.
+      if (existing.timedOutAt) {
+        await this.repo.clearTimedOut(existing.id);
+      }
       await this.retryProcessing(existing);
       await this.syncBag(existing);
-      return this.received(existing, false);
+      await this.scheduleTimeout(existing.id);
+      const refreshed = (await this.repo.findById(existing.id)) ?? existing;
+      return this.received(refreshed, false);
     }
 
-    // Durable order: global identity → user submission → queue handoff. The rows exist
-    // before the job, so a queue failure never loses an accepted share.
     const source = await this.contentSource.getOrCreate(normalizedUrl);
 
     try {
@@ -115,14 +146,20 @@ export class UserImportService {
         userImportId: record.id,
       });
       await this.syncBag(record);
+      await this.scheduleTimeout(record.id);
       return this.received(record, true);
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       const raced = await this.repo.findByUserAndDedupeKey(userId, dedupeKey);
       if (!raced) throw err;
+      if (raced.timedOutAt) {
+        await this.repo.clearTimedOut(raced.id);
+      }
       await this.retryProcessing(raced);
       await this.syncBag(raced);
-      return this.received(raced, false);
+      await this.scheduleTimeout(raced.id);
+      const refreshed = (await this.repo.findById(raced.id)) ?? raced;
+      return this.received(refreshed, false);
     }
   }
 
@@ -169,16 +206,106 @@ export class UserImportService {
     if (!userId) throw new UserImportServiceError('userId required', 401);
     const rows = await this.repo.listByUser(userId, 20);
     const out: ShareProgressItem[] = [];
+    const nowMs = this.nowMs();
     for (const row of rows) {
       const source = row.contentSourceId
         ? await this.contentSource.getById(row.contentSourceId)
         : null;
+      const progressInput = {
+        source,
+        timedOutAt: row.timedOutAt,
+        createdAt: row.createdAt,
+        nowMs,
+      };
+      if (shouldPersistImportTimeout(progressInput)) {
+        await this.repo.markTimedOut(row.id, new Date(nowMs).toISOString());
+        row.timedOutAt = new Date(nowMs).toISOString();
+      }
+      const state = resolveShareProgressState({
+        ...progressInput,
+        timedOutAt: row.timedOutAt,
+      });
+      const productCount =
+        state === 'ready' && source && source.processingStatus === 'READY'
+          ? source.candidateCount
+          : 0;
+      let products: ShareProgressPrimaryProduct[] = [];
+      if (row.contentSourceId && state === 'ready' && productCount > 0) {
+        products = mapBoundProducts(await this.contentSource.listProducts(row.contentSourceId));
+      }
       out.push({
         importId: row.id,
-        state: shareProgressState(source),
+        state,
         kind: row.platform === 'instagram' || row.platform === 'youtube' ? row.platform : 'web',
+        createdAt: row.createdAt,
+        productCount: state === 'ready' ? productCount : 0,
+        contentSourceId: row.contentSourceId,
+        sourceUrl: row.sourceUrl,
+        primaryProduct: products[0] ?? null,
+        products,
       });
     }
     return out;
+  }
+
+  /** Apply timeout from the delayed worker. Idempotent; never touches content_sources. */
+  async applyTimeout(userImportId: string): Promise<boolean> {
+    const row = await this.repo.findById(userImportId);
+    if (!row || row.timedOutAt) return false;
+    const source = row.contentSourceId
+      ? await this.contentSource.getById(row.contentSourceId)
+      : null;
+    if (shareProgressState(source) !== 'looking') return false;
+    await this.repo.markTimedOut(row.id, new Date(this.nowMs()).toISOString());
+    return true;
+  }
+
+  /**
+   * Explicit retry from Activity/Shares. Clears timeout freeze, re-queues processing,
+   * syncs Bag if already resolved. Idempotent cart adds prevent duplicate Bag lines.
+   */
+  async retry(userId: string, importId: string): Promise<UserImportRecord> {
+    if (!userId) throw new UserImportServiceError('userId required', 401);
+    if (!importId) throw new UserImportServiceError('importId required', 400);
+    const row = await this.repo.findById(importId);
+    if (!row || row.userId !== userId) {
+      throw new UserImportServiceError('Import not found', 404);
+    }
+    if (row.timedOutAt) {
+      await this.repo.clearTimedOut(row.id);
+    }
+    if (row.contentSourceId) {
+      const contentSource = await this.contentSource.getById(row.contentSourceId);
+      if (contentSource) {
+        await this.contentSource.requestReprocessing({
+          contentSource,
+          userImportId: row.id,
+        });
+      }
+    }
+    const refreshed = (await this.repo.findById(row.id)) ?? row;
+    await this.syncBag(refreshed);
+    await this.scheduleTimeout(refreshed.id);
+    return refreshed;
+  }
+
+  /** Remove this user's import history row only — never deletes content_sources. */
+  async delete(userId: string, importId: string): Promise<void> {
+    if (!userId) throw new UserImportServiceError('userId required', 401);
+    if (!importId) throw new UserImportServiceError('importId required', 400);
+    const row = await this.repo.findById(importId);
+    if (!row || row.userId !== userId) {
+      throw new UserImportServiceError('Import not found', 404);
+    }
+    const deleted = await this.repo.deleteForUser(importId, userId);
+    if (!deleted) throw new UserImportServiceError('Import not found', 404);
+  }
+}
+
+async function defaultScheduleTimeout(userImportId: string): Promise<void> {
+  try {
+    await enqueueUserImportTimeout({ userImportId });
+  } catch {
+    // Best-effort; GET /imports self-heals.
   }
 }

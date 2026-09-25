@@ -101,7 +101,7 @@ export default function ImportScreen() {
 
       {phase === 'acknowledged' ? (
         <>
-          <Ionicons name="checkmark-circle" size={48} color={tokens.color.success} />
+          <Ionicons name="checkmark-circle-outline" size={48} color={tokens.color.success} />
           <Text
             style={[styles.title, { color: tokens.color.text, fontSize: tokens.fontSize.title }]}
           >

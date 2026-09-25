@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
+import { outlineCardChrome } from '@/src/theme/tokens';
 import { CREATE_COPY } from '@/src/ui/createCopy';
 import { ProductCard } from '../ProductCard';
 
@@ -40,8 +41,7 @@ export function ReviewProductCard({
         style={[
           styles.footer,
           {
-            borderColor: tokens.color.border,
-            backgroundColor: tokens.color.surfaceRaised,
+            ...outlineCardChrome(tokens),
             borderBottomLeftRadius: tokens.radius.lg,
             borderBottomRightRadius: tokens.radius.lg,
             paddingHorizontal: tokens.space.sm,

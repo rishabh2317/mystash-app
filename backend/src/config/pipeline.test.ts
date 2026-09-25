@@ -44,7 +44,7 @@ describe('uniformTimestampsMs', () => {
 describe('buildCacheKey', () => {
   it('includes pipeline and provider versions', () => {
     const key = buildCacheKey({ platform: 'youtube', externalVideoId: 'abc123' });
-    assert.equal(key, 'youtube:abc123:v5-test:prov-test:youtube-metadata-v2');
+    assert.equal(key, 'youtube:abc123:v5-test:prov-test:youtube-text-captions-v1');
   });
 });
 
@@ -145,9 +145,11 @@ describe('ContextBuilder', () => {
     });
     assert.equal(short.transcript.available, false);
     assert.equal(short.metadata.description, 'A complete video description');
-    const payload = buildReasonerUserPayload(JSON.stringify(short));
-    assert.match(payload, /iPhone 17 Pro/);
-    assert.match(payload, /A complete video description/);
+    const payload = buildReasonerUserPayload(short);
+    assert.match(payload, /^Title:\niPhone 17 Pro/m);
+    assert.match(payload, /Description:\nA complete video description/);
+    assert.match(payload, /Captions:\nhi/);
+    assert.match(payload, /Transcript:\nhi/);
     assert.match(payload, /Tech Channel/);
     assert.match(payload, /https:\/\/img\.example\/video\.jpg/);
     assert.match(payload, /"text":"hi"/);

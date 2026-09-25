@@ -33,7 +33,9 @@ function createContentSourcePort(options: { enqueueFails?: boolean } = {}): {
     port: {
       getOrCreate: (normalizedUrl) => contentSource.getOrCreate(normalizedUrl),
       getById: (id) => contentSource.getById(id),
+      listProducts: (id) => contentSource.listProducts(id),
       requestProcessing: (params) => contentSource.requestProcessing(params),
+      requestReprocessing: (params) => contentSource.requestReprocessing(params),
     },
   };
 }
@@ -67,7 +69,7 @@ function createHarness(
   const { port, sourceRepo, jobs } = createContentSourcePort({
     enqueueFails: options.enqueueFails,
   });
-  const service = new UserImportService(repo, port);
+  const service = new UserImportService(repo, port, null, async () => undefined);
   const handler = createUserImportHandler({
     service,
     authenticate: async (req) =>
@@ -232,25 +234,55 @@ describe('GET /imports', () => {
     const { handler, repo, sourceRepo } = createHarness();
     const submitHandler = handler;
     await post(submitHandler, { url: REEL_URL });
-    const service = new UserImportService(repo, {
-      getOrCreate: async () => {
-        throw new Error('unused');
+    const service = new UserImportService(
+      repo,
+      {
+        getOrCreate: async () => {
+          throw new Error('unused');
+        },
+        getById: (id) => sourceRepo.findById(id),
+        listProducts: (id) => sourceRepo.listProducts(id),
+        requestProcessing: async () => ({
+          queued: false,
+          suppressed: true,
+          enqueueFailed: false,
+          jobId: null,
+        }),
+        requestReprocessing: async () => ({
+          queued: false,
+          suppressed: true,
+          enqueueFailed: false,
+          jobId: null,
+        }),
       },
-      getById: (id) => sourceRepo.findById(id),
-      requestProcessing: async () => ({ queued: false, suppressed: true, enqueueFailed: false, jobId: null }),
-    });
+      null,
+      async () => undefined,
+    );
     const listHandler = createUserImportListHandler({
       service,
       authenticate: async () => ({ userId: USER_A }),
     });
     const { res, captured } = fakeRes();
     await listHandler(fakeReq({}, 'Bearer t'), res);
-    const body = captured.body as { shares: Array<{ state: string; kind: string }> };
+    const body = captured.body as {
+      shares: Array<{
+        state: string;
+        kind: string;
+        createdAt: string;
+        productCount: number;
+        primaryProduct: unknown;
+      }>;
+    };
     assert.equal(captured.status, 200);
     assert.equal(body.shares.length, 1);
     assert.equal(body.shares[0]?.state, 'looking');
     assert.equal(body.shares[0]?.kind, 'instagram');
+    assert.equal(typeof body.shares[0]?.createdAt, 'string');
+    assert.equal(body.shares[0]?.productCount, 0);
+    assert.equal(body.shares[0]?.primaryProduct, null);
+    assert.equal(Array.isArray((body.shares[0] as { products?: unknown }).products), true);
     assert.equal(JSON.stringify(body).includes('QUEUED'), false);
     assert.equal(JSON.stringify(body).includes('processingStatus'), false);
+    assert.equal(JSON.stringify(body).includes('timed_out'), false);
   });
 });

@@ -11,7 +11,7 @@ import {
   settingsRowShowsChevron,
 } from './settingsHub';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 describe('settings hub', () => {
   it('keeps real destinations and drops per-row card chrome', () => {
@@ -26,6 +26,7 @@ describe('settings hub', () => {
     assert.match(src, /router\.push\('\/cart'\)/);
     assert.match(src, /router\.push\(`\/creator\/\$\{encodeURIComponent\(profileHandle\)\}`\)/);
     assert.match(src, /SETTINGS_COPY\.publicProfileValue/);
+    assert.match(src, /SETTINGS_COPY\.shoppingCountry/);
     assert.match(src, /toggleTheme/);
     assert.match(src, /signOut/);
   });

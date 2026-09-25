@@ -3,10 +3,11 @@ import { describe, it } from 'node:test';
 import type { CatalogRepository, DraftUpdater, MatchHistoryWriter } from '../interfaces/CatalogRepository';
 import type { SearchStrategy } from '../interfaces/ProductSearchProvider';
 import type { CatalogProduct, CreateCatalogInput, SearchResult } from '../domain/types';
+import { CatalogService } from '../../catalog/CatalogService';
+import { InMemoryCatalogRepository } from '../../catalog/InMemoryCatalogRepository';
 import { getProductIntelligenceConfig } from '../config';
 import { ProductResolver } from './ProductResolver';
 import type { BackgroundResolveEnqueuer } from './ProductResolver';
-import { CatalogService } from '../../catalog/CatalogService';
 
 function catalogStub(overrides: Partial<CatalogProduct> = {}): CatalogProduct {
   return {
@@ -828,6 +829,537 @@ describe('ProductResolver', () => {
     assert.match(result?.discovered?.identityKey ?? '', /^(m_|n_)/);
     assert.equal(result?.enqueueBackground, false);
     assert.equal(enqueued.length, 0);
+  });
+
+  it('resolveForUserImportFast creates discovered without searching merchants', async () => {
+    let searched = 0;
+    const store = { created: [] as CreateCatalogInput[] };
+    const resolver = new ProductResolver(
+      catalogService(store),
+      {
+        async search(): Promise<SearchResult> {
+          searched += 1;
+          return { kind: 'Succeeded', provider: 'mock', candidates: [] };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      getProductIntelligenceConfig(),
+      null,
+      'content-source',
+    );
+    const [result] = await resolver.resolveForUserImportFast([
+      {
+        draftId: 'd1',
+        externalId: 'e1',
+        name: 'Mystery Gadget',
+        brand: 'Acme',
+        model: 'GX1',
+        confidence: 0.8,
+        category: 'smartphones',
+      },
+    ]);
+    assert.equal(searched, 0);
+    assert.equal(store.created.length, 0);
+    assert.equal(result?.catalogProductId, null);
+    assert.equal(result?.discovered?.category, 'electronics');
+    assert.equal(result?.discovered?.metadata?.enrichmentStatus, 'pending');
+  });
+
+  it('resolveForUserImport passes enrichAllCommerce so search keeps all merchants', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    let searchCalls = 0;
+    let enrichAllCommerce: boolean | undefined;
+    const resolver = new ProductResolver(
+      catalog,
+      {
+        async search(_q, searchHints): Promise<SearchResult> {
+          searchCalls += 1;
+          enrichAllCommerce = searchHints?.enrichAllCommerce;
+          return { kind: 'Succeeded', provider: 'mock', candidates: [] };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    await resolver.resolveForUserImport([
+      {
+        draftId: 'd-enrich-all',
+        externalId: 'e-enrich-all',
+        name: 'Zephyr Quantum Lens ZQL-9000',
+        brand: 'ZephyrLabs',
+        model: 'ZQL-9000',
+        confidence: 0.95,
+        category: 'electronics',
+      },
+    ]);
+    assert.equal(searchCalls, 1);
+    assert.equal(enrichAllCommerce, true);
+  });
+
+  it('resolveForUserImport never skips discovery for a seed PDP and still passes the seed', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    const seed = 'https://www.amazon.com/dp/B0747YTV7B';
+    let seen: {
+      seed?: string;
+      skip?: boolean;
+      enrichAll?: boolean;
+      maxAdditional?: number;
+      lightweight?: boolean;
+      country?: string | null;
+    } = {};
+    const resolver = new ProductResolver(
+      catalog,
+      {
+        async search(_q, searchHints): Promise<SearchResult> {
+          seen = {
+            seed: searchHints?.seedMerchantUrl,
+            skip: searchHints?.skipDiscoveryIfSeedStrong,
+            enrichAll: searchHints?.enrichAllCommerce,
+            maxAdditional: searchHints?.maxAdditionalMerchantOffers,
+            lightweight: searchHints?.lightweightAdditionalMerchants,
+            country: searchHints?.commerceCountry,
+          };
+          return {
+            kind: 'Succeeded',
+            provider: 'serper',
+            candidates: [
+              commercePdp({ merchantUrl: seed, title: 'PlayStation VR Bundle' }),
+              commercePdp({
+                merchant: 'zara.com',
+                merchantUrl: 'https://www.zara.com/in/en/product-p123.html',
+                title: 'PlayStation VR Bundle',
+                sourceType: 'RETAILER',
+              }),
+            ],
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      {
+        ...getProductIntelligenceConfig(),
+        enabled: true,
+        backgroundResolve: false,
+        userImportMaxAdditionalMerchantOffers: 6,
+      },
+      null,
+      'content-source',
+    );
+    await resolver.resolveForUserImport([
+      {
+        draftId: 'd-seed-discover',
+        externalId: 'e-seed-discover',
+        name: 'PlayStation VR Bundle',
+        brand: 'Sony',
+        confidence: 0.95,
+        category: 'gaming',
+        merchantUrl: seed,
+        creatorSuppliedUrl: true,
+        commerceCountry: 'IN',
+      },
+    ]);
+    assert.equal(seen.seed, seed);
+    assert.equal(seen.skip, false);
+    assert.equal(seen.enrichAll, true);
+    assert.equal(seen.maxAdditional, 6);
+    assert.equal(seen.lightweight, true);
+    assert.equal(seen.country, 'IN');
+  });
+
+  it('resolveForUserImport does not seed discovery from Liketk affiliate URLs', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    let seenSeed: string | undefined;
+    let seenSkip: boolean | undefined;
+    const resolver = new ProductResolver(
+      catalog,
+      {
+        async search(_q, searchHints): Promise<SearchResult> {
+          seenSeed = searchHints?.seedMerchantUrl;
+          seenSkip = searchHints?.skipDiscoveryIfSeedStrong;
+          return { kind: 'Succeeded', provider: 'serper', candidates: [commercePdp()] };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    await resolver.resolveForUserImport([
+      {
+        draftId: 'd-liketk',
+        externalId: 'e-liketk',
+        name: 'Summer Dress',
+        brand: 'Zara',
+        confidence: 0.9,
+        category: 'fashion',
+        merchantUrl: 'https://liketk.it/abc123',
+        creatorSuppliedUrl: true,
+      },
+    ]);
+    assert.equal(seenSeed, undefined);
+    assert.equal(seenSkip, undefined);
+  });
+
+  it('resolveForUserImport does not seed discovery from rstyle affiliate URLs', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    let seenSeed: string | undefined;
+    const resolver = new ProductResolver(
+      catalog,
+      {
+        async search(_q, searchHints): Promise<SearchResult> {
+          seenSeed = searchHints?.seedMerchantUrl;
+          return { kind: 'Succeeded', provider: 'serper', candidates: [commercePdp()] };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    await resolver.resolveForUserImport([
+      {
+        draftId: 'd-rstyle',
+        externalId: 'e-rstyle',
+        name: 'Summer Dress',
+        brand: 'Zara',
+        confidence: 0.9,
+        category: 'fashion',
+        merchantUrl: 'https://www.rstyle.me/n/xyz',
+        creatorSuppliedUrl: true,
+      },
+    ]);
+    assert.equal(seenSeed, undefined);
+  });
+
+  it('resolveForUserImport persists multiple distinct merchants and dedupes the same URL', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    const amazon = 'https://www.amazon.com/dp/B0747YTV7B';
+    const zara = 'https://www.zara.com/in/en/product-p12345678.html';
+    const myntra = 'https://www.myntra.com/dresses/brand/product/123';
+    const resolver = new ProductResolver(
+      catalog,
+      {
+        async search(): Promise<SearchResult> {
+          return {
+            kind: 'Succeeded',
+            provider: 'serper',
+            candidates: [
+              commercePdp({ merchantUrl: amazon, title: 'Zephyr Quantum Lens ZQL-9000' }),
+              commercePdp({
+                merchant: 'zara.com',
+                merchantUrl: zara,
+                title: 'Zephyr Quantum Lens ZQL-9000',
+                sourceType: 'RETAILER',
+              }),
+              commercePdp({
+                merchant: 'myntra.com',
+                merchantUrl: myntra,
+                title: 'Zephyr Quantum Lens ZQL-9000',
+                sourceType: 'MARKETPLACE',
+              }),
+              // Canonical duplicate of Amazon
+              commercePdp({
+                merchantUrl: 'https://amazon.com/dp/B0747YTV7B/',
+                title: 'Zephyr Quantum Lens ZQL-9000',
+              }),
+            ],
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    const [result] = await resolver.resolveForUserImport([
+      {
+        draftId: 'd-multi',
+        externalId: 'e-multi',
+        name: 'Zephyr Quantum Lens ZQL-9000',
+        brand: 'ZephyrLabs',
+        model: 'ZQL-9000',
+        confidence: 0.95,
+        category: 'electronics',
+      },
+    ]);
+    const offers =
+      (result?.discovered?.metadata?.shopping_candidates as Array<{ url?: string }> | undefined) ??
+      [];
+    const urls = offers.map((o) => o.url).filter(Boolean) as string[];
+    assert.ok(urls.some((u) => u.includes('amazon.com')));
+    assert.ok(urls.some((u) => u.includes('zara.com')));
+    assert.ok(urls.some((u) => u.includes('myntra.com')));
+    const amazonCount = urls.filter((u) => /amazon\.com/i.test(u)).length;
+    assert.equal(amazonCount, 1);
+  });
+
+  it('resolveForUserImport keeps the seed offer when discovery fails', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    const seed = 'https://www.amazon.com/dp/B0747YTV7B';
+    const resolver = new ProductResolver(
+      catalog,
+      {
+        async search(_q, hints): Promise<SearchResult> {
+          // Simulate strategy: discovery failed but seed returned
+          return {
+            kind: 'Succeeded',
+            provider: 'direct_url',
+            candidates: [
+              commercePdp({
+                merchantUrl: hints?.seedMerchantUrl ?? seed,
+                title: 'Zephyr Quantum Lens ZQL-9000',
+              }),
+            ],
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    const [result] = await resolver.resolveForUserImport([
+      {
+        draftId: 'd-seed-fail',
+        externalId: 'e-seed-fail',
+        name: 'Zephyr Quantum Lens ZQL-9000',
+        brand: 'ZephyrLabs',
+        model: 'ZQL-9000',
+        confidence: 0.95,
+        category: 'electronics',
+        merchantUrl: seed,
+        creatorSuppliedUrl: true,
+      },
+    ]);
+    const offers =
+      (result?.discovered?.metadata?.shopping_candidates as Array<{ url?: string }> | undefined) ??
+      [];
+    assert.ok(offers.some((o) => o.url?.includes('amazon.com/dp/B0747YTV7B')));
+  });
+
+  it('user-import merchant-offer cap is independent of MAX_PRODUCTS_PER_IMPORT', async () => {
+    const prevProducts = process.env.MAX_PRODUCTS_PER_IMPORT;
+    const prevOffers = process.env.USER_IMPORT_MAX_ADDITIONAL_MERCHANT_OFFERS;
+    process.env.MAX_PRODUCTS_PER_IMPORT = '2';
+    process.env.USER_IMPORT_MAX_ADDITIONAL_MERCHANT_OFFERS = '6';
+    try {
+      const { getPipelineConfig, resetPipelineConfigCache } = await import(
+        '../../config/pipelineConfig'
+      );
+      resetPipelineConfigCache();
+      const pi = getProductIntelligenceConfig();
+      assert.equal(getPipelineConfig().maxProductsPerImport, 2);
+      assert.equal(pi.userImportMaxAdditionalMerchantOffers, 6);
+    } finally {
+      if (prevProducts === undefined) delete process.env.MAX_PRODUCTS_PER_IMPORT;
+      else process.env.MAX_PRODUCTS_PER_IMPORT = prevProducts;
+      if (prevOffers === undefined) delete process.env.USER_IMPORT_MAX_ADDITIONAL_MERCHANT_OFFERS;
+      else process.env.USER_IMPORT_MAX_ADDITIONAL_MERCHANT_OFFERS = prevOffers;
+      const { resetPipelineConfigCache } = await import('../../config/pipelineConfig');
+      resetPipelineConfigCache();
+    }
+  });
+
+  it('discovered shopping candidate URLs are live-price refreshable inputs', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    const urls = [
+      'https://www.amazon.com/dp/B0747YTV7B',
+      'https://www.myntra.com/dresses/brand/product/123',
+    ];
+    const resolver = new ProductResolver(
+      catalog,
+      {
+        async search(): Promise<SearchResult> {
+          return {
+            kind: 'Succeeded',
+            provider: 'serper',
+            candidates: urls.map((merchantUrl) =>
+              commercePdp({
+                merchantUrl,
+                title: 'Zephyr Quantum Lens ZQL-9000',
+                sourceType: merchantUrl.includes('myntra') ? 'MARKETPLACE' : 'MARKETPLACE',
+              }),
+            ),
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    const [result] = await resolver.resolveForUserImport([
+      {
+        draftId: 'd-live',
+        externalId: 'e-live',
+        name: 'Zephyr Quantum Lens ZQL-9000',
+        brand: 'ZephyrLabs',
+        model: 'ZQL-9000',
+        confidence: 0.95,
+        category: 'electronics',
+      },
+    ]);
+    const offers =
+      (result?.discovered?.metadata?.shopping_candidates as Array<{ url?: string; merchant?: string | null }> | undefined) ??
+      [];
+    assert.ok(offers.length >= 1);
+    for (const offer of offers) {
+      assert.ok(offer.url?.startsWith('http'));
+      // Shape expected by MerchantPricingService offer inputs (url + merchant).
+      assert.equal(typeof offer.url, 'string');
+    }
+  });
+
+  it('resolveForUserImport collapses many Amazon URLs to one merchant offer', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    const resolver = new ProductResolver(
+      catalog,
+      {
+        async search(): Promise<SearchResult> {
+          return {
+            kind: 'Succeeded',
+            provider: 'serper',
+            candidates: [
+              commercePdp({
+                merchantUrl: 'https://www.amazon.com/s?k=ps5',
+                title: 'Zephyr Quantum Lens ZQL-9000',
+                pageType: 'SEARCH',
+                pdpVerdict: 'not_pdp',
+                pdpScore: 0.2,
+              }),
+              commercePdp({
+                merchantUrl: 'https://www.amazon.com/dp/B0A',
+                title: 'Zephyr Quantum Lens ZQL-9000',
+                pdpScore: 0.7,
+              }),
+              commercePdp({
+                merchantUrl: 'https://www.amazon.com/dp/B0B',
+                title: 'Zephyr Quantum Lens ZQL-9000',
+                pdpScore: 0.9,
+              }),
+              commercePdp({
+                merchantUrl: 'https://www.flipkart.com/zephyr/p/itm1',
+                title: 'Zephyr Quantum Lens ZQL-9000',
+                merchant: 'Flipkart',
+                sourceType: 'MARKETPLACE',
+              }),
+            ],
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    const [result] = await resolver.resolveForUserImport([
+      {
+        draftId: 'd-amazon-collapse',
+        externalId: 'e-amazon-collapse',
+        name: 'Zephyr Quantum Lens ZQL-9000',
+        brand: 'ZephyrLabs',
+        model: 'ZQL-9000',
+        confidence: 0.95,
+        category: 'electronics',
+        commerceCountry: 'US',
+      },
+    ]);
+    const offers =
+      (result?.discovered?.metadata?.shopping_candidates as Array<{ url?: string }> | undefined) ??
+      [];
+    const amazon = offers.filter((o) => /amazon\.com/i.test(o.url ?? ''));
+    assert.equal(amazon.length, 1);
+    assert.ok(offers.some((o) => /flipkart/i.test(o.url ?? '')));
+    assert.match(amazon[0]?.url ?? '', /\/dp\/B0B/);
+  });
+
+  it('resolveForUserImport prefers amazon.in offer URL when country=IN', async () => {
+    const catalog = new CatalogService(new InMemoryCatalogRepository());
+    const resolver = new ProductResolver(
+      catalog,
+      {
+        async search(): Promise<SearchResult> {
+          return {
+            kind: 'Succeeded',
+            provider: 'serper',
+            candidates: [
+              commercePdp({
+                merchantUrl: 'https://www.amazon.com/dp/B0US',
+                title: 'Zephyr Quantum Lens ZQL-9000',
+                pdpScore: 0.95,
+              }),
+              commercePdp({
+                merchantUrl: 'https://www.amazon.in/dp/B0IN',
+                title: 'Zephyr Quantum Lens ZQL-9000',
+                pdpScore: 0.7,
+              }),
+            ],
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    const [result] = await resolver.resolveForUserImport([
+      {
+        draftId: 'd-in',
+        externalId: 'e-in',
+        name: 'Zephyr Quantum Lens ZQL-9000',
+        brand: 'ZephyrLabs',
+        model: 'ZQL-9000',
+        confidence: 0.95,
+        category: 'electronics',
+        commerceCountry: 'IN',
+      },
+    ]);
+    const offers =
+      (result?.discovered?.metadata?.shopping_candidates as Array<{ url?: string }> | undefined) ??
+      [];
+    assert.equal(offers.length, 1);
+    assert.match(offers[0]?.url ?? '', /amazon\.in\/dp\/B0IN/);
+  });
+
+  it('creator resolveIngest does not pass commerceCountry discovery hints', async () => {
+    const store = { created: [] as CreateCatalogInput[] };
+    let seenCountry: string | null | undefined = 'unset';
+    const resolver = new ProductResolver(
+      catalogService(store),
+      {
+        async search(_q, hints): Promise<SearchResult> {
+          seenCountry = hints?.commerceCountry;
+          return { kind: 'Succeeded', provider: 'mock', candidates: [] };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      getProductIntelligenceConfig(),
+      null,
+      'ingest-1',
+    );
+    await resolver.resolveIngest([
+      {
+        draftId: 'd1',
+        externalId: 'e1',
+        name: 'Zephyr Quantum Lens ZQL-9000',
+        brand: 'ZephyrLabs',
+        confidence: 0.9,
+        commerceCountry: 'IN',
+      },
+    ]);
+    assert.equal(seenCountry, undefined);
   });
 
   it('creator resolveIngest still writes UNVERIFIED catalog on empty search', async () => {

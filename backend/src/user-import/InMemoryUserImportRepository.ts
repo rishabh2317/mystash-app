@@ -24,6 +24,11 @@ export class InMemoryUserImportRepository implements UserImportRepository {
     return this.imports.get(id) ?? null;
   }
 
+  async findById(id: string): Promise<UserImportRecord | null> {
+    const row = this.imports.get(id);
+    return row ? { ...row } : null;
+  }
+
   async insert(row: InsertUserImportRow): Promise<UserImportRecord> {
     const key = this.key(row.userId, row.dedupeKey);
     if (this.byUserDedupe.has(key)) {
@@ -42,6 +47,7 @@ export class InMemoryUserImportRepository implements UserImportRepository {
       platform: row.platform,
       contentSourceId: row.contentSourceId,
       status: row.status,
+      timedOutAt: null,
       createdAt: ts,
       updatedAt: ts,
       schemaVersion: 1,
@@ -64,5 +70,39 @@ export class InMemoryUserImportRepository implements UserImportRepository {
       .filter((row) => row.contentSourceId === contentSourceId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
       .map((row) => ({ ...row }));
+  }
+
+  async markTimedOut(id: string, timedOutAt: string): Promise<UserImportRecord | null> {
+    const row = this.imports.get(id);
+    if (!row) return null;
+    if (row.timedOutAt) return { ...row };
+    const next: UserImportRecord = {
+      ...row,
+      timedOutAt,
+      updatedAt: now(),
+    };
+    this.imports.set(id, next);
+    return { ...next };
+  }
+
+  async clearTimedOut(id: string): Promise<UserImportRecord | null> {
+    const row = this.imports.get(id);
+    if (!row) return null;
+    if (!row.timedOutAt) return { ...row };
+    const next: UserImportRecord = {
+      ...row,
+      timedOutAt: null,
+      updatedAt: now(),
+    };
+    this.imports.set(id, next);
+    return { ...next };
+  }
+
+  async deleteForUser(id: string, userId: string): Promise<boolean> {
+    const row = this.imports.get(id);
+    if (!row || row.userId !== userId) return false;
+    this.imports.delete(id);
+    this.byUserDedupe.delete(this.key(row.userId, row.dedupeKey));
+    return true;
   }
 }

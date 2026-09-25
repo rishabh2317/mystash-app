@@ -1,88 +1,52 @@
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { ActionButton } from '@/components/ui/ActionButton';
-import { SectionHeader } from '@/components/ui/SectionHeader';
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { typeStyle } from '@/src/theme/typography';
 import type { ProductPageReviews as ProductPageReviewsView } from '@/src/types/productPage';
-import { PRODUCT_PAGE_COPY, productPageRatingLabel } from '@/src/ui/productPage';
+import { PRODUCT_PAGE_COPY } from '@/src/ui/productPage';
 
 type Props = {
   reviews: ProductPageReviewsView;
   onReadReviews?: () => void;
 };
 
-function PointList({ title, items }: { title: string; items: string[] }) {
-  const { tokens } = useThemeMode();
-  if (items.length === 0) return null;
-  return (
-    <View style={{ gap: tokens.space.xs }}>
-      <Text
-        style={{
-          color: tokens.color.text,
-          fontSize: tokens.fontSize.bodyStrong,
-          fontWeight: tokens.fontWeight.extraBold,
-        }}
-      >
-        {title}
-      </Text>
-      {items.map((item) => (
-        <Text
-          key={item}
-          style={{
-            color: tokens.color.textMuted,
-            fontSize: tokens.fontSize.body,
-            lineHeight: tokens.lineHeight.body,
-          }}
-        >
-          {`• ${item}`}
-        </Text>
-      ))}
-    </View>
-  );
-}
-
 export function ProductPageReviews({ reviews, onReadReviews }: Props) {
   const { tokens } = useThemeMode();
-  const rating = productPageRatingLabel(reviews);
+  const rating = reviews.rating?.trim() ?? null;
+  const count =
+    typeof reviews.reviewCount === 'number' && reviews.reviewCount > 0
+      ? `${reviews.reviewCount.toLocaleString()} reviews`
+      : null;
   const source = reviews.sources[0] ?? null;
+  const overview = reviews.overview?.trim() ?? null;
 
   return (
     <View style={{ gap: tokens.space.sm }}>
-      <SectionHeader title={PRODUCT_PAGE_COPY.reviews} />
+      <Text style={typeStyle(tokens, 'sectionTitle')}>{PRODUCT_PAGE_COPY.reviews}</Text>
       {rating ? (
-        <Text
-          style={{
-            color: tokens.color.text,
-            fontSize: tokens.fontSize.title,
-            fontWeight: tokens.fontWeight.extraBold,
-          }}
-        >
-          {rating}
+        <Text style={typeStyle(tokens, 'identityTitle')}>
+          {rating.startsWith('★') ? rating : `★ ${rating}`}
         </Text>
       ) : null}
-      {reviews.overview ? (
-        <View style={{ gap: tokens.space.xs }}>
-          <Text style={{ color: tokens.color.text, fontWeight: tokens.fontWeight.bold }}>
-            {PRODUCT_PAGE_COPY.summary}
-          </Text>
-          <Text
-            style={{
-              color: tokens.color.textMuted,
-              fontSize: tokens.fontSize.body,
-              lineHeight: tokens.lineHeight.body,
-            }}
-          >
-            {reviews.overview}
-          </Text>
-        </View>
+      {count ? <Text style={typeStyle(tokens, 'bodyMuted')}>{count}</Text> : null}
+      {overview ? (
+        <Text style={typeStyle(tokens, 'bodyMuted')} numberOfLines={4}>
+          {`“${overview}”`}
+        </Text>
       ) : null}
-      <PointList title={PRODUCT_PAGE_COPY.likes} items={reviews.likes} />
-      <PointList title={PRODUCT_PAGE_COPY.concerns} items={reviews.concerns} />
+      {reviews.likes.length > 0 ? (
+        <Text style={typeStyle(tokens, 'tileMeta')} numberOfLines={2}>
+          {reviews.likes.slice(0, 2).join(' · ')}
+        </Text>
+      ) : null}
       <View style={styles.actions}>
         {onReadReviews ? (
-          <ActionButton label={PRODUCT_PAGE_COPY.readReviews} onPress={onReadReviews} variant="secondary" />
+          <Pressable onPress={onReadReviews} accessibilityRole="button">
+            <Text style={typeStyle(tokens, 'link')}>{`${PRODUCT_PAGE_COPY.readReviews} →`}</Text>
+          </Pressable>
         ) : null}
         {source ? (
           <Pressable
@@ -92,11 +56,9 @@ export function ProductPageReviews({ reviews, onReadReviews }: Props) {
               });
             }}
             accessibilityRole="link"
-            accessibilityLabel={PRODUCT_PAGE_COPY.viewSource}
+            accessibilityLabel={PRODUCT_PAGE_COPY.seeReviewSources}
           >
-            <Text style={{ color: tokens.color.primary, fontWeight: tokens.fontWeight.bold }}>
-              {PRODUCT_PAGE_COPY.viewSource}
-            </Text>
+            <Text style={typeStyle(tokens, 'link')}>{`${PRODUCT_PAGE_COPY.seeReviewSources} →`}</Text>
           </Pressable>
         ) : null}
       </View>

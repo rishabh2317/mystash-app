@@ -23,7 +23,13 @@ import type {
   ReelLikeSummaryPort,
   UserCreatorPort,
 } from './ports';
-import type { UserRepository } from './UserRepository';
+import type { UpdateUserPatch, UserRepository } from './UserRepository';
+
+function normalizeIso2Country(value: string | null | undefined): string | null {
+  const raw = value?.trim().toUpperCase();
+  if (!raw || !/^[A-Z]{2}$/.test(raw)) return null;
+  return raw === 'UK' ? 'GB' : raw;
+}
 
 export class UserServiceError extends Error {
   constructor(
@@ -242,10 +248,68 @@ export class UserService implements UserCreatorPort {
 
   async updateLocale(
     userId: string,
-    patch: { country?: string | null; language?: string | null; timezone?: string | null },
+    patch: {
+      country?: string | null;
+      language?: string | null;
+      timezone?: string | null;
+      countryDetectedAt?: string | null;
+      lastLocationCheckAt?: string | null;
+      countrySource?: 'location' | 'manual' | null;
+    },
   ): Promise<User> {
     await this.requireActiveAccount(userId);
     return this.repo.updateUser(userId, patch);
+  }
+
+  /**
+   * Update commerce/shopping country.
+   * Location-sourced updates never overwrite a manual override unless `force` is set
+   * (used when the user switches back to "Use my location").
+   * No-op country write when the ISO code is unchanged (still may refresh check timestamps).
+   */
+  async updateCommerceCountry(
+    userId: string,
+    input: {
+      country: string;
+      source: 'location' | 'manual';
+      countryDetectedAt?: string | null;
+      lastLocationCheckAt?: string | null;
+      force?: boolean;
+    },
+  ): Promise<{ user: User; changed: boolean }> {
+    const user = await this.requireActiveAccount(userId);
+    const country = normalizeIso2Country(input.country);
+    if (!country) {
+      throw new UserServiceError('Country must be a valid ISO-2 code', 400);
+    }
+
+    const now = new Date().toISOString();
+    const checkAt = input.lastLocationCheckAt ?? now;
+
+    if (input.source === 'location' && user.countrySource === 'manual' && !input.force) {
+      const updated = await this.repo.updateUser(userId, {
+        lastLocationCheckAt: checkAt,
+      });
+      return { user: updated, changed: false };
+    }
+
+    const countryChanged = user.country !== country;
+    const sourceChanged = user.countrySource !== input.source;
+    const changed = countryChanged || sourceChanged;
+
+    const patch: UpdateUserPatch = {
+      lastLocationCheckAt: checkAt,
+      countrySource: input.source,
+    };
+    if (countryChanged) {
+      patch.country = country;
+    }
+    if (input.source === 'location' && (countryChanged || !user.countryDetectedAt)) {
+      patch.countryDetectedAt = input.countryDetectedAt ?? now;
+    }
+
+    const updated = await this.repo.updateUser(userId, patch);
+    return { user: updated, changed };
   }
 
   async startCreatorOnboarding(userId: string): Promise<User> {

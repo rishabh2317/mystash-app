@@ -5,6 +5,8 @@ import { Pressable, StyleSheet } from 'react-native';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
 import type { TopBarMode } from '@/src/ui/chrome';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 
 type Props = {
   mode?: TopBarMode;
@@ -12,6 +14,7 @@ type Props = {
   onPress?: () => void;
 };
 
+/** Page chrome: bare icon. Immersive feed keeps a soft control for contrast on media. */
 export function BackButton({
   mode = 'page',
   accessibilityLabel = 'Back',
@@ -35,17 +38,23 @@ export function BackButton({
       }
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      style={[
+      hitSlop={hitSlopToMinTarget(40)}
+      style={({ pressed }) => [
         styles.btn,
+        immersive
+          ? {
+              backgroundColor: tokens.immersive.controlStrong,
+              borderRadius: tokens.radius.pill,
+            }
+          : null,
         {
-          backgroundColor: immersive ? tokens.immersive.controlStrong : tokens.color.overlay,
-          borderRadius: tokens.radius.pill,
+          opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
         },
       ]}
     >
       <Ionicons
-        name="chevron-back"
-        size={22}
+        name="chevron-back-outline"
+        size={24}
         color={immersive ? tokens.immersive.icon : tokens.color.icon}
       />
     </Pressable>

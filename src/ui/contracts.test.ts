@@ -20,30 +20,32 @@ describe('control state contract', () => {
     assert.equal(resolveControlPhase({}), 'default');
   });
 
-  it('defines ownership for Bag-facing commerce without a second Cart UX', () => {
-    assert.equal(BAG_COPY.add, 'Add to Bag');
-    assert.equal(BAG_COPY.added, 'Added to Bag');
-    assert.equal(BAG_COPY.view, 'View Bag');
-    assert.equal(BAG_COPY.empty, 'Your Bag is empty');
-    assert.equal(BAG_COPY.emptyHint, 'Products you save will show up here.');
+  it('defines ownership for Stash-facing commerce without a second Cart UX', () => {
+    assert.equal(BAG_COPY.noun, 'Stash');
+    assert.equal(BAG_COPY.yourStash, 'My Stash');
+    assert.equal(BAG_COPY.add, 'Stash it');
+    assert.equal(BAG_COPY.added, 'Stashed');
+    assert.equal(BAG_COPY.view, 'View Stash');
+    assert.equal(BAG_COPY.empty, 'Your Stash is empty');
+    assert.match(BAG_COPY.emptyHint, /Stash it here/);
     assert.equal(BAG_COPY.continueDiscovering, 'Continue discovering');
-    assert.equal(BAG_COPY.keepInBag, 'Keep in Bag?');
+    assert.equal(BAG_COPY.keepInBag, 'Keep in Stash?');
     assert.equal(BAG_COPY.buy, 'View Product');
     assert.match(CONTROL_OWNERSHIP.addToBag, /Cart API \(internal\)/);
-    assert.match(CONTROL_OWNERSHIP.bag, /\/cart/);
+    assert.match(CONTROL_OWNERSHIP.bag, /bottom-nav Stash/);
     assert.ok(STATUS_OWNERSHIP.error.includes('Retry'));
   });
 
-  it('never shows Cart in user-facing Bag copy', () => {
+  it('never shows Cart in user-facing Stash copy', () => {
     for (const value of Object.values(BAG_COPY)) {
       assert.equal(/cart/i.test(value), false, value);
     }
   });
 
-  it('rewrites leaked cart wording for Bag UI without changing fallbacks', () => {
+  it('rewrites leaked cart wording for Stash UI without changing fallbacks', () => {
     assert.equal(displayBagError(null, BAG_COPY.loadError), BAG_COPY.loadError);
-    assert.equal(displayBagError('Cart request failed (500)', BAG_COPY.loadError), 'Bag request failed (500)');
-    assert.equal(displayBagError('Could not load cart.', BAG_COPY.loadError), 'Could not load Bag.');
+    assert.equal(displayBagError('Cart request failed (500)', BAG_COPY.loadError), 'Stash request failed (500)');
+    assert.equal(displayBagError('Could not load cart.', BAG_COPY.loadError), 'Could not load Stash.');
   });
 
   it('dims pending and disabled controls', () => {

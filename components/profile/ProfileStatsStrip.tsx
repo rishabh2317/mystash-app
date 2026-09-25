@@ -1,7 +1,9 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
+import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { typeStyle } from '@/src/theme/typography';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { formatEngagementCount } from '@/src/ui/formatEngagementCount';
 
@@ -15,13 +17,18 @@ export type ProfileStatItem = {
 type Props = {
   stats: ProfileStatItem[];
   accessibilityLabel?: string;
+  /**
+   * Public profile: tighter columns, left-aligned so the name above
+   * lines up with the first label (“Posts”).
+   */
+  compact?: boolean;
 };
 
 /**
- * Editorial stat figures for public and personal profile.
- * Numbers carry the weight; labels stay quiet. No icons, no card chrome.
+ * Quiet profile figures — number over label, no card chrome.
+ * Matches Stash tileMeta / tileTitle rhythm.
  */
-export function ProfileStatsStrip({ stats, accessibilityLabel }: Props) {
+export function ProfileStatsStrip({ stats, accessibilityLabel, compact = false }: Props) {
   const { tokens } = useThemeMode();
   if (stats.length === 0) return null;
 
@@ -32,69 +39,56 @@ export function ProfileStatsStrip({ stats, accessibilityLabel }: Props) {
         accessibilityLabel ??
         stats.map((stat) => `${formatEngagementCount(stat.value)} ${stat.label}`).join(', ')
       }
-      style={styles.row}
+      style={[styles.row, compact ? styles.rowCompact : null]}
     >
-      {stats.map((stat, index) => {
+      {stats.map((stat) => {
         const body = (
           <>
             <Text
-              style={{
-                color: tokens.color.text,
-                fontSize: tokens.fontSize.display,
-                lineHeight: tokens.lineHeight.display,
-                fontWeight: tokens.fontWeight.extraBold,
-                letterSpacing: -0.4,
-              }}
+              style={[
+                typeStyle(tokens, compact ? 'tileMeta' : 'tileTitle'),
+                compact
+                  ? {
+                      color: tokens.color.text,
+                      fontFamily: tokens.fontFamily.semibold,
+                      fontSize: tokens.fontSize.caption,
+                      lineHeight: tokens.lineHeight.caption,
+                      letterSpacing: -0.2,
+                    }
+                  : { letterSpacing: -0.2 },
+              ]}
             >
               {formatEngagementCount(stat.value)}
             </Text>
-            <Text
-              style={{
-                color: tokens.color.textMuted,
-                fontSize: tokens.fontSize.micro,
-                lineHeight: tokens.lineHeight.micro,
-                fontWeight: tokens.fontWeight.semibold,
-                letterSpacing: 0.8,
-                textTransform: 'uppercase',
-              }}
-              numberOfLines={1}
-            >
+            <Text style={typeStyle(tokens, 'tileMeta')} numberOfLines={1}>
               {stat.label}
             </Text>
           </>
         );
 
-        return (
-          <React.Fragment key={stat.id}>
-            {index > 0 ? (
-              <View
-                style={[
-                  styles.rule,
-                  { backgroundColor: tokens.color.divider, height: tokens.space.xl },
-                ]}
-              />
-            ) : null}
-            {stat.onPress ? (
-              <Pressable
-                onPress={stat.onPress}
-                accessibilityRole="button"
-                accessibilityLabel={`${formatEngagementCount(stat.value)} ${stat.label}`}
-                style={({ pressed }) => [
-                  styles.cell,
-                  {
-                    opacity: controlOpacity(
-                      resolveControlPhase({ pressed }),
-                      tokens.motion.pressOpacity,
-                    ),
-                  },
-                ]}
-              >
-                {body}
-              </Pressable>
-            ) : (
-              <View style={styles.cell}>{body}</View>
-            )}
-          </React.Fragment>
+        return stat.onPress ? (
+          <Pressable
+            key={stat.id}
+            onPress={stat.onPress}
+            accessibilityRole="button"
+            accessibilityLabel={`${formatEngagementCount(stat.value)} ${stat.label}`}
+            style={({ pressed }) => [
+              styles.cell,
+              compact ? styles.cellCompact : null,
+              {
+                opacity: controlOpacity(
+                  resolveControlPhase({ pressed }),
+                  tokens.motion.pressOpacity,
+                ),
+              },
+            ]}
+          >
+            {body}
+          </Pressable>
+        ) : (
+          <View key={stat.id} style={[styles.cell, compact ? styles.cellCompact : null]}>
+            {body}
+          </View>
         );
       })}
     </View>
@@ -105,15 +99,24 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  rowCompact: {
+    justifyContent: 'flex-start',
+    gap: 18,
   },
   cell: {
     flex: 1,
     alignItems: 'center',
     gap: 2,
     minWidth: 0,
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
-  rule: {
-    width: StyleSheet.hairlineWidth,
+  cellCompact: {
+    flex: 0,
+    alignItems: 'flex-start',
+    gap: 1,
+    paddingVertical: 0,
+    minWidth: 52,
   },
 });

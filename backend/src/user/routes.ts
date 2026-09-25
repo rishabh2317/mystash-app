@@ -135,13 +135,52 @@ export function registerUserRoutes(app: Express): void {
         country?: string | null;
         language?: string | null;
         timezone?: string | null;
+        countryDetectedAt?: string | null;
+        lastLocationCheckAt?: string | null;
+        countrySource?: 'location' | 'manual' | null;
       };
       const updated = await svc.updateLocale(user.id, {
         country: body.country,
         language: body.language,
         timezone: body.timezone,
+        countryDetectedAt: body.countryDetectedAt,
+        lastLocationCheckAt: body.lastLocationCheckAt,
+        countrySource: body.countrySource,
       });
       res.json({ user: await svc.getSettings(updated.id) });
+    } catch (e) {
+      handleServiceError(res, e);
+    }
+  });
+
+  app.patch('/users/me/commerce-country', async (req, res) => {
+    try {
+      const user = await requireUser(req, res);
+      if (!user) return;
+      const svc = createUserService(createSupabaseAdmin());
+      await svc.ensureFromAuth(user);
+      const body = req.body as {
+        country?: string;
+        source?: 'location' | 'manual';
+        countryDetectedAt?: string | null;
+        lastLocationCheckAt?: string | null;
+        force?: boolean;
+      };
+      if (!body.country || (body.source !== 'location' && body.source !== 'manual')) {
+        res.status(400).json({ error: 'country and source (location|manual) are required' });
+        return;
+      }
+      const result = await svc.updateCommerceCountry(user.id, {
+        country: body.country,
+        source: body.source,
+        countryDetectedAt: body.countryDetectedAt,
+        lastLocationCheckAt: body.lastLocationCheckAt,
+        force: body.force === true,
+      });
+      res.json({
+        user: await svc.getSettings(result.user.id),
+        changed: result.changed,
+      });
     } catch (e) {
       handleServiceError(res, e);
     }

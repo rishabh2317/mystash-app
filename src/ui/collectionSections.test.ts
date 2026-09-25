@@ -5,10 +5,14 @@ import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
 
 import {
+  COLLECTION_MERCHANT_PREVIEW_LIMIT,
+  collectionMerchantPreviewsFromOffers,
+  collectionMerchantPreviewsFromProduct,
   collectionMetaItems,
   collectionVerificationSummary,
   formatCollectionDate,
   formatProductPrice,
+  merchantLabelFromUrl,
   productCountLabel,
   productsSectionTitle,
   shouldGroupProductInsights,
@@ -199,5 +203,30 @@ describe('formatProductPrice', () => {
     assert.equal(formatProductPrice(product({ price: null })), null);
     assert.equal(formatProductPrice(product({ price: '  ' })), null);
     assert.equal(formatProductPrice(product({ price: '—' })), null);
+  });
+});
+
+describe('collection merchant previews', () => {
+  it('builds priced buying options from offers and product fallbacks', () => {
+    assert.deepEqual(
+      collectionMerchantPreviewsFromOffers([
+        { id: 'o1', merchant: 'Amazon', price: '249.00', currency: 'USD' },
+        { id: 'o2', merchant: 'Amazon', price: '249.00', currency: 'USD' },
+        { id: 'o3', merchant: 'Flipkart', price: '229.00', currency: 'USD' },
+        { id: 'o4', merchant: null, price: '219.00', currency: 'USD' },
+        { id: 'o5', merchant: null, price: null },
+        { id: 'o6', merchant: 'Gone', action: 'none', price: '1.00', currency: 'USD' },
+      ]),
+      [
+        { id: 'o1', label: 'Amazon', priceLabel: 'USD 249.00' },
+        { id: 'o3', label: 'Flipkart', priceLabel: 'USD 229.00' },
+        { id: 'o4', label: 'Shop', priceLabel: 'USD 219.00' },
+      ],
+    );
+    assert.deepEqual(collectionMerchantPreviewsFromProduct(product()), [
+      { id: 'merchant-name', label: 'bose.com', priceLabel: 'USD 299.00' },
+    ]);
+    assert.equal(merchantLabelFromUrl('https://www.amazon.in/dp/x'), 'amazon.in');
+    assert.equal(COLLECTION_MERCHANT_PREVIEW_LIMIT, 3);
   });
 });

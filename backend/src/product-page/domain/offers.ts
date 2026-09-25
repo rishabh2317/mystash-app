@@ -12,16 +12,15 @@ export function projectPageOffers(
   const offers: ProductPageOffer[] = [];
   for (const dest of destinations) {
     const unavailable = isUnavailableAvailability(dest.availability);
-    const offer: ProductPageOffer = {
+    // Missing price must not drop a valid merchant destination.
+    offers.push({
       id: dest.offerId,
       merchant: dest.merchant,
       price: dest.price,
       currency: dest.currency,
       availability: userFacingAvailability(dest.availability),
       action: unavailable ? 'none' : action,
-    };
-    if (!offer.merchant && !offer.price && offer.action === 'none') continue;
-    offers.push(offer);
+    });
   }
   return offers;
 }

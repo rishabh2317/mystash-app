@@ -96,3 +96,34 @@ export async function fetchImportShares(): Promise<ImportShare[]> {
   const body = (await res.json()) as { shares?: unknown };
   return hydrateImportShares(body.shares);
 }
+
+/** Re-queue processing for a timed-out or failed share. */
+export async function retryUserImport(importId: string): Promise<UserImportAcknowledgement> {
+  const token = await bearerToken();
+  const res = await fetch(`${importApiBase()}/imports/${encodeURIComponent(importId)}/retry`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) throw new UserImportApiError(await readError(res), res.status);
+  const body = (await res.json()) as { importId?: string };
+  if (!body.importId) throw new UserImportApiError('Retry returned no id', 500);
+  return { importId: body.importId, status: 'RECEIVED', created: false };
+}
+
+/** Remove this share from the user's activity history only. */
+export async function deleteUserImport(importId: string): Promise<void> {
+  const token = await bearerToken();
+  const res = await fetch(`${importApiBase()}/imports/${encodeURIComponent(importId)}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new UserImportApiError(await readError(res), res.status);
+  }
+}

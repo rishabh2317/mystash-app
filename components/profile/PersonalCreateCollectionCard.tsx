@@ -3,6 +3,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { outlineCardChrome } from '@/src/theme/tokens';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { PERSONAL_PROFILE_COPY } from '@/src/ui/personalProfile';
 
@@ -21,8 +22,7 @@ export function PersonalCreateCollectionCard({ onPress }: Props) {
       style={({ pressed }) => [
         styles.card,
         {
-          backgroundColor: tokens.color.surfaceRaised,
-          borderColor: tokens.color.border,
+          ...outlineCardChrome(tokens),
           borderRadius: tokens.radius.xxl,
           padding: tokens.space.md,
           gap: tokens.space.sm,
@@ -39,7 +39,7 @@ export function PersonalCreateCollectionCard({ onPress }: Props) {
           },
         ]}
       >
-        <Ionicons name="add" size={20} color={tokens.color.primary} />
+        <Ionicons name="add-outline" size={20} color={tokens.color.primary} />
       </View>
       <View style={styles.copy}>
         <Text
@@ -74,7 +74,7 @@ export function PersonalCreateCollectionCard({ onPress }: Props) {
         >
           {PERSONAL_PROFILE_COPY.createAction}
         </Text>
-        <Ionicons name="chevron-forward" size={14} color={tokens.color.primary} />
+        <Ionicons name="chevron-forward-outline" size={14} color={tokens.color.primary} />
       </View>
     </Pressable>
   );

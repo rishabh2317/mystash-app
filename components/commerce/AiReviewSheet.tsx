@@ -208,7 +208,7 @@ export function AiReviewSheet({
                 },
               ]}
             >
-              <Ionicons name="close" size={18} color={tokens.color.text} />
+              <Ionicons name="close-outline" size={18} color={tokens.color.text} />
             </Pressable>
           </View>
 
@@ -277,7 +277,7 @@ export function AiReviewSheet({
                   </Text>
                   {summary.pros.map((item) => (
                     <View key={`pro-${item}`} style={[styles.bulletRow, { gap: tokens.space.xs }]}>
-                      <Ionicons name="checkmark" size={16} color={tokens.color.primary} />
+                      <Ionicons name="checkmark-outline" size={16} color={tokens.color.primary} />
                       <Text style={[bodyText, styles.bulletText]}>{item}</Text>
                     </View>
                   ))}

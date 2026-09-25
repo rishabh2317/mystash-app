@@ -52,6 +52,9 @@ export function contentSourceToRelatedMedia(source: ContentSourceRecord): Produc
     title: null,
     thumbnailUrl: null,
     collectionId: null,
+    creator: null,
+    views: 0,
+    saves: 0,
   };
 }
 

@@ -1,7 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Image } from 'expo-image';
 import { useRouter, type Href } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type NativeSyntheticEvent,
+  type TextLayoutEventData,
+} from 'react-native';
 
 import { FollowControl } from '@/components/engagement/FollowControl';
 import { ContentPlayChip } from '@/components/ui/ContentPlayChip';
@@ -10,6 +17,7 @@ import { creatorPath } from '@/src/services/sharePaths';
 import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
 import type { CreatorMoreReelTarget } from '@/src/ui/collectionCreatorMore';
 import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import type { FeedReelFollow } from '@/src/ui/feedReelTypes';
 
 const AVATAR_SIZE = 28;
@@ -27,6 +35,100 @@ type Props = {
   /** Another published Collection from this creator. Hidden when null. */
   moreFromCreator?: CreatorMoreReelTarget | null;
 };
+
+/** One-line caption with inline “view more” when the copy overflows. */
+function FeedCaption({ text }: { text: string }) {
+  const { tokens } = useThemeMode();
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  const captionStyle = {
+    color: tokens.immersive.textMuted,
+    fontSize: tokens.fontSize.caption,
+    lineHeight: tokens.lineHeight.caption,
+    fontFamily: tokens.fontFamily.medium,
+    fontWeight: tokens.fontWeight.regular,
+    textShadowColor: IMMERSIVE_TOKENS.textShadow,
+    textShadowOffset: { width: 0, height: 1 } as const,
+    textShadowRadius: 3,
+  };
+  const moreStyle = {
+    color: tokens.immersive.text,
+    fontSize: tokens.fontSize.caption,
+    lineHeight: tokens.lineHeight.caption,
+    fontFamily: tokens.fontFamily.semibold,
+    fontWeight: tokens.fontWeight.semibold,
+  };
+
+  const onMeasure = (event: NativeSyntheticEvent<TextLayoutEventData>) => {
+    const lines = event.nativeEvent.lines.length;
+    setOverflows((current) => {
+      const next = lines > 1;
+      return current === next ? current : next;
+    });
+  };
+
+  if (expanded) {
+    return (
+      <Pressable
+        onPress={() => setExpanded(false)}
+        accessibilityRole="button"
+        accessibilityLabel={`${text}. Less`}
+        accessibilityState={{ expanded: true }}
+        style={({ pressed }) => ({
+          opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
+        })}
+      >
+        <Text style={captionStyle}>
+          {text}
+          <Text style={moreStyle}>{` less`}</Text>
+        </Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <View>
+      <Text
+        style={[captionStyle, styles.measure]}
+        onTextLayout={onMeasure}
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {text}
+      </Text>
+      <Pressable
+        onPress={() => {
+          if (overflows) setExpanded(true);
+        }}
+        disabled={!overflows}
+        accessibilityRole={overflows ? 'button' : 'text'}
+        accessibilityLabel={overflows ? `${text}. View more` : text}
+        accessibilityState={overflows ? { expanded: false } : undefined}
+        style={({ pressed }) => [
+          styles.captionRow,
+          {
+            opacity: controlOpacity(
+              resolveControlPhase({ pressed: pressed && overflows }),
+              tokens.motion.pressOpacity,
+            ),
+          },
+        ]}
+      >
+        <Text style={[captionStyle, styles.captionClamp]} numberOfLines={1} ellipsizeMode="tail">
+          {text}
+        </Text>
+        {overflows ? (
+          <Text style={moreStyle} numberOfLines={1}>
+            {' '}
+            view more
+          </Text>
+        ) : null}
+      </Pressable>
+    </View>
+  );
+}
 
 export function FeedCreatorBlock({
   displayName,
@@ -96,21 +198,7 @@ export function FeedCreatorBlock({
           />
         ) : null}
       </View>
-      <Text
-        style={[
-          styles.caption,
-          {
-            color: tokens.immersive.textMuted,
-            fontSize: tokens.fontSize.caption,
-            lineHeight: tokens.lineHeight.caption,
-            fontWeight: tokens.fontWeight.semibold,
-          },
-        ]}
-        numberOfLines={2}
-        ellipsizeMode="tail"
-      >
-        {title}
-      </Text>
+      {title.trim() ? <FeedCaption text={title.trim()} /> : null}
       {moreFromCreator ? (
         <ContentPlayChip
           immersive
@@ -154,9 +242,20 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  caption: {
-    textShadowColor: IMMERSIVE_TOKENS.textShadow,
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
+  captionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  captionClamp: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  measure: {
+    position: 'absolute',
+    opacity: 0,
+    left: 0,
+    right: 0,
+    zIndex: -1,
   },
 });

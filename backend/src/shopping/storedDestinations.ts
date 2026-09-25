@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { parseRegionalUrls } from '../merchant-pricing/MerchantRegionResolver';
 import { detectMerchantLabel } from '../product-intelligence/enrichment/merchantDetect';
 import { merchantUrlsMatch, normalizeMerchantUrl } from '../product-intelligence/search/directUrlIdentity';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
@@ -18,6 +19,8 @@ export type StoredShoppingDestination = {
   price: string | null;
   currency: string | null;
   availability: string | null;
+  /** Explicit country → URL map. Never invented from TLD rewriting. */
+  regionalUrls: Record<string, string> | null;
 };
 
 export type StoredShoppingSource = {
@@ -40,6 +43,7 @@ type CandidateHint = {
   shoppingProvider?: string | null;
   sourceType?: string | null;
   destinationType?: StoredDestinationType;
+  regionalUrls?: Record<string, string> | null;
 };
 
 function text(value: unknown): string | null {
@@ -123,9 +127,24 @@ function readCandidates(metadata: Record<string, unknown> | null | undefined): C
       shoppingProvider: text(row.shoppingProvider),
       sourceType: text(row.sourceType) ?? text(row.sourceTier),
       destinationType: 'merchant',
+      regionalUrls:
+        parseRegionalUrls(row.regionalUrls) ??
+        parseRegionalUrls(row.regional_urls) ??
+        parseRegionalUrls(row.urlsByCountry),
     });
   }
   return out;
+}
+
+function metadataRegionalUrls(
+  metadata: Record<string, unknown> | null | undefined,
+): Record<string, string> | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  return (
+    parseRegionalUrls(metadata.regionalUrls) ??
+    parseRegionalUrls(metadata.regional_urls) ??
+    parseRegionalUrls(metadata.urlsByCountry)
+  );
 }
 
 function commerceFor(
@@ -198,6 +217,7 @@ export function listStoredShoppingDestinations(source: StoredShoppingSource): St
       price: commerce.price,
       currency: commerce.currency,
       availability: commerce.availability,
+      regionalUrls: hint.regionalUrls ?? metadataRegionalUrls(source.metadata),
     });
   };
 

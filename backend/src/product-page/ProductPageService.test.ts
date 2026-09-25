@@ -96,7 +96,10 @@ function createHarness(related: ProductPageRelatedMedia[] = []) {
     },
     {
       listForCatalogProduct: async () => related,
-      listMatchingUrls: async () => [],
+      listMatchingUrls: async (urls) => {
+        const wanted = new Set(urls);
+        return related.filter((item) => wanted.has(item.url));
+      },
     },
   );
 
@@ -160,8 +163,9 @@ describe('ProductPageService', () => {
     assert.equal(page.offers[0]?.action, 'buy');
     assert.equal(page.specifications.Driver, '30mm');
     assert.equal(page.compareAvailable, true);
+    assert.equal(page.detailsUpdating, false);
     const json = JSON.stringify(page);
-    assert.equal(/verif|confidence|completeness|discovered|catalog[_ ]product|unverified/i.test(json), false);
+    assert.equal(/verif|confidence|completeness|discovered|catalog[_ ]product|unverified|enrichmentStatus/i.test(json), false);
     if (typeof before === 'number') assert.equal(catalogRepo.all().length, before);
   });
 
@@ -176,8 +180,59 @@ describe('ProductPageService', () => {
     assert.equal(page.canShop, true);
     assert.equal(page.relatedMedia.length, 0);
     assert.equal(page.compareAvailable, true);
+    assert.equal(page.detailsUpdating, false);
     const json = JSON.stringify(page);
-    assert.equal(/confidence|completeness|discovered product|unverified/i.test(json), false);
+    assert.equal(/confidence|completeness|discovered product|unverified|enrichmentStatus/i.test(json), false);
+  });
+
+  it('sets detailsUpdating true only while discovered enrichmentStatus is pending', async () => {
+    const catalogRepo = new InMemoryCatalogRepository();
+    const discoveredRepo = new InMemoryDiscoveredProductRepository();
+    discoveredRepo.seed({
+      id: DISCOVERED_ID,
+      identityKey: 'n_pendingmug0001',
+      name: 'Ceramic mug',
+      brand: 'Acme',
+      model: null,
+      category: 'Home',
+      imageUrl: null,
+      price: null,
+      currency: null,
+      merchant: null,
+      merchantUrl: null,
+      metadata: { enrichmentStatus: 'pending' },
+      matchConfidence: null,
+      completeness: null,
+      processorVersion: 'test',
+    });
+    const catalog = new CatalogService(catalogRepo);
+    const discovered = new DiscoveredProductService(discoveredRepo);
+    const service = new ProductPageService(
+      { resolveActiveProduct: (id) => catalog.resolveActiveProduct(id) },
+      { getById: (id) => discovered.getById(id) },
+      {
+        getById: async () => null,
+        listBoundSourceIds: async () => [],
+      },
+      { canShopCatalog: () => false },
+      emptyRelatedMediaPort,
+    );
+
+    const pendingPage = await service.getPage(DISCOVERED_ID);
+    assert.equal(pendingPage.detailsUpdating, true);
+    assert.equal(/enrichmentStatus/i.test(JSON.stringify(pendingPage)), false);
+
+    await discoveredRepo.update(DISCOVERED_ID, {
+      metadata: { enrichmentStatus: 'ready' },
+    });
+    const readyPage = await service.getPage(DISCOVERED_ID);
+    assert.equal(readyPage.detailsUpdating, false);
+  });
+
+  it('catalog products always report detailsUpdating false', async () => {
+    const { service } = createHarness();
+    const page = await service.getPage(CATALOG_ID);
+    assert.equal(page.detailsUpdating, false);
   });
 
   it('attaches original source attribution from the requested content source', async () => {
@@ -221,6 +276,104 @@ describe('ProductPageService', () => {
     assert.equal(page.source?.url, 'https://www.instagram.com/reel/ABC123/');
     assert.equal(page.source?.userImportId, '880e8400-e29b-41d4-a716-446655440001');
     assert.equal(page.source?.contentSourceId, created.id);
+    assert.equal(page.source?.collectionId, null);
+  });
+
+  it('links discovery source to a published collection for in-app reel playback', async () => {
+    const sourceUrl = 'https://www.youtube.com/shorts/PIXEL10';
+    const { service, sourceRepo } = createHarness([
+      {
+        id: 'rel-pixel',
+        kind: 'short',
+        label: 'YouTube Short',
+        url: sourceUrl,
+        title: 'Pixel discovery',
+        thumbnailUrl: null,
+        collectionId: 'col-pixel',
+        creator: null,
+        views: 0,
+        saves: 0,
+      },
+    ]);
+    const created = await bindSource(sourceRepo, {
+      platform: 'youtube',
+      externalId: 'PIXEL10',
+      canonicalUrl: sourceUrl,
+      catalogProductId: CATALOG_ID,
+    });
+    const page = await service.getPage(CATALOG_ID, { contentSourceId: created.id });
+    assert.equal(page.source?.url, sourceUrl);
+    assert.equal(page.source?.collectionId, 'col-pixel');
+    assert.equal(page.source?.title, 'Pixel discovery');
+    assert.equal(page.relatedMedia.some((item) => item.url === sourceUrl), false);
+  });
+
+  it('links discovery via video identity when collection URL form differs', async () => {
+    const { service, sourceRepo } = createHarness([
+      {
+        id: 'rel-yt',
+        kind: 'short',
+        label: 'YouTube Short',
+        url: 'https://youtu.be/dQw4w9WgXcQ',
+        title: 'Same short',
+        thumbnailUrl: null,
+        collectionId: 'col-yt',
+        creator: null,
+        views: 0,
+        saves: 0,
+      },
+    ]);
+    const created = await bindSource(sourceRepo, {
+      platform: 'youtube',
+      externalId: 'dQw4w9WgXcQ',
+      canonicalUrl: 'https://www.youtube.com/shorts/dQw4w9WgXcQ',
+      catalogProductId: CATALOG_ID,
+    });
+    const page = await service.getPage(CATALOG_ID, { contentSourceId: created.id });
+    assert.equal(page.source?.collectionId, 'col-yt');
+    assert.equal(page.source?.title, 'Same short');
+  });
+
+  it('exposes shoppingProductId for discovered products linked to catalogue', async () => {
+    const discoveredRepo = new InMemoryDiscoveredProductRepository();
+    discoveredRepo.seed({
+      id: DISCOVERED_ID,
+      identityKey: 'n_linkedpixel0001',
+      name: 'Pixel 10',
+      brand: 'Google',
+      model: null,
+      category: 'Phones',
+      imageUrl: null,
+      price: null,
+      currency: null,
+      merchant: null,
+      merchantUrl: null,
+      metadata: {},
+      matchConfidence: null,
+      completeness: null,
+      processorVersion: 'test',
+      catalogProductId: CATALOG_ID,
+    });
+    const service = new ProductPageService(
+      { resolveActiveProduct: async () => null },
+      { getById: (id) => new DiscoveredProductService(discoveredRepo).getById(id) },
+      { getById: async () => null, listBoundSourceIds: async () => [] },
+      { canShopCatalog: () => false },
+      emptyRelatedMediaPort,
+      {
+        findReady: async () => ({
+          overview: 'A clear take on the Pixel.',
+          likes: ['Camera'],
+          concerns: ['Price'],
+          sources: [],
+          rating: null,
+          reviewCount: null,
+        }),
+      },
+    );
+    const page = await service.getPage(DISCOVERED_ID);
+    assert.equal(page.shoppingProductId, CATALOG_ID);
+    assert.equal(page.reviews?.overview, 'A clear take on the Pixel.');
   });
 
   it('omits missing image, price, and media rather than inventing them', async () => {
@@ -270,6 +423,9 @@ describe('ProductPageService', () => {
         title: 'Same short',
         thumbnailUrl: null,
         collectionId: 'col-1',
+        creator: null,
+        views: 0,
+        saves: 0,
       },
       {
         id: 'rel-2',
@@ -279,6 +435,9 @@ describe('ProductPageService', () => {
         title: 'Other reel',
         thumbnailUrl: null,
         collectionId: 'col-2',
+        creator: null,
+        views: 0,
+        saves: 0,
       },
     ]);
     const created = await sourceRepo.insert({
@@ -334,6 +493,9 @@ describe('ProductPageService', () => {
         title: 'Short',
         thumbnailUrl: null,
         collectionId: 'col-1',
+        creator: null,
+        views: 0,
+        saves: 0,
       },
       {
         id: 'dup-2',
@@ -343,6 +505,9 @@ describe('ProductPageService', () => {
         title: 'Same video',
         thumbnailUrl: null,
         collectionId: 'col-2',
+        creator: null,
+        views: 0,
+        saves: 0,
       },
       {
         id: 'bad',
@@ -352,6 +517,9 @@ describe('ProductPageService', () => {
         title: 'Bad',
         thumbnailUrl: null,
         collectionId: null,
+        creator: null,
+        views: 0,
+        saves: 0,
       },
     ]);
     const page = await service.getPage(CATALOG_ID);
@@ -371,6 +539,9 @@ describe('ProductPageService', () => {
         title: 'Other',
         thumbnailUrl: null,
         collectionId: 'col-9',
+        creator: null,
+        views: 0,
+        saves: 0,
       },
     ]);
     const page = await service.getPage(DISCOVERED_ID);
@@ -425,6 +596,70 @@ describe('ProductPageService', () => {
     assert.equal(page.offers[2]?.price, '39990');
     assert.ok(page.offers.every((offer) => offer.action === 'buy'));
     assert.equal(/verif|confidence|completeness|discovered/i.test(JSON.stringify(page)), false);
+  });
+
+  it('returns five valid merchants including a lower-scoring offer without a price', async () => {
+    const catalogRepo = new InMemoryCatalogRepository();
+    catalogRepo.seed(
+      baseProduct({
+        id: CATALOG_ID,
+        name: 'WH-1000XM5',
+        status: 'ACTIVE',
+        price: null,
+        currency: null,
+        merchantUrl: null,
+        metadata: {
+          shopping_candidates: [
+            {
+              url: 'https://www.amazon.com/dp/A1',
+              merchant: 'Amazon',
+              price: '299',
+              currency: 'USD',
+              shoppingScore: 0.95,
+            },
+            {
+              url: 'https://www.bestbuy.com/site/p/1',
+              merchant: 'Best Buy',
+              price: '309',
+              currency: 'USD',
+              shoppingScore: 0.8,
+            },
+            {
+              url: 'https://www.samsung.com/us/audio/p',
+              merchant: 'Samsung',
+              price: '279',
+              currency: 'USD',
+              shoppingScore: 0.7,
+            },
+            {
+              url: 'https://www.verizon.com/products/p',
+              merchant: 'Verizon',
+              shoppingScore: 0.4,
+            },
+            {
+              url: 'https://www.bhphotovideo.com/c/product/1',
+              merchant: 'B&H',
+              price: '289',
+              currency: 'USD',
+              shoppingScore: 0.55,
+            },
+          ],
+        },
+      }),
+    );
+    const catalog = new CatalogService(catalogRepo);
+    const service = new ProductPageService(
+      { resolveActiveProduct: (id) => catalog.resolveActiveProduct(id) },
+      { getById: async () => null },
+      { getById: async () => null, listBoundSourceIds: async () => [] },
+      { canShopCatalog: () => true },
+      emptyRelatedMediaPort,
+    );
+    const page = await service.getPage(CATALOG_ID);
+    assert.equal(page.offers.length, 5);
+    assert.ok(page.offers.some((o) => o.merchant === 'Verizon' && o.price === null));
+    assert.ok(page.offers.some((o) => o.merchant === 'Amazon' && o.price === '299'));
+    assert.ok(page.offers.every((o) => o.action === 'buy'));
   });
 
   it('shows an unavailable merchant without a buying CTA', async () => {

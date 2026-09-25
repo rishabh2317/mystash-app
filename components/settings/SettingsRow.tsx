@@ -116,7 +116,7 @@ export function SettingsRow({
         />
       ) : null}
       {showChevron ? (
-        <Ionicons name="chevron-forward" size={16} color={tokens.color.textMuted} />
+        <Ionicons name="chevron-forward-outline" size={16} color={tokens.color.textMuted} />
       ) : null}
     </>
   );

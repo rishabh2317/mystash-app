@@ -10,9 +10,8 @@ import {
   View,
 } from 'react-native';
 
-import { ContextActions } from '@/components/chrome/ContextActions';
+import { OverflowMenu } from '@/components/chrome/OverflowMenu';
 import { TopBar } from '@/components/chrome/TopBar';
-import { ProductDetailsSheet } from '@/components/commerce';
 import { CreatorProfile } from '@/components/creator/CreatorProfile';
 import type { CreatorProfileTab } from '@/components/creator/CreatorProfileHeader';
 import { useAuth } from '@/contexts/AuthContext';
@@ -20,6 +19,7 @@ import { useThemeMode } from '@/contexts/ThemeContext';
 import { mapCreatorProductToCatalogViewModel } from '@/src/mappers/creatorProductMapper';
 import { pageCanvasGradient } from '@/src/theme/tokens';
 import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import { productPagePath } from '@/src/ui/productPage';
 import { reconcilePublicCollectionCount } from '@/src/ui/publicCreatorProfile';
 import {
   listCreatorCollections,
@@ -27,10 +27,7 @@ import {
 } from '@/src/services/collectionApi';
 import { useCreatorFollowHandler } from '@/src/services/creatorFollowOrchestration';
 import { isFollowingCreator } from '@/src/services/engagementApi';
-import {
-  useProductAddToCartHandler,
-  useProductBuyHandler,
-} from '@/src/services/productActionOrchestration';
+import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
 import { shareCreatorProfile } from '@/src/services/shareLinks';
 import { fetchPublicCreatorByUsername, UserApiError } from '@/src/services/userApi';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
@@ -41,15 +38,17 @@ export default function CreatorProfileScreen() {
   const router = useRouter();
   const { tokens, isLight } = useThemeMode();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ username?: string | string[] }>();
+  const params = useLocalSearchParams<{ username?: string | string[]; tab?: string | string[] }>();
   const usernameParam = Array.isArray(params.username) ? params.username[0] : params.username;
+  const tabParam = Array.isArray(params.tab) ? params.tab[0] : params.tab;
+  const initialTab: CreatorProfileTab = tabParam === 'products' ? 'products' : 'collections';
 
   const [creator, setCreator] = useState<CreatorViewModel | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<CreatorProfileTab>('collections');
+  const [activeTab, setActiveTab] = useState<CreatorProfileTab>(initialTab);
   const [collections, setCollections] = useState<CollectionViewModel[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [collectionsLoadingMore, setCollectionsLoadingMore] = useState(false);
@@ -64,10 +63,8 @@ export default function CreatorProfileScreen() {
   const [productsLoaded, setProductsLoaded] = useState(false);
 
   const [followPending, setFollowPending] = useState(false);
-  const [detailsProduct, setDetailsProduct] = useState<CatalogProductViewModel | null>(null);
 
   const onAddToCart = useProductAddToCartHandler();
-  const onBuy = useProductBuyHandler();
   const loadGen = useRef(0);
 
   const loadProfile = useCallback(async (username: string) => {
@@ -75,7 +72,7 @@ export default function CreatorProfileScreen() {
     setProfileLoading(true);
     setProfileError(null);
     setNotFound(false);
-    setActiveTab('collections');
+    setActiveTab(tabParam === 'products' ? 'products' : 'collections');
     setProducts([]);
     setProductsLoaded(false);
     setProductsCursor(null);
@@ -108,7 +105,7 @@ export default function CreatorProfileScreen() {
         setProfileError(e instanceof Error ? e.message : 'Could not load creator');
       }
     }
-  }, [router, user]);
+  }, [router, tabParam, user]);
 
   const loadCollections = useCallback(
     async (creatorId: string, cursor?: string | null, append = false) => {
@@ -238,6 +235,15 @@ export default function CreatorProfileScreen() {
     [router],
   );
 
+  const onPressProduct = useCallback(
+    (product: CatalogProductViewModel) => {
+      const id = (product.catalogProductId ?? product.id).trim();
+      if (!id) return;
+      router.push(productPagePath(id) as Href);
+    },
+    [router],
+  );
+
   const onSharePress = useCallback(async () => {
     if (!creator) return;
     try {
@@ -295,12 +301,30 @@ export default function CreatorProfileScreen() {
         showBack
         showBag={false}
         trailing={
-          creator ? (
-            <ContextActions
-              share={{
-                onPress: () => void onSharePress(),
-                accessibilityLabel: 'Share creator profile',
-              }}
+          creator && !isSelf ? (
+            <OverflowMenu
+              accessibilityLabel="More profile actions"
+              orientation="vertical"
+              bare
+              items={[
+                {
+                  id: 'report',
+                  label: 'Report',
+                  icon: 'flag-outline',
+                  onPress: () => {
+                    Alert.alert('Report', 'Reporting will be available soon.');
+                  },
+                },
+                {
+                  id: 'block',
+                  label: 'Block',
+                  icon: 'hand-left-outline',
+                  destructive: true,
+                  onPress: () => {
+                    Alert.alert('Block', 'Blocking will be available soon.');
+                  },
+                },
+              ]}
             />
           ) : undefined
         }
@@ -347,21 +371,15 @@ export default function CreatorProfileScreen() {
           productsLoadingMore={productsLoadingMore}
           productsError={productsError}
           onFollowPress={() => void onFollowPress()}
+          onSharePress={() => void onSharePress()}
           onTabChange={setActiveTab}
           onPressCollection={onPressCollection}
-          onPressProduct={setDetailsProduct}
+          onPressProduct={onPressProduct}
+          onAddToCart={onAddToCart}
           onEndReached={onEndReached}
           onRetry={onRetry}
         />
       ) : null}
-
-      <ProductDetailsSheet
-        visible={detailsProduct != null}
-        product={detailsProduct}
-        onClose={() => setDetailsProduct(null)}
-        onAddToCart={detailsProduct?.catalogProductId ? onAddToCart : undefined}
-        onBuy={detailsProduct?.catalogProductId ? onBuy : undefined}
-      />
     </View>
   );
 }

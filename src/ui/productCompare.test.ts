@@ -39,6 +39,7 @@ function page(partial: Partial<ProductPageView> & Pick<ProductPageView, 'product
     relatedMedia: [],
     reviews: null,
     compareAvailable: true,
+    detailsUpdating: false,
     ...partial,
   };
 }
@@ -241,7 +242,7 @@ describe('product comparison', () => {
     assert.doesNotMatch(logic, /catalog_products|promote/);
   });
 
-  it('Product Page opens Compare and Search stays on the sheet', () => {
+  it('Product Page opens Compare and Search navigates to Product Page', () => {
     const screen = readFileSync(join(ROOT, 'components/product/ProductPage.tsx'), 'utf8');
     const compare = readFileSync(join(ROOT, 'app/compare.tsx'), 'utf8');
     const search = readFileSync(join(ROOT, 'app/(tabs)/search.tsx'), 'utf8');
@@ -253,10 +254,13 @@ describe('product comparison', () => {
     assert.match(compare, /searchBlended/);
     assert.match(compare, /COMPARE_COPY/);
     assert.doesNotMatch(compare, WINNER);
-    assert.match(search, /ProductDetailsSheet/);
+    assert.match(search, /productPagePath/);
+    assert.doesNotMatch(search, /ProductDetailsSheet/);
     assert.doesNotMatch(search, /comparePath/);
-    assert.match(collection, /ProductDetailsSheet/);
+    assert.match(collection, /productPagePath/);
+    assert.doesNotMatch(collection, /ProductDetailsSheet/);
     assert.doesNotMatch(collection, /comparePath/);
-    assert.match(creator, /ProductDetailsSheet/);
+    assert.match(creator, /productPagePath/);
+    assert.doesNotMatch(creator, /ProductDetailsSheet/);
   });
 });

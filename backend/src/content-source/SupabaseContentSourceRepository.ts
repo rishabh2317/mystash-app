@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ContentSourceRepository } from './ContentSourceRepository';
-import { ENQUEUEABLE_STATUSES, PROCESSING_CLAIM_STATUSES } from './domain/lifecycle';
+import { ENQUEUEABLE_STATUSES, PROCESSING_CLAIM_STATUSES, REPROCESSABLE_STATUSES } from './domain/lifecycle';
 import type {
   ContentExtractionMethod,
   ContentMediaKind,
@@ -103,6 +103,39 @@ export class SupabaseContentSourceRepository implements ContentSourceRepository 
       })
       .eq('id', id)
       .in('processing_status', [...ENQUEUEABLE_STATUSES])
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapRow(data as ContentSourceRow) : null;
+  }
+
+  async markRequeue(id: string, queuedAt: string): Promise<ContentSourceRecord | null> {
+    const { data, error } = await this.admin
+      .from('content_sources')
+      .update({
+        processing_status: 'QUEUED',
+        queued_at: queuedAt,
+        failure_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .in('processing_status', [...REPROCESSABLE_STATUSES])
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapRow(data as ContentSourceRow) : null;
+  }
+
+  async markRevertToReceived(id: string): Promise<ContentSourceRecord | null> {
+    const { data, error } = await this.admin
+      .from('content_sources')
+      .update({
+        processing_status: 'RECEIVED',
+        queued_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('processing_status', 'QUEUED')
       .select('*')
       .maybeSingle();
     if (error) throw error;

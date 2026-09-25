@@ -19,6 +19,16 @@ export type ContentSourceRepository = {
    */
   markQueued(id: string, queuedAt: string): Promise<ContentSourceRecord | null>;
   /**
+   * Explicit retry: RECEIVED | FAILED | READY → QUEUED.
+   * Does not claim PROCESSING/QUEUED rows.
+   */
+  markRequeue(id: string, queuedAt: string): Promise<ContentSourceRecord | null>;
+  /**
+   * Revert a failed enqueue so the source stays re-enqueueable.
+   * Only QUEUED → RECEIVED (never touches PROCESSING/READY/FAILED).
+   */
+  markRevertToReceived(id: string): Promise<ContentSourceRecord | null>;
+  /**
    * Claim the row for extraction. Applied from QUEUED (first start) or PROCESSING (retry).
    * Returns null when the row is READY / RECEIVED / FAILED (not claimable).
    */

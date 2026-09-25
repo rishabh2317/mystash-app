@@ -1,9 +1,10 @@
+import type { ImportShare } from '@/src/services/importShareMap';
 import type { CartItemSource, CartLine } from '@/src/services/cartLineMap';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
 import { formatProductPrice } from '@/src/ui/collectionSections';
 
-/** One Bag row. Canonical and discovered products share this shape. */
+/** One Stash row. Canonical and discovered products share this shape. */
 export type BagItemView = {
   cartItemId: string;
   productId: string;
@@ -29,13 +30,40 @@ export type BagCategoryGroup = {
   items: BagItemView[];
 };
 
-export type BagShareState = 'looking' | 'ready' | 'nothing_yet' | 'couldnt_finish';
+export type StashSectionPresentation = 'rail' | 'grid';
 
-export type BagShare = {
-  importId: string;
-  state: BagShareState;
-  kind?: 'instagram' | 'youtube' | 'web';
+export type StashSection = {
+  key: string;
+  title: string;
+  items: BagItemView[];
+  presentation: StashSectionPresentation;
 };
+
+/** Category shelf tile on Stash home. */
+export type StashCategoryCardModel = {
+  key: string;
+  title: string;
+  count: number;
+  previewUrls: (string | null)[];
+  items: BagItemView[];
+};
+
+export type StashHomeLayout = {
+  countLabel: string;
+  categories: StashCategoryCardModel[];
+  recent: BagItemView[];
+};
+
+/** @deprecated Prefer StashHomeLayout — kept for older tests during transition. */
+export type StashLayout = {
+  countLabel: string;
+  summaryLine: string | null;
+  sections: StashSection[];
+};
+
+export type BagShareState = ImportShare['state'];
+
+export type BagShare = Pick<ImportShare, 'importId' | 'state' | 'kind'>;
 
 export const BAG_PROGRESS_COPY = {
   looking: 'Finding products from your link…',
@@ -44,24 +72,38 @@ export const BAG_PROGRESS_COPY = {
   lookingMany: 'Finding products from your links…',
   nothingYet: "We couldn't find products in that link yet.",
   couldntFinish: "We couldn't finish that link. Try sharing it again.",
-  emptyHint: 'Products you save will show up here.',
+  emptyHint: "See something you love? Stash it here and we'll remember it for you.",
 } as const;
 
 export const OTHER_BAG_CATEGORY = 'Other';
 
-export function bagSourceLabel(source: CartItemSource | null | undefined): string | null {
+const RECENT_STASH_LIMIT = 8;
+
+function bagCategoryKey(category: string | null | undefined): string {
+  const raw = category?.trim();
+  if (!raw || /^unknown$/i.test(raw) || /^n\/?a$/i.test(raw)) return OTHER_BAG_CATEGORY;
+  return raw;
+}
+
+/** Quiet source chip for Stash cards (not a full sentence). */
+export function stashSourceWhisper(source: CartItemSource | null | undefined): string | null {
   switch (source?.surface) {
     case 'USER_IMPORT':
-      return 'From a shared link';
+      return 'Shared';
     case 'COLLECTION':
-      return 'From a collection';
+      return 'Collection';
     case 'SEARCH':
-      return 'From search';
+      return 'Search';
     case 'PRODUCT_DETAILS':
-      return 'From a product';
+      return 'Product';
     default:
       return null;
   }
+}
+
+/** Legacy sentence labels — prefer `stashContextLabel` on Stash UI. */
+export function bagSourceLabel(source: CartItemSource | null | undefined): string | null {
+  return stashSourceWhisper(source);
 }
 
 export function bagAvailabilityLabel(
@@ -72,11 +114,55 @@ export function bagAvailabilityLabel(
   return null;
 }
 
+/** Relative time from addedAt for quiet memory context. */
+export function stashRelativeTime(
+  addedAt: string,
+  nowMs: number = Date.now(),
+): string | null {
+  const ms = Date.parse(addedAt);
+  if (!Number.isFinite(ms)) return null;
+  const deltaSec = Math.max(0, Math.floor((nowMs - ms) / 1000));
+  if (deltaSec < 60) return 'just now';
+  const mins = Math.floor(deltaSec / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
+/** e.g. "Shared · 2h ago" — why this is in the Stash. */
+export function stashContextLabel(
+  item: Pick<BagItemView, 'source' | 'addedAt'>,
+  nowMs: number = Date.now(),
+): string | null {
+  const parts = [stashSourceWhisper(item.source), stashRelativeTime(item.addedAt, nowMs)].filter(
+    (part): part is string => Boolean(part),
+  );
+  return parts.length ? parts.join(' · ') : null;
+}
+
+export function formatStashCategoryTitle(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return OTHER_BAG_CATEGORY;
+  if (trimmed === OTHER_BAG_CATEGORY) return OTHER_BAG_CATEGORY;
+  return trimmed
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 export function bagItemFromLine(line: CartLine): BagItemView {
   const product = line.product ?? {
     id: line.productId,
     catalogProductId: line.catalogProductId,
-    title: 'Saved item',
+    title: 'Stashed item',
     brand: null,
     merchant: null,
     heroImage: CATALOG_IMAGE_PLACEHOLDER,
@@ -92,7 +178,7 @@ export function bagItemFromLine(line: CartLine): BagItemView {
     metadataCompleteness: null,
     category: null,
   };
-  const category = product.category?.trim() || null;
+  const category = bagCategoryKey(product.category);
   return {
     cartItemId: line.cartItemId,
     productId: line.productId,
@@ -119,13 +205,13 @@ export function bagItemFromLine(line: CartLine): BagItemView {
 export function groupBagItems(items: BagItemView[]): BagCategoryGroup[] {
   const buckets = new Map<string, BagItemView[]>();
   for (const item of items) {
-    const key = item.category ?? OTHER_BAG_CATEGORY;
+    const key = bagCategoryKey(item.category);
     const list = buckets.get(key) ?? [];
-    list.push(item);
+    list.push({ ...item, category: key === OTHER_BAG_CATEGORY ? null : key });
     buckets.set(key, list);
   }
   const named = [...buckets.entries()].filter(([key]) => key !== OTHER_BAG_CATEGORY);
-  named.sort(([a], [b]) => a.localeCompare(b));
+  named.sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   const other = buckets.get(OTHER_BAG_CATEGORY);
   const ordered: BagCategoryGroup[] = named.map(([key, groupItems]) => ({
     key,
@@ -150,6 +236,71 @@ export function bagSections(items: BagItemView[]): BagCategoryGroup[] {
     return [{ key: 'all', title: '', items: sortBagItems(items) }];
   }
   return groups;
+}
+
+/**
+ * Stash home shelves from existing fields only:
+ * - Category cards → category (only groups with products)
+ * - Recently stashed → addedAt
+ * Ready-to-shop is intentionally omitted (no cart theatre).
+ */
+export function buildStashHome(items: BagItemView[]): StashHomeLayout {
+  const sorted = sortBagItems(items);
+  const total = sorted.length;
+  const countLabel = total === 1 ? '1 stashed' : `${total} stashed`;
+
+  const categories: StashCategoryCardModel[] = groupBagItems(items)
+    .filter((group) => group.items.length > 0)
+    .map((group) => {
+      const title =
+        group.key === OTHER_BAG_CATEGORY || !group.title
+          ? OTHER_BAG_CATEGORY
+          : formatStashCategoryTitle(group.title);
+      return {
+        key: group.key,
+        title,
+        count: group.items.length,
+        previewUrls: group.items.slice(0, 4).map((item) => item.imageUrl),
+        items: group.items,
+      };
+    });
+
+  return {
+    countLabel,
+    categories,
+    recent: sorted.slice(0, Math.min(RECENT_STASH_LIMIT, total)),
+  };
+}
+
+/** @deprecated Use buildStashHome. */
+export function buildStashLayout(items: BagItemView[]): StashLayout {
+  const home = buildStashHome(items);
+  const sections: StashSection[] = [];
+  if (home.recent.length) {
+    sections.push({
+      key: 'recent',
+      title: 'Recently stashed',
+      items: home.recent,
+      presentation: home.recent.length <= 2 ? 'grid' : 'rail',
+    });
+  }
+  for (const category of home.categories) {
+    sections.push({
+      key: `cat-${category.key}`,
+      title: `${category.title} · ${category.count}`,
+      items: category.items,
+      presentation: 'grid',
+    });
+  }
+  return {
+    countLabel: home.countLabel,
+    summaryLine: home.recent.length
+      ? home.recent.length === 1
+        ? '1 find'
+        : `${home.recent.length} finds`
+      : null,
+    sections,
+  };
 }
 
 export function bagProgressBanners(shares: BagShare[]): {

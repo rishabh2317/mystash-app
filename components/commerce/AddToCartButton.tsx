@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useCartOptional } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
@@ -28,10 +28,9 @@ type Props = {
 const ICON_BUTTON_SIZE = 32;
 
 /**
- * User-facing Add to Bag.
- * Parent owns Cart API / auth. Control owns default → pressed → pending → success | error.
- * After a successful add, the control stays on Added to Bag and a further
- * press removes the product from Bag.
+ * User-facing Add to Bag / remove from Stash.
+ * Parent owns Cart API / auth. Not in Stash → add icon. In Stash → trash glyph
+ * on the same immersive chip family as add-to-bag.
  */
 export function AddToCartButton({ product, variant = 'card', onAddToCart }: Props) {
   const { tokens } = useThemeMode();
@@ -79,9 +78,8 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
     }, tokens.motion.addToBagSuccessMs);
   };
 
-  const onPress = async () => {
+  const runToggle = async (removing: boolean) => {
     if (pending) return;
-    const removing = added;
     setError(false);
     if (!removing) setSuccess(false);
     setPending(true);
@@ -118,6 +116,24 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
     }
   };
 
+  const onPress = () => {
+    if (pending) return;
+    if (added) {
+      Alert.alert(BAG_COPY.removeFromBag, `Remove ${product.title} from your Stash?`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            void runToggle(true);
+          },
+        },
+      ]);
+      return;
+    }
+    void runToggle(false);
+  };
+
   const isSheet = variant === 'sheet';
   const isIcon = variant === 'icon';
   const isQuiet = variant === 'quiet';
@@ -126,59 +142,47 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
       ? added
         ? BAG_COPY.removeFromBag
         : BAG_COPY.adding
-      : phase === 'success'
-        ? BAG_COPY.added
-        : phase === 'error'
-          ? added
-            ? BAG_COPY.removeError
-            : BAG_COPY.addError
+      : phase === 'error'
+        ? added
+          ? BAG_COPY.removeError
+          : BAG_COPY.addError
+        : added
+          ? BAG_COPY.removeFromBag
           : BAG_COPY.add;
 
-  // `quiet` keeps the same states at secondary emphasis: the success fill is a
-  // calm primary tint rather than a saturated green bar that would outweigh the
-  // card's own primary action.
-  const bg = isQuiet
-    ? phase === 'success'
-      ? tokens.color.primarySurface
-      : tokens.color.surfaceSubtle
-    : phase === 'success'
-      ? tokens.color.success
-      : isSheet && phase !== 'error'
+  // In-Stash shares the add-to-bag icon chip family; only the glyph changes.
+  const inStashVisual = added && !error;
+
+  const bg = inStashVisual
+    ? 'transparent'
+    : isQuiet
+      ? tokens.color.surfaceSubtle
+      : isSheet
         ? tokens.color.cta
         : 'transparent';
-  const border = isQuiet
-    ? phase === 'error'
-      ? tokens.color.danger
-      : phase === 'success'
-        ? tokens.color.primarySurface
-        : tokens.color.border
-    : phase === 'success'
-      ? tokens.color.success
-      : phase === 'error'
-        ? tokens.color.danger
+  const border = error
+    ? tokens.color.danger
+    : inStashVisual
+      ? 'transparent'
+      : isQuiet
+        ? tokens.color.border
         : isSheet
           ? tokens.color.cta
           : tokens.color.borderStrong;
-  const fg = isQuiet
-    ? phase === 'success'
-      ? tokens.color.onPrimarySurface
-      : phase === 'error'
-        ? tokens.color.danger
-        : tokens.color.text
-    : phase === 'success'
-      ? tokens.color.successOn
-      : isSheet && phase !== 'error'
-        ? tokens.color.successOn
-        : phase === 'error'
-          ? tokens.color.danger
+  const fg = error
+    ? tokens.color.danger
+    : inStashVisual
+      ? tokens.color.text
+      : isQuiet
+        ? tokens.color.text
+        : isSheet
+          ? tokens.color.successOn
           : tokens.color.text;
 
   if (isIcon) {
     return (
       <Pressable
-        onPress={() => {
-          void onPress();
-        }}
+        onPress={onPress}
         disabled={pending}
         accessibilityRole="button"
         accessibilityLabel={
@@ -194,8 +198,8 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
           styles.iconBtn,
           {
             borderRadius: tokens.radius.pill,
-            backgroundColor: added ? tokens.color.primary : tokens.immersive.controlStrong,
-            borderColor: added ? tokens.color.primary : tokens.immersive.border,
+            backgroundColor: tokens.immersive.controlStrong,
+            borderColor: tokens.immersive.border,
             opacity: controlOpacity(phase, tokens.motion.pressOpacity),
           },
         ]}
@@ -204,9 +208,9 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
           <ActivityIndicator size="small" color={tokens.immersive.icon} />
         ) : (
           <Ionicons
-            name={added ? 'bag-check' : 'bag-add-outline'}
-            size={16}
-            color={added ? tokens.color.onPrimary : tokens.immersive.icon}
+            name={added ? 'trash-outline' : 'bag-add-outline'}
+            size={15}
+            color={tokens.immersive.icon}
           />
         )}
       </Pressable>
@@ -215,13 +219,11 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
 
   return (
     <Pressable
-      onPress={() => {
-        void onPress();
-      }}
+      onPress={onPress}
       disabled={pending}
       accessibilityRole="button"
       accessibilityLabel={
-        added || phase === 'success'
+        added
           ? `${BAG_COPY.removeFromBag} ${product.title}`
           : `${BAG_COPY.add} ${product.title}`
       }
@@ -234,7 +236,7 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
           borderRadius: isSheet || isQuiet ? tokens.radius.md : 10,
           backgroundColor: bg,
           borderColor: border,
-          borderWidth: isQuiet ? StyleSheet.hairlineWidth : 1,
+          borderWidth: isQuiet || inStashVisual ? StyleSheet.hairlineWidth : 1,
           paddingVertical: isQuiet ? tokens.space.sm : undefined,
           paddingHorizontal: isQuiet ? tokens.space.sm : undefined,
           opacity: controlOpacity(phase, tokens.motion.pressOpacity),
@@ -244,9 +246,13 @@ export function AddToCartButton({ product, variant = 'card', onAddToCart }: Prop
       <View style={styles.inner}>
         {phase === 'pending' ? (
           <ActivityIndicator size="small" color={fg} />
-        ) : phase === 'success' ? (
-          <Ionicons name="checkmark-circle" size={isSheet ? 20 : 16} color={fg} />
-        ) : null}
+        ) : (
+          <Ionicons
+            name={added ? 'trash-outline' : 'bag-add-outline'}
+            size={isSheet ? 18 : 15}
+            color={fg}
+          />
+        )}
         <Text style={[isSheet ? styles.sheetText : styles.cardText, { color: fg }]}>{label}</Text>
       </View>
     </Pressable>

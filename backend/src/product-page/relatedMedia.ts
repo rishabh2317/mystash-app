@@ -21,9 +21,16 @@ type MediaRow = {
   source_provider?: unknown;
 };
 
+type PublishedCollectionMeta = {
+  title: string | null;
+  creator: ProductPageRelatedMedia['creator'];
+  views: number;
+  saves: number;
+};
+
 function mapMediaRow(
   row: MediaRow,
-  published: Map<string, string | null>,
+  published: Map<string, PublishedCollectionMeta>,
 ): ProductPageRelatedMedia | null {
   const collectionId = typeof row.collection_id === 'string' ? row.collection_id : null;
   if (!collectionId || !published.has(collectionId)) return null;
@@ -32,33 +39,61 @@ function mapMediaRow(
     validHttpUrl(typeof row.canonical_url === 'string' ? row.canonical_url : null);
   if (!url) return null;
   const kind = kindFromProvider(typeof row.source_provider === 'string' ? row.source_provider : null);
+  const meta = published.get(collectionId)!;
   return {
     id: typeof row.id === 'string' ? row.id : `${collectionId}:${url}`,
     kind,
     label: relatedMediaLabel(kind),
     url,
-    title: (typeof row.title === 'string' && row.title) || published.get(collectionId) || null,
+    title: (typeof row.title === 'string' && row.title) || meta.title || null,
     thumbnailUrl: typeof row.thumbnail_url === 'string' ? row.thumbnail_url : null,
     collectionId,
+    creator: meta.creator,
+    views: meta.views,
+    saves: meta.saves,
   };
 }
 
-async function publishedTitles(
+async function publishedCollectionMeta(
   admin: SupabaseClient,
   collectionIds: string[],
-): Promise<Map<string, string | null>> {
+): Promise<Map<string, PublishedCollectionMeta>> {
   if (collectionIds.length === 0) return new Map();
   const { data, error } = await admin
     .from('collections')
-    .select('id, title')
+    .select(
+      'id, title, creator_id, creator_name, creator_username, creator_avatar, views_count, saves_count',
+    )
     .in('id', collectionIds)
     .eq('status', 'published');
   if (error) throw error;
   return new Map(
-    (data ?? []).map((row) => [
-      row.id as string,
-      typeof row.title === 'string' ? row.title : null,
-    ]),
+    (data ?? []).map((row) => {
+      const id = row.id as string;
+      const creatorId = typeof row.creator_id === 'string' ? row.creator_id : '';
+      const views =
+        typeof row.views_count === 'number' && Number.isFinite(row.views_count)
+          ? Math.max(0, Math.floor(row.views_count))
+          : 0;
+      const saves =
+        typeof row.saves_count === 'number' && Number.isFinite(row.saves_count)
+          ? Math.max(0, Math.floor(row.saves_count))
+          : 0;
+      const meta: PublishedCollectionMeta = {
+        title: typeof row.title === 'string' ? row.title : null,
+        creator: creatorId
+          ? {
+              id: creatorId,
+              username: typeof row.creator_username === 'string' ? row.creator_username : null,
+              displayName: typeof row.creator_name === 'string' ? row.creator_name : null,
+              avatarUrl: typeof row.creator_avatar === 'string' ? row.creator_avatar : null,
+            }
+          : null,
+        views,
+        saves,
+      };
+      return [id, meta] as const;
+    }),
   );
 }
 
@@ -87,7 +122,7 @@ export function createSupabaseRelatedMediaPort(admin: SupabaseClient): ProductPa
       ];
       if (collectionIds.length === 0) return [];
 
-      const published = await publishedTitles(admin, collectionIds);
+      const published = await publishedCollectionMeta(admin, collectionIds);
       if (published.size === 0) return [];
 
       const { data: media, error: mediaError } = await admin
@@ -130,7 +165,7 @@ export function createSupabaseRelatedMediaPort(admin: SupabaseClient): ProductPa
             .filter((id): id is string => Boolean(id)),
         ),
       ];
-      const published = await publishedTitles(admin, collectionIds);
+      const published = await publishedCollectionMeta(admin, collectionIds);
       if (published.size === 0) return [];
 
       const out: ProductPageRelatedMedia[] = [];

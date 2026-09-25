@@ -15,8 +15,17 @@ type Props = {
   children: React.ReactNode;
   /** Page gutter the rail should bleed into so cards start flush with content. */
   gutter?: number;
-  /** Card pitch (card width + gap) — enables snapping and page dots. */
+  /**
+   * Card pitch (card width + gap) — enables snapping.
+   * Must equal each child’s laid-out stride (width + gap/margin).
+   */
   itemPitch?: number;
+  /**
+   * Gap between cards. Prefer this over per-child marginRight so snap pitch
+   * matches layout. When omitted and `itemPitch` is set, gap is 0 (legacy
+   * callers that already pad with marginRight).
+   */
+  itemGap?: number;
   /** Number of pages for the dot indicator. Omit to hide dots. */
   pageCount?: number;
   accessibilityLabel?: string;
@@ -30,6 +39,7 @@ export function ContentRail({
   children,
   gutter = 0,
   itemPitch,
+  itemGap,
   pageCount,
   accessibilityLabel,
 }: Props) {
@@ -39,6 +49,8 @@ export function ContentRail({
   const [contentWidth, setContentWidth] = useState(0);
   const showDots = Boolean(pageCount && pageCount > 1 && itemPitch);
   const measured = viewportWidth > 0 && contentWidth > 0;
+  const gap =
+    itemGap != null ? itemGap : itemPitch != null ? 0 : tokens.space.sm;
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (!showDots || !itemPitch) return;
@@ -60,21 +72,21 @@ export function ContentRail({
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        decelerationRate="fast"
+        decelerationRate={0.992}
         snapToInterval={itemPitch}
         snapToAlignment="start"
-        disableIntervalMomentum
+        // Allow fling across multiple cards; snap still settles on pitch.
+        disableIntervalMomentum={false}
+        nestedScrollEnabled
         onScroll={showDots ? onScroll : undefined}
-        scrollEventThrottle={showDots ? 32 : undefined}
+        scrollEventThrottle={showDots ? 16 : undefined}
         onLayout={showDots ? onLayout : undefined}
         onContentSizeChange={showDots ? (width) => setContentWidth(width) : undefined}
         accessibilityLabel={accessibilityLabel}
         style={{ marginHorizontal: -gutter }}
         contentContainerStyle={{
           paddingHorizontal: gutter,
-          gap: itemPitch ? undefined : tokens.space.sm,
-          // Horizontal rails must not stretch children to the page height —
-          // related cards would grow a tall empty body under the price.
+          gap,
           alignItems: 'flex-start',
         }}
       >

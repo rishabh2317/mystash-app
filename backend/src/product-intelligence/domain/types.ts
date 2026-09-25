@@ -258,6 +258,11 @@ export type AiDraftInput = {
    * Resolver must not replace it with a higher-scoring Serper candidate.
    */
   creatorSuppliedUrl?: boolean;
+  /**
+   * User-import only: resolved commerce country for regional merchant discovery.
+   * Not used by creator ingestion.
+   */
+  commerceCountry?: string | null;
 };
 
 export type ResolveDraftResult = {

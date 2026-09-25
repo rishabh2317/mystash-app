@@ -28,6 +28,13 @@ function isUniqueViolation(err: unknown): boolean {
   return e.code === '23505' || Boolean(e.message?.toLowerCase().includes('duplicate'));
 }
 
+/** BullMQ rejects re-adding a completed/failed job id; waiting/active duplicates are fine. */
+function isBenignDuplicateJobError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const message = String((err as { message?: string }).message ?? '').toLowerCase();
+  return message.includes('job') && message.includes('exist');
+}
+
 /**
  * Content Source application boundary — global content identity plus the async handoff.
  *
@@ -42,6 +49,10 @@ export class ContentSourceService {
 
   async getById(id: string): Promise<ContentSourceRecord | null> {
     return this.repo.findById(id);
+  }
+
+  async listProducts(contentSourceId: string) {
+    return this.repo.listProducts(contentSourceId);
   }
 
   async listBoundSourceIds(bind: {
@@ -122,22 +133,160 @@ export class ContentSourceService {
     }
 
     try {
-      const jobId = await this.queue.enqueue({
-        contentSourceId: contentSource.id,
-        userImportId,
-      });
-      // Compare-and-set: a concurrent share that won the transition leaves this null,
-      // which is still correct — BullMQ collapsed both onto one job id.
+      // Mark QUEUED before enqueue so a fast worker never sees RECEIVED and no-ops.
       const queued = await this.repo.markQueued(contentSource.id, new Date().toISOString());
+      if (!queued) {
+        // Another writer already moved past enqueueable — still ensure a job exists.
+        try {
+          const jobId = await this.queue.enqueue({
+            contentSourceId: contentSource.id,
+            userImportId,
+          });
+          emitContentSourceEvent(
+            'ContentSourceProcessingQueued',
+            buildContentSourceEventPayload({
+              ...base,
+              processingStatus: contentSource.processingStatus,
+              jobId,
+            }),
+          );
+          return { queued: true, suppressed: false, enqueueFailed: false, jobId };
+        } catch (err) {
+          if (isBenignDuplicateJobError(err)) {
+            const jobId = contentSourceProcessingJobId(contentSource.id);
+            return { queued: true, suppressed: false, enqueueFailed: false, jobId };
+          }
+          emitContentSourceEvent(
+            'ContentSourceProcessingSuppressed',
+            buildContentSourceEventPayload({
+              ...base,
+              processingStatus: contentSource.processingStatus,
+              jobId: contentSourceProcessingJobId(contentSource.id),
+              reason: 'already_queued_or_processed',
+            }),
+          );
+          return { queued: false, suppressed: true, enqueueFailed: false, jobId: null };
+        }
+      }
+
+      try {
+        const jobId = await this.queue.enqueue({
+          contentSourceId: contentSource.id,
+          userImportId,
+        });
+        emitContentSourceEvent(
+          'ContentSourceProcessingQueued',
+          buildContentSourceEventPayload({
+            ...base,
+            processingStatus: queued.processingStatus,
+            jobId,
+          }),
+        );
+        return { queued: true, suppressed: false, enqueueFailed: false, jobId };
+      } catch (err) {
+        if (isBenignDuplicateJobError(err)) {
+          const jobId = contentSourceProcessingJobId(contentSource.id);
+          emitContentSourceEvent(
+            'ContentSourceProcessingQueued',
+            buildContentSourceEventPayload({
+              ...base,
+              processingStatus: queued.processingStatus,
+              jobId,
+            }),
+          );
+          return { queued: true, suppressed: false, enqueueFailed: false, jobId };
+        }
+        await this.repo.markRevertToReceived(contentSource.id);
+        emitContentSourceEvent(
+          'ContentSourceEnqueueFailed',
+          buildContentSourceEventPayload({
+            ...base,
+            processingStatus: 'RECEIVED',
+            reason: err instanceof Error ? err.message.slice(0, 200) : 'unknown',
+          }),
+        );
+        return { queued: false, suppressed: false, enqueueFailed: true, jobId: null };
+      }
+    } catch (err) {
       emitContentSourceEvent(
-        'ContentSourceProcessingQueued',
+        'ContentSourceEnqueueFailed',
         buildContentSourceEventPayload({
           ...base,
-          processingStatus: queued?.processingStatus ?? contentSource.processingStatus,
-          jobId,
+          processingStatus: contentSource.processingStatus,
+          reason: err instanceof Error ? err.message.slice(0, 200) : 'unknown',
         }),
       );
-      return { queued: true, suppressed: false, enqueueFailed: false, jobId };
+      return { queued: false, suppressed: false, enqueueFailed: true, jobId: null };
+    }
+  }
+
+  /**
+   * Explicit user-import retry. Re-queues READY/FAILED/RECEIVED and ensures a job exists
+   * for QUEUED/PROCESSING without cancelling in-flight work.
+   */
+  async requestReprocessing(params: {
+    contentSource: ContentSourceRecord;
+    userImportId: string;
+  }): Promise<RequestProcessingResult> {
+    const { contentSource, userImportId } = params;
+    const base = {
+      contentSourceId: contentSource.id,
+      platform: contentSource.platform,
+      externalId: contentSource.externalId,
+      mediaKind: contentSource.mediaKind,
+      userImportId,
+    };
+
+    if (
+      contentSource.processingStatus === 'QUEUED' ||
+      contentSource.processingStatus === 'PROCESSING'
+    ) {
+      try {
+        const jobId = await this.queue.enqueue({
+          contentSourceId: contentSource.id,
+          userImportId,
+        });
+        return { queued: true, suppressed: false, enqueueFailed: false, jobId };
+      } catch (err) {
+        if (isBenignDuplicateJobError(err)) {
+          return {
+            queued: true,
+            suppressed: false,
+            enqueueFailed: false,
+            jobId: contentSourceProcessingJobId(contentSource.id),
+          };
+        }
+        return { queued: false, suppressed: false, enqueueFailed: true, jobId: null };
+      }
+    }
+
+    try {
+      const queued = await this.repo.markRequeue(contentSource.id, new Date().toISOString());
+      if (!queued) {
+        return { queued: false, suppressed: true, enqueueFailed: false, jobId: null };
+      }
+      try {
+        const jobId = await this.queue.enqueue({
+          contentSourceId: contentSource.id,
+          userImportId,
+        });
+        emitContentSourceEvent(
+          'ContentSourceProcessingQueued',
+          buildContentSourceEventPayload({
+            ...base,
+            processingStatus: queued.processingStatus,
+            jobId,
+          }),
+        );
+        return { queued: true, suppressed: false, enqueueFailed: false, jobId };
+      } catch (err) {
+        if (isBenignDuplicateJobError(err)) {
+          const jobId = contentSourceProcessingJobId(contentSource.id);
+          return { queued: true, suppressed: false, enqueueFailed: false, jobId };
+        }
+        await this.repo.markRevertToReceived(contentSource.id);
+        return { queued: false, suppressed: false, enqueueFailed: true, jobId: null };
+      }
     } catch (err) {
       emitContentSourceEvent(
         'ContentSourceEnqueueFailed',

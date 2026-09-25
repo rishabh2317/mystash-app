@@ -17,6 +17,16 @@ export type UserImportListHandlerDeps = {
   authenticate: UserImportAuthenticator;
 };
 
+export type UserImportRetryHandlerDeps = {
+  service: { retry(userId: string, importId: string): Promise<{ id: string; status: string }> };
+  authenticate: UserImportAuthenticator;
+};
+
+export type UserImportDeleteHandlerDeps = {
+  service: { delete(userId: string, importId: string): Promise<void> };
+  authenticate: UserImportAuthenticator;
+};
+
 /** Same Bearer-JWT pattern as Cart / User routes. */
 export function supabaseUserImportAuthenticator(): UserImportAuthenticator {
   return async (req) => {
@@ -124,6 +134,60 @@ export function createUserImportListHandler(deps: UserImportListHandlerDeps) {
   };
 }
 
+export function createUserImportRetryHandler(deps: UserImportRetryHandlerDeps) {
+  return async (req: Request, res: Response): Promise<void> => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || typeof authHeader !== 'string') {
+        res.status(401).json({ error: 'Missing authorization' });
+        return;
+      }
+      const auth = await deps.authenticate(req);
+      if (!auth) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      const importId = typeof req.params.importId === 'string' ? req.params.importId : '';
+      const record = await deps.service.retry(auth.userId, importId);
+      res.json({ importId: record.id, status: 'RECEIVED' });
+    } catch (e) {
+      if (e instanceof UserImportServiceError) {
+        res.status(e.statusCode).json({ error: e.message });
+        return;
+      }
+      logger.error(e);
+      res.status(500).json({ error: 'Could not retry that link' });
+    }
+  };
+}
+
+export function createUserImportDeleteHandler(deps: UserImportDeleteHandlerDeps) {
+  return async (req: Request, res: Response): Promise<void> => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || typeof authHeader !== 'string') {
+        res.status(401).json({ error: 'Missing authorization' });
+        return;
+      }
+      const auth = await deps.authenticate(req);
+      if (!auth) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      const importId = typeof req.params.importId === 'string' ? req.params.importId : '';
+      await deps.service.delete(auth.userId, importId);
+      res.status(204).send();
+    } catch (e) {
+      if (e instanceof UserImportServiceError) {
+        res.status(e.statusCode).json({ error: e.message });
+        return;
+      }
+      logger.error(e);
+      res.status(500).json({ error: 'Could not delete that share' });
+    }
+  };
+}
+
 export function registerUserImportRoutes(app: Express): void {
   const service = createUserImportService(createSupabaseAdmin());
   const authenticate = supabaseUserImportAuthenticator();
@@ -135,4 +199,6 @@ export function registerUserImportRoutes(app: Express): void {
       authenticate,
     }),
   );
+  app.post('/imports/:importId/retry', createUserImportRetryHandler({ service, authenticate }));
+  app.delete('/imports/:importId', createUserImportDeleteHandler({ service, authenticate }));
 }

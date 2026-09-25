@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 
-import { CollectionTile } from '@/components/collection/CollectionTile';
+import { PublicCollectionTile } from '@/components/collection/PublicCollectionTile';
+import { DiscoverCreatorsSection } from '@/components/profile/DiscoverCreatorsSection';
 import { ProfileContentTabs } from '@/components/profile/ProfileContentTabs';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import type { CollectionViewModel } from '@/src/types/collection';
@@ -10,13 +11,11 @@ import {
   PERSONAL_PROFILE_COPY,
   PERSONAL_PROFILE_FLATLIST_KEYS,
   PERSONAL_PROFILE_TABS,
-  personalStats,
   type PersonalProfileTab,
 } from '@/src/ui/personalProfile';
 
 import { PersonalCreateCollectionCard } from './PersonalCreateCollectionCard';
 import { PersonalProfileHeader } from './PersonalProfileHeader';
-import { PersonalStatsBar } from './PersonalStatsBar';
 
 type Props = {
   creator: CreatorViewModel;
@@ -25,6 +24,7 @@ type Props = {
   collectionsLoading?: boolean;
   savedLoading?: boolean;
   onEditPress: () => void;
+  onSharePress: () => void;
   onPressCollection: (collection: CollectionViewModel) => void;
   onPressStat: (id: 'collections' | 'following' | 'followers') => void;
   onCreateCollection: () => void;
@@ -37,6 +37,7 @@ export function PersonalProfile({
   collectionsLoading,
   savedLoading,
   onEditPress,
+  onSharePress,
   onPressCollection,
   onPressStat,
   onCreateCollection,
@@ -45,26 +46,19 @@ export function PersonalProfile({
   const [activeTab, setActiveTab] = useState<PersonalProfileTab>('collections');
   const gutter = tokens.space.md;
   const gap = tokens.space.sm;
-  const stats = useMemo(
-    () =>
-      personalStats({
-        collectionCount: creator.collectionCount,
-        totalReelLikesReceived: creator.totalReelLikesReceived,
-        followingCount: creator.followingCount,
-        followersCount: creator.followersCount,
-      }),
-    [
-      creator.collectionCount,
-      creator.followersCount,
-      creator.followingCount,
-      creator.totalReelLikesReceived,
-    ],
-  );
 
   const header = (
     <View style={{ gap: tokens.space.md, paddingBottom: tokens.space.xs }}>
-      <PersonalProfileHeader creator={creator} onEditPress={onEditPress} />
-      <PersonalStatsBar stats={stats} onPressStat={onPressStat} />
+      <PersonalProfileHeader
+        creator={creator}
+        onEditPress={onEditPress}
+        onSharePress={onSharePress}
+        onPressStat={onPressStat}
+      />
+      <DiscoverCreatorsSection
+        excludeUserId={creator.userId}
+        excludeUsername={creator.username}
+      />
       <ProfileContentTabs tabs={PERSONAL_PROFILE_TABS} active={activeTab} onChange={setActiveTab} />
     </View>
   );
@@ -128,7 +122,7 @@ export function PersonalProfile({
       }
       renderItem={({ item }) => (
         <View style={styles.cell}>
-          <CollectionTile collection={item} variant="public" onPress={onPressCollection} />
+          <PublicCollectionTile collection={item} onPress={onPressCollection} />
         </View>
       )}
     />

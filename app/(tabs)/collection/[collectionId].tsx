@@ -1,10 +1,12 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 
 import { CollectionPageHeader } from '@/components/collection/CollectionPageHeader';
 import { CollectionScreen } from '@/components/collection/CollectionScreen';
 import { ActionButton } from '@/components/ui/ActionButton';
+import { Text } from '@/components/ui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { CollectionApiError } from '@/src/services/collectionApi';
@@ -14,6 +16,8 @@ import { useRecordCollectionView } from '@/src/services/collectionViewTracking';
 import { useCreatorFollowHandler } from '@/src/services/creatorFollowOrchestration';
 import { isCollectionSaved, isFollowingCreator } from '@/src/services/engagementApi';
 import { shareCollection } from '@/src/services/shareLinks';
+import { softCanvasGradient } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
 
 export default function CollectionPageRoute() {
@@ -160,50 +164,34 @@ export default function CollectionPageRoute() {
   }, [detail]);
 
   const text = tokens.color.text;
-  const canvas = { backgroundColor: tokens.color.canvas };
-  const centered = {
-    padding: tokens.space.lg,
-    gap: tokens.space.sm,
-  };
-  const message = {
-    color: tokens.color.textMuted,
-    fontSize: tokens.fontSize.body,
-    lineHeight: tokens.lineHeight.body,
-    textAlign: 'center' as const,
-  };
+  const message = [typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' as const }];
+  const shell = (body: React.ReactNode) => (
+    <View style={styles.root}>
+      <LinearGradient colors={[...softCanvasGradient(tokens)]} style={StyleSheet.absoluteFill} />
+      <CollectionPageHeader title="Shop" />
+      <View style={[styles.centered, { padding: tokens.space.lg, gap: tokens.space.sm }]}>{body}</View>
+    </View>
+  );
 
   if (loading) {
-    return (
-      <View style={[styles.root, canvas]}>
-        <CollectionPageHeader title="Collection" />
-        <View style={[styles.centered, centered]}>
-          <ActivityIndicator size="large" color={text} />
-        </View>
-      </View>
-    );
+    return shell(<ActivityIndicator size="large" color={text} />);
   }
 
   if (notFound) {
-    return (
-      <View style={[styles.root, canvas]}>
-        <CollectionPageHeader title="Collection" />
-        <View style={[styles.centered, centered]}>
-          <Text style={message}>Collection not found</Text>
-          <ActionButton label="Go back" variant="secondary" onPress={() => router.back()} />
-        </View>
-      </View>
+    return shell(
+      <>
+        <Text style={message}>Collection not found</Text>
+        <ActionButton label="Go back" variant="secondary" onPress={() => router.back()} />
+      </>,
     );
   }
 
   if (error || !detail) {
-    return (
-      <View style={[styles.root, canvas]}>
-        <CollectionPageHeader title="Collection" />
-        <View style={[styles.centered, centered]}>
-          <Text style={message}>{error ?? 'Something went wrong'}</Text>
-          <ActionButton label="Retry" variant="secondary" onPress={() => void load()} />
-        </View>
-      </View>
+    return shell(
+      <>
+        <Text style={message}>{error ?? 'Something went wrong'}</Text>
+        <ActionButton label="Retry" variant="secondary" onPress={() => void load()} />
+      </>,
     );
   }
 

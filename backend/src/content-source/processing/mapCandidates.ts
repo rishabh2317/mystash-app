@@ -2,6 +2,7 @@ import type {
   ContentExtractionMethod,
   InsertContentSourceProductRow,
 } from '../domain/types';
+import { resolvePersistableCategory } from '../../product-intelligence/domain/categoryTaxonomy';
 
 export type MappedProductInput = {
   name: string;
@@ -65,7 +66,7 @@ export function mapExtractedProducts(params: {
       name,
       brand: product.brand?.trim() || null,
       model: product.model?.trim() || null,
-      category: product.category?.trim() || null,
+      category: resolvePersistableCategory(product.category),
       price: product.price?.trim() || null,
       currency: product.currency?.trim() || null,
       image: product.image?.trim() || null,
@@ -81,4 +82,37 @@ export function mapExtractedProducts(params: {
   });
 
   return rows;
+}
+
+/**
+ * Cap Discover Anywhere candidates before persistence / enrichment.
+ * Preserves highest-confidence first, then original sort order.
+ * Uses pipelineConfig.maxProductsPerImport — not creator ingest caps.
+ */
+export function limitProductsForUserImport<T extends MappedProductInput>(
+  products: T[],
+  max: number,
+): T[] {
+  const limit = Math.max(1, Math.floor(max));
+  if (products.length <= limit) return products;
+  const ranked = products
+    .map((product, index) => ({ product, index }))
+    .sort((a, b) => {
+      const ca = typeof a.product.confidence === 'number' ? a.product.confidence : -1;
+      const cb = typeof b.product.confidence === 'number' ? b.product.confidence : -1;
+      if (cb !== ca) return cb - ca;
+      const sa =
+        typeof a.product.sortOrder === 'number' && a.product.sortOrder > 0
+          ? a.product.sortOrder
+          : a.index;
+      const sb =
+        typeof b.product.sortOrder === 'number' && b.product.sortOrder > 0
+          ? b.product.sortOrder
+          : b.index;
+      return sa - sb;
+    })
+    .slice(0, limit)
+    .sort((a, b) => a.index - b.index)
+    .map((entry) => entry.product);
+  return ranked;
 }

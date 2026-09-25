@@ -18,6 +18,13 @@ export type OverflowMenuItem = {
 type Props = {
   items: OverflowMenuItem[];
   accessibilityLabel?: string;
+  /** Vertical ⋮ (Instagram). Default horizontal ⋯. */
+  orientation?: 'horizontal' | 'vertical';
+  /**
+   * Icon-only with no pill/circle chrome.
+   * Defaults to bare so TopBar trailing matches public-profile language.
+   */
+  bare?: boolean;
 };
 
 const CONTROL_SIZE = 40;
@@ -26,7 +33,12 @@ const CONTROL_SIZE = 40;
  * Chrome overflow: secondary page actions that must stay reachable without
  * competing with the page's primary controls.
  */
-export function OverflowMenu({ items, accessibilityLabel = 'More actions' }: Props) {
+export function OverflowMenu({
+  items,
+  accessibilityLabel = 'More actions',
+  orientation = 'horizontal',
+  bare = true,
+}: Props) {
   const { tokens } = useThemeMode();
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
@@ -42,14 +54,22 @@ export function OverflowMenu({ items, accessibilityLabel = 'More actions' }: Pro
         hitSlop={hitSlopToMinTarget(CONTROL_SIZE)}
         style={({ pressed }) => [
           styles.control,
+          bare
+            ? null
+            : {
+                backgroundColor: tokens.color.overlay,
+                borderRadius: tokens.radius.pill,
+              },
           {
-            backgroundColor: tokens.color.overlay,
-            borderRadius: tokens.radius.pill,
             opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
           },
         ]}
       >
-        <Ionicons name="ellipsis-horizontal" size={20} color={tokens.color.icon} />
+        <Ionicons
+          name={orientation === 'vertical' ? 'ellipsis-vertical' : 'ellipsis-horizontal'}
+          size={22}
+          color={tokens.color.icon}
+        />
       </Pressable>
 
       <Modal

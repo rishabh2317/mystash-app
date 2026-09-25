@@ -13,7 +13,7 @@ type Props = {
   onNo: () => void;
 };
 
-/** Internal name stays Cart*; user-facing copy is Keep in Bag? */
+/** Internal name stays Cart*; user-facing copy is Keep in Stash? */
 export function CartPurchaseConfirmModal({
   visible,
   productTitle,

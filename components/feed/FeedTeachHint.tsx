@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { outlineCardChrome } from '@/src/theme/tokens';
 import { FEED_MIN_HIT_TARGET, FEED_TEACH_COPY } from '@/src/ui/feedA11y';
 
 type Props = {
@@ -25,8 +26,7 @@ export function FeedTeachHint({ visible, onDismiss }: Props) {
         style={[
           styles.card,
           {
-            backgroundColor: tokens.color.surfaceRaised,
-            borderColor: tokens.color.border,
+            ...outlineCardChrome(tokens),
             borderRadius: tokens.radius.md,
             paddingHorizontal: tokens.space.md,
             paddingVertical: tokens.space.sm,

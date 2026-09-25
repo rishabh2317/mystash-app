@@ -13,7 +13,7 @@ import type {
   ContentSourceResolutionPort,
 } from '../ports';
 import { CONTENT_SOURCE_PROCESSOR_VERSION, ContentSourceTerminalError } from './errors';
-import { mapExtractedProducts } from './mapCandidates';
+import { mapExtractedProducts, limitProductsForUserImport } from './mapCandidates';
 
 export type ContentSourceProcessContext = {
   attemptsMade: number;
@@ -118,6 +118,13 @@ export class ContentSourceProcessor {
           durationMs: Date.now() - started.getTime(),
         }),
       );
+
+      // Merchant enrichment is best-effort and must not keep discovery "looking".
+      if (this.deps.resolution?.enqueueMerchantEnrichment) {
+        void this.deps.resolution
+          .enqueueMerchantEnrichment(claimed.id, data.userImportId, data.traceId)
+          .catch(() => undefined);
+      }
     } catch (err) {
       await this.handleFailure(claimed, ctx, err, started, base);
     }
@@ -170,9 +177,13 @@ export class ContentSourceProcessor {
           extractionMethod: extracted.extractionMethod,
         }),
       );
+      const capped = limitProductsForUserImport(
+        extracted.products,
+        getPipelineConfig().maxProductsPerImport,
+      );
       return mapExtractedProducts({
         contentSourceId: source.id,
-        products: extracted.products,
+        products: capped,
         extractionMethod: extracted.extractionMethod,
         processorVersion,
         sourceMetadata: {
@@ -222,7 +233,7 @@ export class ContentSourceProcessor {
       );
       return mapExtractedProducts({
         contentSourceId: source.id,
-        products,
+        products: limitProductsForUserImport(products, getPipelineConfig().maxProductsPerImport),
         extractionMethod: 'merchant_enrichment',
         processorVersion,
         sourceMetadata: {
