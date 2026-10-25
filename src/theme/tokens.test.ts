@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
+  CARD_SURFACE_VARIANT,
   OUTLINE_BORDER_VARIANT,
+  TITANIUM_EXPERIMENT,
   getThemeTokens,
   mediaScrimGradient,
   outlineCardChrome,
@@ -36,21 +40,43 @@ describe('theme tokens', () => {
     assert.notEqual(t.color.canvas, n.color.canvas);
     assert.notEqual(t.color.accent, t.color.cta);
     assert.equal(t.fontSize.body, n.fontSize.body);
-    assert.equal(t.color.accent, '#00AFC0');
+    if (CARD_SURFACE_VARIANT === 'raised') {
+      assert.equal(t.color.accent, TITANIUM_EXPERIMENT.accent);
+    } else {
+      assert.equal(t.color.accent, '#159A9C');
+    }
     assert.equal(n.color.accent, '#A855F7');
   });
 
   it('provides page and soft gradients for existing surface washes', () => {
     const t = getThemeTokens('titanium');
-    assert.deepEqual(pageCanvasGradient(t), ['#FFFFFF', '#F7F7F7']);
-    assert.deepEqual(softCanvasGradient(t), ['#FFFFFF', '#F5F5F5']);
+    if (CARD_SURFACE_VARIANT === 'raised') {
+      assert.deepEqual(pageCanvasGradient(t), [
+        TITANIUM_EXPERIMENT.canvas,
+        TITANIUM_EXPERIMENT.canvasEnd,
+      ]);
+      assert.deepEqual(softCanvasGradient(t), [
+        TITANIUM_EXPERIMENT.canvasSoft,
+        TITANIUM_EXPERIMENT.canvasSoftEnd,
+      ]);
+    } else {
+      assert.deepEqual(pageCanvasGradient(t), ['#FFFFFF', '#F7F7F7']);
+      assert.deepEqual(softCanvasGradient(t), ['#FFFFFF', '#F5F5F5']);
+    }
   });
 
-  it('keeps the primary colour identical in both modes', () => {
+  it('keeps Nebula primary independent of the Titanium light experiment', () => {
     const t = getThemeTokens('titanium');
     const n = getThemeTokens('nebula');
-    assert.equal(t.color.primary, n.color.primary);
-    assert.equal(t.color.onPrimary, n.color.onPrimary);
+    assert.equal(n.color.primary, '#159A9C');
+    assert.equal(n.color.onPrimary, '#FFFFFF');
+    if (CARD_SURFACE_VARIANT === 'raised') {
+      assert.equal(t.color.primary, TITANIUM_EXPERIMENT.primary);
+      assert.equal(t.color.onPrimary, TITANIUM_EXPERIMENT.onPrimary);
+      assert.notEqual(t.color.primary, n.color.primary);
+    } else {
+      assert.equal(t.color.primary, n.color.primary);
+    }
     assert.notEqual(t.color.primary, t.color.onPrimary);
   });
 
@@ -86,20 +112,57 @@ describe('theme tokens', () => {
     assert.equal(n.color.icon, '#FFFFFF');
   });
 
-  it('keeps outline information cards transparent with a quiet border', () => {
+  it('keeps information cards distinct from canvas via outlineCardChrome', () => {
+    assert.equal(CARD_SURFACE_VARIANT, 'raised');
     for (const mode of ['titanium', 'nebula'] as const) {
       const tokens = getThemeTokens(mode);
-      assert.equal(tokens.color.outlineCard, 'transparent');
-      assert.equal(tokens.semantic.surface.outlineCard, 'transparent');
+      if (CARD_SURFACE_VARIANT === 'raised') {
+        assert.notEqual(tokens.color.outlineCard, 'transparent');
+        assert.notEqual(tokens.semantic.surface.outlineCard, 'transparent');
+      } else {
+        assert.equal(tokens.color.outlineCard, 'transparent');
+        assert.equal(tokens.semantic.surface.outlineCard, 'transparent');
+      }
       assert.notEqual(tokens.semantic.surface.outlineCard, tokens.semantic.surface.canvas);
       assert.equal(tokens.semantic.border.subtle, tokens.color.border);
       assert.equal(tokens.semantic.text.primary, tokens.color.text);
       assert.equal(tokens.semantic.text.secondary, tokens.color.textMuted);
       assert.equal(tokens.semantic.accent, tokens.color.primary);
       const chrome = outlineCardChrome(tokens);
-      assert.equal(chrome.backgroundColor, 'transparent');
-      assert.equal(chrome.borderColor, tokens.semantic.border.subtle);
+      assert.equal(chrome.backgroundColor, tokens.semantic.surface.outlineCard);
+      assert.equal(
+        chrome.borderColor,
+        tokens.mode === 'titanium' && CARD_SURFACE_VARIANT === 'raised'
+          ? TITANIUM_EXPERIMENT.cardBorder
+          : tokens.semantic.border.subtle,
+      );
     }
+    const t = getThemeTokens('titanium');
+    const n = getThemeTokens('nebula');
+    if (CARD_SURFACE_VARIANT === 'raised') {
+      assert.equal(t.color.outlineCard, TITANIUM_EXPERIMENT.card);
+      assert.equal(t.color.canvas, TITANIUM_EXPERIMENT.canvas);
+      assert.equal(t.color.canvasEnd, TITANIUM_EXPERIMENT.canvasEnd);
+      assert.equal(t.color.canvasSoft, TITANIUM_EXPERIMENT.canvasSoft);
+      assert.equal(t.color.primary, TITANIUM_EXPERIMENT.primary);
+      const chrome = outlineCardChrome(t);
+      assert.equal(chrome.backgroundColor, TITANIUM_EXPERIMENT.card);
+      assert.equal(chrome.borderColor, TITANIUM_EXPERIMENT.cardBorder);
+      assert.equal(chrome.shadowOffset?.height, TITANIUM_EXPERIMENT.cardShadow.shadowOffset.height);
+      assert.equal(chrome.shadowOpacity, TITANIUM_EXPERIMENT.cardShadow.shadowOpacity);
+      assert.equal(chrome.elevation, TITANIUM_EXPERIMENT.cardShadow.elevation);
+      assert.equal(n.color.outlineCard, '#141416');
+      assert.equal(n.color.canvas, '#050506');
+      assert.equal(outlineCardChrome(n).shadowOpacity, undefined);
+    }
+  });
+
+  it('Titanium outline branch restores original canvas and transparent cards', () => {
+    const src = readFileSync(join(process.cwd(), 'src/theme/tokens.ts'), 'utf8');
+    assert.match(src, /canvas: TITANIUM_RAISED \? TITANIUM_EXPERIMENT\.canvas : '#FFFFFF'/);
+    assert.match(src, /canvasEnd: TITANIUM_RAISED \? TITANIUM_EXPERIMENT\.canvasEnd : '#F7F7F7'/);
+    assert.match(src, /canvasSoft: TITANIUM_RAISED \? TITANIUM_EXPERIMENT\.canvasSoft : '#FFFFFF'/);
+    assert.match(src, /outlineCard: TITANIUM_RAISED \? TITANIUM_EXPERIMENT\.card : 'transparent'/);
   });
 
   it('defaults the outline border experiment to refined (Mystash baseline)', () => {

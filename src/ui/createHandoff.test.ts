@@ -22,6 +22,17 @@ describe('UX-CREATE-B.2 editor handoff', () => {
       false,
     );
   });
+
+  it('does not treat ready_for_review with products as empty processing', () => {
+    assert.equal(
+      ingestEditorShowsProcessing({
+        status: 'ready_for_review',
+        extractionPending: false,
+        products: [{ id: 'p1' }],
+      }),
+      false,
+    );
+  });
 });
 
 describe('UX-CREATE-B.3 mode locking', () => {

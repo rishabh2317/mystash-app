@@ -1,13 +1,11 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ProfileIdentityHeader } from '@/components/profile/ProfileIdentityHeader';
 import { ProfileStatsStrip } from '@/components/profile/ProfileStatsStrip';
-import { Text } from '@/components/ui/Text';
+import { ActionButton } from '@/components/ui/ActionButton';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { typeStyle } from '@/src/theme/typography';
 import type { CreatorViewModel } from '@/src/types/creator';
-import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { PERSONAL_PROFILE_COPY } from '@/src/ui/personalProfile';
 import { publicCreatorMetaLine, publicCreatorStats } from '@/src/ui/publicCreatorProfile';
 
@@ -20,7 +18,7 @@ type Props = {
 
 /**
  * Own-profile identity — same hierarchy + CTA pair as the public storefront,
- * with Edit profile (primary) replacing Follow and Share as secondary.
+ * with Edit profile replacing Follow and Share as the second action.
  */
 export function PersonalProfileHeader({
   creator,
@@ -57,69 +55,27 @@ export function PersonalProfileHeader({
         />
       }
       action={
-        <View style={[styles.actions, { gap: tokens.space.sm }]}>
-          <Pressable
-            onPress={onEditPress}
-            accessibilityRole="button"
-            accessibilityLabel={PERSONAL_PROFILE_COPY.editProfile}
-            style={({ pressed }) => [
-              styles.btn,
-              {
-                borderRadius: tokens.radius.pill,
-                borderWidth: tokens.stroke.hairline,
-                borderColor: 'transparent',
-                backgroundColor: tokens.color.primary,
-                opacity: controlOpacity(
-                  resolveControlPhase({ pressed }),
-                  tokens.motion.pressOpacity,
-                ),
-              },
-            ]}
-          >
-            <Text
-              style={[
-                typeStyle(tokens, 'tileMeta'),
-                {
-                  color: tokens.color.onPrimary,
-                  fontFamily: tokens.fontFamily.semibold,
-                  fontSize: tokens.fontSize.caption,
-                },
-              ]}
-            >
-              {PERSONAL_PROFILE_COPY.editProfile}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={onSharePress}
-            accessibilityRole="button"
-            accessibilityLabel="Share profile"
-            style={({ pressed }) => [
-              styles.btn,
-              {
-                borderRadius: tokens.radius.pill,
-                borderWidth: tokens.stroke.hairline,
-                borderColor: tokens.color.border,
-                backgroundColor: tokens.color.surface,
-                opacity: controlOpacity(
-                  resolveControlPhase({ pressed }),
-                  tokens.motion.pressOpacity,
-                ),
-              },
-            ]}
-          >
-            <Text
-              style={[
-                typeStyle(tokens, 'tileMeta'),
-                {
-                  color: tokens.color.text,
-                  fontFamily: tokens.fontFamily.semibold,
-                  fontSize: tokens.fontSize.caption,
-                },
-              ]}
-            >
-              Share
-            </Text>
-          </Pressable>
+        <View style={[styles.actions, { gap: tokens.space.xs }]}>
+          <View style={styles.btn}>
+            <ActionButton
+              size="compact"
+              radius="md"
+              variant="outlinePrimary"
+              label={PERSONAL_PROFILE_COPY.editProfile}
+              onPress={onEditPress}
+              accessibilityLabel={PERSONAL_PROFILE_COPY.editProfile}
+            />
+          </View>
+          <View style={styles.btn}>
+            <ActionButton
+              size="compact"
+              radius="md"
+              variant="secondary"
+              label="Share"
+              onPress={onSharePress}
+              accessibilityLabel="Share profile"
+            />
+          </View>
         </View>
       }
     />
@@ -134,9 +90,5 @@ const styles = StyleSheet.create({
   },
   btn: {
     flex: 1,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
   },
 });

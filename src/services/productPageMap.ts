@@ -86,6 +86,7 @@ export function hydrateProductPage(raw: unknown): ProductPageView | null {
         url,
         title: asString(s.title),
         collectionId: asString(s.collectionId),
+        thumbnailUrl: asString(s.thumbnailUrl),
       };
     }
   }

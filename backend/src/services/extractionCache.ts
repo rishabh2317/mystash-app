@@ -1,9 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildCacheKey, getPipelineConfig } from '../config/pipelineConfig';
 import type { ProductCandidate } from '../domain/types';
+import type { ExtractedPlaceMention } from '../place/parseReasonerPayload';
 
 export type CachedExtractionPayload = {
   products: ProductCandidate[];
+  places?: ExtractedPlaceMention[];
   finalStage: string;
   status: 'ready_for_review' | 'review_required';
   youtubeMetadata?: {
@@ -15,9 +17,11 @@ export type CachedExtractionPayload = {
   };
 };
 
+export const USER_IMPORT_EXTRACTION_CACHE_SCOPE = 'user-import';
+
 export async function getVideoExtractionCache(
   admin: SupabaseClient,
-  params: { platform: string; externalVideoId: string },
+  params: { platform: string; externalVideoId: string; scope?: string },
 ): Promise<{ cacheKey: string; payload: CachedExtractionPayload } | null> {
   const cacheKey = buildCacheKey(params);
   const { data, error } = await admin
@@ -35,9 +39,11 @@ export async function setVideoExtractionCache(
     platform: string;
     externalVideoId: string;
     products: ProductCandidate[];
+    places?: ExtractedPlaceMention[];
     finalStage: string;
     status: 'ready_for_review' | 'review_required';
     youtubeMetadata?: CachedExtractionPayload['youtubeMetadata'];
+    scope?: string;
   },
 ): Promise<string> {
   const cacheKey = buildCacheKey(params);
@@ -51,6 +57,7 @@ export async function setVideoExtractionCache(
       provider_version: cfg.providerVersion,
       payload: {
         products: params.products,
+        places: params.places,
         finalStage: params.finalStage,
         status: params.status,
         youtubeMetadata: params.youtubeMetadata,

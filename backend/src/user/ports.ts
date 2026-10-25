@@ -16,6 +16,14 @@ export type CollectionDiscoveryPort = {
   countPublishedPublicCollections(creatorId: string): Promise<number>;
 };
 
+/** User → Notifications. */
+export type UserNotificationPort = {
+  /** Account deletion is a soft delete, so FK cascades never fire; the purge is permanent. */
+  purgeUser(userId: string): Promise<void>;
+  /** Must not throw. */
+  creatorStatusChanged(input: { userId: string; from: string; to: string; changedAt: string }): Promise<void>;
+};
+
 /** User profile aggregate; LIKE edges remain owned by Engagement. */
 export type ReelLikeSummaryPort = {
   sumPublicReelLikesReceived(creatorId: string): Promise<number>;

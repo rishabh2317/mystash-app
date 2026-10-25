@@ -401,7 +401,7 @@ describe('Stash presentation', () => {
     assert.ok(sections.some((s) => s.title === 'Other'));
   });
 
-  it('Stash category collage keeps transparent gutters between curved thumbnails', () => {
+  it('Stash category collage keeps gutters between curved thumbnails', () => {
     const src = readFileSync(join(ROOT, 'components/commerce/StashCategoryCard.tsx'), 'utf8');
     assert.match(src, /COLLAGE_GUTTER/);
     assert.match(src, /borderTopLeftRadius: collageRadius/);

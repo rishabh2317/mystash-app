@@ -15,11 +15,14 @@ export const USER_IMPORT_TIMEOUT_MS = 10 * 60 * 1000;
 export function shareProgressState(source: {
   processingStatus: ContentProcessingStatus;
   candidateCount: number;
+  /** Resolved places plus unresolved leads for this import. Omitted means none yet. */
+  placeCardCount?: number;
 } | null): ShareProgressState {
   if (!source) return 'looking';
   if (source.processingStatus === 'FAILED') return 'couldnt_finish';
   if (source.processingStatus === 'READY') {
-    return source.candidateCount > 0 ? 'ready' : 'nothing_yet';
+    const placeCards = source.placeCardCount ?? 0;
+    return source.candidateCount > 0 || placeCards > 0 ? 'ready' : 'nothing_yet';
   }
   return 'looking';
 }
@@ -28,6 +31,7 @@ export type ShareProgressInput = {
   source: {
     processingStatus: ContentProcessingStatus;
     candidateCount: number;
+    placeCardCount?: number;
   } | null;
   /** Durable freeze — late READY must not resurrect UX. */
   timedOutAt: string | null;

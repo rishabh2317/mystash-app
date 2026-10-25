@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { CREATE_COPY, CREATE_STACK_TITLES, draftResumeStatusLabel } from './createCopy';
+import { CREATE_COPY, CREATE_STACK_TITLES, createOnboardingDisplayName, draftResumeStatusLabel } from './createCopy';
 
 describe('UX-CREATE-B.1 create copy', () => {
   it('uses Creator Studio stack titles', () => {
     assert.equal(CREATE_STACK_TITLES.studio, 'Creator Studio');
-    assert.equal(CREATE_STACK_TITLES.manual, 'Add product links');
+    assert.equal(CREATE_STACK_TITLES.manual, 'Products only');
     assert.equal(CREATE_STACK_TITLES.editor, 'Edit Collection');
   });
 
@@ -49,6 +51,7 @@ describe('UX-CREATE-B.1 create copy', () => {
 
   it('exposes publish ritual copy for B.7', () => {
     assert.match(CREATE_COPY.publishConfirmTitle, /Publish Collection/i);
+    assert.equal(CREATE_COPY.publishConfirmReady, 'Ready to publish');
     assert.match(CREATE_COPY.publishConfirmPreview, /feed and on your profile/i);
     assert.equal(CREATE_COPY.publishSuccessTitle, 'Collection is live');
     assert.equal(CREATE_COPY.publishSuccessViewFeed, 'View in feed');
@@ -60,4 +63,50 @@ describe('UX-CREATE-B.1 create copy', () => {
     assert.equal(CREATE_STACK_TITLES.studio, 'Creator Studio');
     assert.equal(CREATE_STACK_TITLES.editor, 'Edit Collection');
   });
+
+  it('keeps become-a-creator gate copy and prefers a real display name', () => {
+    assert.equal(CREATE_COPY.onboardingHeadline, 'Become a Mystash creator');
+    assert.equal(CREATE_COPY.onboardingCta, 'Become a creator');
+    assert.equal(CREATE_COPY.onboardingRefresh, 'Refresh status');
+    assert.equal(
+      createOnboardingDisplayName({
+        displayName: 'user_8badba1364',
+        username: 'user_8badba1364',
+        fullName: 'Mega Star',
+      }),
+      'Mega Star',
+    );
+    assert.equal(
+      createOnboardingDisplayName({
+        displayName: 'Mega Star',
+        username: 'rama',
+        fullName: null,
+      }),
+      'Mega Star',
+    );
+    const panel = readFileSync(join(process.cwd(), 'components/creator/CreatorOnboardingPanel.tsx'), 'utf8');
+    assert.match(panel, /creator_studio_video_hero\.png/);
+    assert.match(panel, /ActionButton/);
+    assert.match(panel, /CREATE_COPY\.onboardingRefresh/);
+    assert.match(panel, /SETTINGS_COPY\.onboardingContinue/);
+    assert.doesNotMatch(panel, /activateCreatorAccount/);
+  });
+
+  it('keeps Creator Studio signed-out copy and Profile destination', () => {
+    assert.equal(CREATE_COPY.signInTitle, 'Sign in to Creator Studio');
+    const create = readFileSync(join(process.cwd(), 'app/(tabs)/create/index.tsx'), 'utf8');
+    const empty = readFileSync(
+      join(process.cwd(), 'components/create/CreateSignedOutState.tsx'),
+      'utf8',
+    );
+    assert.match(create, /CreateSignedOutState/);
+    assert.match(create, /router\.replace\('\/\(tabs\)\/profile'\)/);
+    assert.match(empty, /creator_studio_signed_out_hero\.png/);
+    assert.match(empty, /resizeMode="contain"/);
+    assert.match(empty, /CREATE_COPY\.signInTitle/);
+    assert.match(empty, /CREATE_COPY\.signInBody/);
+    assert.match(empty, /label="Go to Profile"/);
+    assert.match(empty, /variant="filled"/);
+  });
 });
+

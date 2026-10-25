@@ -11,10 +11,15 @@ import {
   personalProductCountLabel,
   personalRailPreview,
   personalStats,
+  PROFILE_VIDEO_GRID_ASPECT,
+  PROFILE_VIDEO_GRID_COLUMNS,
+  PROFILE_VIDEO_GRID_GAP,
+  PROFILE_VIDEO_GRID_GUTTER,
+  profileGridCellWidth,
   shouldShowPersonalViewAll,
 } from './personalProfile';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 describe('personal profile architecture', () => {
   it('keeps the You tab off the public CreatorProfile storefront', () => {
@@ -37,10 +42,12 @@ describe('personal profile architecture', () => {
     assert.match(landing, /ProfileContentTabs/);
     assert.match(landing, /PublicCollectionTile/);
     assert.match(landing, /DiscoverCreatorsSection/);
+    assert.match(landing, /useDiscoverCreators/);
+    assert.doesNotMatch(landing, /loadDiscoverCreatorSuggestions/);
   });
 
   it('View as others still opens the public creator route from Settings', () => {
-    const settings = readFileSync(join(ROOT, 'app/settings.tsx'), 'utf8');
+    const settings = readFileSync(join(ROOT, 'app/settings/index.tsx'), 'utf8');
     assert.match(settings, /SETTINGS_COPY\.publicProfileValue/);
     assert.match(settings, /router\.push\(`\/creator\/\$\{encodeURIComponent\(profileHandle\)\}`\)/);
   });
@@ -75,14 +82,42 @@ describe('personal profile content', () => {
   });
 
   it('keeps Saved Collections separate from received Reel Likes', () => {
+    const collectionApi = readFileSync(join(ROOT, 'src/services/collectionApi.ts'), 'utf8');
+    assert.match(collectionApi, /Authorization/);
+    assert.match(collectionApi, /fetchCollectionById/);
     const landing = readFileSync(join(ROOT, 'components/profile/PersonalProfile.tsx'), 'utf8');
     const header = readFileSync(join(ROOT, 'components/profile/PersonalProfileHeader.tsx'), 'utf8');
     assert.match(header, /publicCreatorStats/);
-    assert.match(header, /editProfile/);
-    assert.match(header, /Share/);
+    assert.match(header, /ActionButton/);
+    assert.match(header, /size="compact"/);
+    assert.match(header, /radius="md"/);
+    assert.match(header, /variant="outlinePrimary"/);
+    assert.match(header, /variant="secondary"/);
+    assert.match(header, /PERSONAL_PROFILE_COPY\.editProfile/);
+    assert.match(header, /label="Share"/);
     assert.match(header, /onSharePress/);
+    assert.doesNotMatch(header, /tokens\.color\.primary/);
+    assert.doesNotMatch(header, /FollowControl/);
     assert.match(landing, /activeTab === 'collections' \? collections : saved/);
     assert.doesNotMatch(landing, /PersonalStatsBar/);
     assert.doesNotMatch(landing, /savedCount:/);
+    assert.match(landing, /profileGridCellWidth/);
+    assert.match(landing, /PROFILE_VIDEO_GRID_COLUMNS/);
+    assert.match(landing, /PROFILE_VIDEO_GRID_ASPECT/);
+    assert.match(landing, /PROFILE_VIDEO_GRID_GAP/);
+    assert.match(landing, /flush/);
+    assert.doesNotMatch(landing, /numColumns=\{2\}/);
+    const list = readFileSync(join(ROOT, 'components/profile/PersonalCollectionList.tsx'), 'utf8');
+    assert.match(list, /profileGridCellWidth/);
+    assert.match(list, /PROFILE_VIDEO_GRID_COLUMNS/);
+    assert.equal(PROFILE_VIDEO_GRID_COLUMNS, 3);
+    assert.equal(PROFILE_VIDEO_GRID_ASPECT, 3 / 4);
+    assert.equal(PROFILE_VIDEO_GRID_GAP, 1);
+    assert.equal(PROFILE_VIDEO_GRID_GUTTER, 0);
+    assert.equal(profileGridCellWidth(390, 16, 8), Math.floor((390 - 32 - 8) / 2));
+    assert.equal(
+      profileGridCellWidth(390, PROFILE_VIDEO_GRID_GUTTER, PROFILE_VIDEO_GRID_GAP, 3),
+      Math.floor((390 - 2) / 3),
+    );
   });
 });

@@ -4,6 +4,7 @@ import { SupabaseUserImportRepository } from '../../user-import/SupabaseUserImpo
 import { ContentSourceProcessor } from './ContentSourceProcessor';
 import { createVideoExtractionAdapter } from './videoAdapter';
 import { createWebEnrichmentAdapter } from './webAdapter';
+import { SupabasePlaceRepository } from '../../place/SupabasePlaceRepository';
 
 export function createContentSourceProcessor(admin: SupabaseClient): ContentSourceProcessor {
   return new ContentSourceProcessor({
@@ -11,5 +12,6 @@ export function createContentSourceProcessor(admin: SupabaseClient): ContentSour
     userImports: new SupabaseUserImportRepository(admin),
     video: createVideoExtractionAdapter(admin),
     web: createWebEnrichmentAdapter(admin),
+    places: new SupabasePlaceRepository(admin),
   });
 }

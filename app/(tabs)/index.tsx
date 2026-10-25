@@ -9,7 +9,7 @@ import { recordCollectionViewOnce } from '@/src/services/collectionViewTracking'
 import { dismissFeedTeach, readFeedTeachDismissed } from '@/src/services/feedTeach';
 import { useFeedReelEngagement } from '@/src/services/feedReelEngagement';
 import { subscribeFeedReload } from '@/src/services/feedRefresh';
-import { fetchVideos } from '@/src/services/supabase';
+import { fetchFeedPage, fetchProductsForVideo } from '@/src/services/supabase';
 import {
   classifyFeedLoadFailure,
   FEED_COPY,
@@ -20,6 +20,8 @@ import {
   feedReelAnnouncement,
   shouldShowFeedTeach,
 } from '@/src/ui/feedA11y';
+import { FEED_VIEWABILITY_HOLD_MS } from '@/src/ui/feedPlaybackTiming';
+import { pickActiveFeedIndex } from '@/src/ui/feedQuery';
 import { feedItemLayout, nextFeedThumbnailUrl, preserveFeedIndex } from '@/src/ui/feedViewport';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Image } from 'expo-image';
@@ -46,14 +48,19 @@ export default function HomeScreen() {
   const [failureKind, setFailureKind] = useState<FeedFailureKind | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [teachDismissed, setTeachDismissed] = useState<boolean | null>(null);
+  const [feedGeneration, setFeedGeneration] = useState(0);
   const hasLoadedOnce = useRef(false);
+  const pageRef = useRef(0);
+  const hasMoreRef = useRef(true);
+  const loadingMoreRef = useRef(false);
+  const productsLoadedRef = useRef(new Set<string>());
   const videosRef = useRef<Video[]>([]);
   const activeVideoIdRef = useRef<string | undefined>(undefined);
   const activeIndexRef = useRef(0);
   const listRef = useRef<FlatList<Video>>(null);
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 90,
-    minimumViewTime: 300,
+    minimumViewTime: FEED_VIEWABILITY_HOLD_MS,
   }).current;
 
   const itemHeight = viewportHeight > 0 ? viewportHeight : WINDOW_HEIGHT;
@@ -92,9 +99,13 @@ export default function HomeScreen() {
       const { showFullScreenSpinner, isCancelled } = opts;
       try {
         if (showFullScreenSpinner) setLoading(true);
-        const rows = await fetchVideos();
+        pageRef.current = 0;
+        productsLoadedRef.current.clear();
+        setFeedGeneration((generation) => generation + 1);
+        const page = await fetchFeedPage(0);
         if (isCancelled?.()) return;
-        applyVideoRows(rows);
+        hasMoreRef.current = page.hasMore;
+        applyVideoRows(page.videos);
       } catch (error) {
         if (isCancelled?.()) return;
         const kind = classifyFeedLoadFailure(error);
@@ -139,7 +150,46 @@ export default function HomeScreen() {
     activeVideoIdRef.current = videos[activeIndex]?.id;
   }, [activeIndex, videos]);
 
+  const activePlaybackId = videos[activeIndex]?.id ?? null;
+  useEffect(() => {
+    if (!__DEV__) return;
+    console.log(
+      '[Mystash:Playback]',
+      JSON.stringify({
+        event: 'active',
+        index: activeIndex,
+        id: activePlaybackId,
+        viewabilityHoldMs: FEED_VIEWABILITY_HOLD_MS,
+        at: Date.now(),
+      }),
+    );
+  }, [activeIndex, activePlaybackId]);
+
+  const activeFeedVideoId = videos[activeIndex]?.id;
+  useEffect(() => {
+    if (!activeFeedVideoId || productsLoadedRef.current.has(activeFeedVideoId)) return;
+    productsLoadedRef.current.add(activeFeedVideoId);
+    let cancelled = false;
+    void fetchProductsForVideo(activeFeedVideoId).then((products) => {
+      if (cancelled || products.length === 0) return;
+      setVideos((prev) => {
+        const next = prev.map((row) =>
+          row.id === activeFeedVideoId
+            ? { ...row, products, product_name: products[0]?.name || row.product_name }
+            : row,
+        );
+        videosRef.current = next;
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+      productsLoadedRef.current.delete(activeFeedVideoId);
+    };
+  }, [activeFeedVideoId, feedGeneration]);
+
   /** Same Collection view path as /collection and /reel — identity is video.collection_id only. */
+
   useEffect(() => {
     const video = videos[activeIndex];
     if (!video) return;
@@ -174,14 +224,41 @@ export default function HomeScreen() {
   const [inspect, setInspect] = useState<{ video: Video; product: Product } | null>(null);
 
   const onViewableItemsChanged = useRef(
-    ({ changed }: { changed: ViewToken[] }) => {
-      if (changed.length === 0) return;
-      const { index, isViewable } = changed[0];
-      if (isViewable && typeof index === 'number' && index >= 0) {
-        setActiveIndex(index);
-      }
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const index = pickActiveFeedIndex(
+        viewableItems.map((token) => ({
+          index: token.index,
+          isViewable: Boolean(token.isViewable),
+        })),
+      );
+      if (index != null) setActiveIndex(index);
     },
   ).current;
+
+  const loadMore = useCallback(() => {
+    if (!hasMoreRef.current || loadingMoreRef.current || !hasLoadedOnce.current) return;
+    loadingMoreRef.current = true;
+    const nextPage = pageRef.current + 1;
+    void fetchFeedPage(nextPage)
+      .then((page) => {
+        pageRef.current = nextPage;
+        hasMoreRef.current = page.hasMore;
+        if (page.videos.length === 0) return;
+        const seen = new Set(videosRef.current.map((row) => row.id));
+        const merged = videosRef.current.slice();
+        for (const row of page.videos) {
+          if (!seen.has(row.id)) merged.push(row);
+        }
+        videosRef.current = merged;
+        setVideos(merged);
+      })
+      .catch((error) => {
+        console.error('Feed page failed:', error);
+      })
+      .finally(() => {
+        loadingMoreRef.current = false;
+      });
+  }, []);
 
   const handleProductPress = useCallback((video: Video, product: Product) => {
     setInspect({ video, product });
@@ -349,7 +426,9 @@ export default function HomeScreen() {
         removeClippedSubviews
         maxToRenderPerBatch={2}
         windowSize={3}
-        initialNumToRender={1}
+        initialNumToRender={2}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.8}
         extraData={`${activeIndex}:${itemHeight}:${engagement.showFollow}:${engagement.isFollowing}:${engagement.isLiked}:${engagement.likeCount}:${engagement.isSaved}:${engagement.savesCount}:${engagement.sharesCount}:${engagement.moreFromCreator?.collectionId ?? ''}`}
         refreshControl={
           <RefreshControl

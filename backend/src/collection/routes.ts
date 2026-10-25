@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
-import { createSupabaseAdmin, createSupabaseUserClient } from '../supabase';
+import { optionalVerifiedUserId, requireAuthUser } from '../auth/requireAuth';
+import { createSupabaseAdmin } from '../supabase';
 import { createCollectionService, CollectionServiceError } from './factory';
 import { ensureCollectionForIngest } from './ingestBridge';
 import { detectPlatform } from '../pipeline/detect';
@@ -10,38 +11,14 @@ import {
   scheduleSearchCollectionProjection,
   scheduleSearchCollectionRemoval,
 } from '../search/schedule';
-import { pruneVideoProjectionIfNotPublic } from './videoProjectionSync';
+import { pruneVideoProjectionIfNotPublic, syncHomeFeedProjection } from './videoProjectionSync';
 
 async function requireUser(req: Request, res: Response) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || typeof authHeader !== 'string') {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const userClient = createSupabaseUserClient(authHeader);
-  const {
-    data: { user },
-    error,
-  } = await userClient.auth.getUser();
-  if (error || !user) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return null;
-  }
-  return user;
+  return requireAuthUser(req, res, { requireVerifiedEmail: true });
 }
 
 async function optionalUserId(req: Request): Promise<string | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || typeof authHeader !== 'string') return null;
-  try {
-    const userClient = createSupabaseUserClient(authHeader);
-    const {
-      data: { user },
-    } = await userClient.auth.getUser();
-    return user?.id ?? null;
-  } catch {
-    return null;
-  }
+  return optionalVerifiedUserId(req);
 }
 
 function handleServiceError(res: Response, e: unknown): void {
@@ -343,7 +320,11 @@ export function registerCollectionRoutes(app: Express): void {
           ? body.include_external_ids
           : null,
       });
-      await pruneVideoProjectionIfNotPublic(admin, result);
+      try {
+        await syncHomeFeedProjection(admin, result);
+      } catch (err) {
+        logger.error({ err, collectionId: result.id }, 'collection.publish.feed_projection_failed');
+      }
       scheduleSearchCollectionProjection(result);
       res.json({ collection: result });
     } catch (e) {

@@ -20,13 +20,13 @@ type Props = {
   metaLabel?: string;
 };
 
-/** Transparent margin between collage thumbnails (page canvas shows through). */
+/** Gap between collage thumbnails (card fill shows through). */
 const COLLAGE_GUTTER = 3;
 
 /**
  * Editorial category shelf tile for Stash home — thin border, marginal inner
- * padding, 2×2 collage with transparent gutters (page wash shows through) and
- * corner radii matching the tile.
+ * padding, 2×2 collage with gutters in the card fill and corner radii matching
+ * the tile.
  */
 export function StashCategoryCard({ category, onPress, metaLabel: metaOverride }: Props) {
   const { tokens } = useThemeMode();

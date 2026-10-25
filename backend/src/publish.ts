@@ -1,45 +1,39 @@
-import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
-import { createSupabaseAdmin, createSupabaseUserClient } from './supabase';
+import crypto from 'node:crypto';
+import { createCartItemRemapPort, createCartService } from './cart/factory';
+import { createCatalogService } from './catalog/factory';
+import { composeCollectionTagRemaps } from './catalog/ports';
+import { createCollectionTagRemapPort } from './collection/catalogRemap';
+import { createCollectionService } from './collection/factory';
+import {
+  ensureCollectionLinkedToIngest,
+} from './collection/ingestBridge';
+import { logger } from './logger';
+import {
+  getNotificationEmitter,
+  publishFailedEvent,
+  publishSucceededEvent,
+} from './notifications/producers';
 import { detectPlatform, extractYouTubeVideoId } from './pipeline/detect';
 import { transformToEmbedUrl } from './pipeline/embed';
 import { getProductIntelligenceConfig } from './product-intelligence/config';
 import { enqueueProductResolve } from './product-intelligence/jobs/productResolveQueue';
 import { resolveSelectedDraftProducts } from './publishResolveDrafts';
-import { logger } from './logger';
-import { validHttpUrl } from './shopping/urlValidation';
-import { createCollectionService } from './collection/factory';
-import {
-  ensureCollectionLinkedToIngest,
-} from './collection/ingestBridge';
-import { createCatalogService } from './catalog/factory';
-import { composeCollectionTagRemaps } from './catalog/ports';
-import { createCollectionTagRemapPort } from './collection/catalogRemap';
-import { createCartItemRemapPort, createCartService } from './cart/factory';
 import {
   assertIndependentVideoAndCollectionIds,
   buildVideoProductInserts,
   resolvePublishVideoId,
   type VideoProductInsertDraft,
 } from './publishVideoProjection';
+import { validHttpUrl } from './shopping/urlValidation';
+import { requireAuthUser } from './auth/requireAuth';
+import { createSupabaseAdmin } from './supabase';
 
 export async function handlePublishIngest(req: Request, res: Response): Promise<void> {
+  let attempt: { ingestId: string; userId: string; collectionId: string | null } | null = null;
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || typeof authHeader !== 'string') {
-      res.status(401).json({ error: 'Missing authorization' });
-      return;
-    }
-
-    const userClient = createSupabaseUserClient(authHeader);
-    const {
-      data: { user },
-      error: userErr,
-    } = await userClient.auth.getUser();
-    if (userErr || !user) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
+    const user = await requireAuthUser(req, res, { requireVerifiedEmail: true });
+    if (!user) return;
 
     const admin = createSupabaseAdmin();
     const collectionService = createCollectionService(admin);
@@ -132,6 +126,11 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       res.status(400).json({ error: 'Select at least one product to publish' });
       return;
     }
+    attempt = {
+      ingestId,
+      userId: user.id,
+      collectionId: (ingest.collection_id as string | null) ?? null,
+    };
 
     let resolveResult: Awaited<ReturnType<typeof resolveSelectedDraftProducts>>;
     try {
@@ -201,6 +200,7 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       res.status(500).json({ error: 'Could not prepare collection', detail: (e as Error).message });
       return;
     }
+    attempt.collectionId = collectionId;
 
     // Sync selected drafts into collection tags before publish.
     try {
@@ -436,7 +436,7 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       }
     }
 
-    await admin
+    const { error: publishedErr } = await admin
       .from('ingest_requests')
       .update({
         status: 'published',
@@ -445,6 +445,16 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
         updated_at: new Date().toISOString(),
       })
       .eq('id', ingestId);
+    if (!publishedErr) {
+      await getNotificationEmitter().emitSafely(
+        publishSucceededEvent({
+          collectionId,
+          userId: user.id,
+          publishedAt: publishedCollection.publishedAt ?? new Date().toISOString(),
+          collectionTitle: publishedCollection.title ?? (ingest.video_title as string | null),
+        }),
+      );
+    }
 
     await admin.from('moderation_actions').insert({
       ingest_request_id: ingestId,
@@ -456,5 +466,12 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
     res.json({ ok: true, videoId, collectionId });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message ?? 'Server error' });
+  } finally {
+    // Client-correctable 4xx responses are shown inline and are not notified.
+    if (attempt && res.statusCode >= 500) {
+      await getNotificationEmitter().emitSafely(
+        publishFailedEvent({ ...attempt, failedAt: new Date().toISOString() }),
+      );
+    }
   }
 }

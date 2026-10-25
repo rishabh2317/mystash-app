@@ -5,12 +5,7 @@ import { CreateScreenShell } from '@/components/create/CreateScreenShell';
 import { StagedProgressIndicator } from '@/components/create/StagedProgressIndicator';
 import { StatusBlock } from '@/components/status/StatusBlock';
 import { submitManualProductLinks } from '@/src/services/curation';
-import {
-  activateCreatorAccount,
-  ensureMe,
-  type UserSettingsViewModel,
-  UserApiError,
-} from '@/src/services/userApi';
+import { ensureMe, type UserSettingsViewModel } from '@/src/services/userApi';
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
 import { CREATE_COPY } from '@/src/ui/createCopy';
 import {
@@ -18,6 +13,7 @@ import {
   createPrimaryButtonStyle,
   createSurfaceStyle,
 } from '@/src/ui/createChrome';
+import { createModeStudioCopy } from '@/src/ui/createMode';
 import { createPartialProductLinksMessage, createUnsupportedUrlFieldError } from '@/src/ui/createFeedback';
 import { mapManualProductLinkStages } from '@/src/ui/ingestProgressStages';
 import { useAppToast } from '@/src/ui/useAppToast';
@@ -37,6 +33,7 @@ import {
 } from 'react-native';
 
 const MAX_PRODUCTS = 5;
+const PRODUCTS_ONLY_COPY = createModeStudioCopy('products_only');
 
 function normalizeHttpUrl(s: string): string | null {
   const t = s.trim();
@@ -71,9 +68,7 @@ export default function ManualProductsScreen() {
       }
   >(null);
   const [me, setMe] = useState<UserSettingsViewModel | null>(null);
-  const [meLoading, setMeLoading] = useState(false);
-  const [meError, setMeError] = useState<string | null>(null);
-  const [activating, setActivating] = useState(false);
+  const [meLoading, setMeLoading] = useState(true);
 
   const isActiveCreator = me?.creatorStatus === 'ACTIVE';
   const videoOk = isSupportedVideoUrl(videoUrl.trim());
@@ -88,11 +83,10 @@ export default function ManualProductsScreen() {
       return;
     }
     setMeLoading(true);
-    setMeError(null);
     ensureMe()
       .then(setMe)
-      .catch((e) => {
-        setMeError(e instanceof Error ? e.message : 'Could not load account');
+      .catch(() => {
+        setMe(null);
       })
       .finally(() => setMeLoading(false));
   }, [user]);
@@ -114,25 +108,6 @@ export default function ManualProductsScreen() {
       setPartialWarning(null);
     }, []),
   );
-
-  const onActivateCreator = async (displayName: string | null) => {
-    setActivating(true);
-    setMeError(null);
-    try {
-      setMe(await activateCreatorAccount({ displayName }));
-      showToast({ tone: 'success', title: CREATE_COPY.creatorActivatedManualToast });
-    } catch (e) {
-      setMeError(
-        e instanceof UserApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : 'Could not activate creator',
-      );
-    } finally {
-      setActivating(false);
-    }
-  };
 
   const uniqueProductUrls = useMemo(() => {
     const seen = new Set<string>();
@@ -217,7 +192,7 @@ export default function ManualProductsScreen() {
     router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(preview.ingestId)}`);
   };
 
-  if (authLoading) {
+  if (authLoading || (user && meLoading && !me)) {
     return (
       <CreateScreenShell>
         <StatusBlock kind="loading" message={CREATE_COPY.editorLoading} fill />
@@ -244,18 +219,14 @@ export default function ManualProductsScreen() {
   if (!isActiveCreator) {
     return (
       <CreateScreenShell>
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.inner}>
-          <CreatorOnboardingPanel
-            creatorStatus={me?.creatorStatus ?? null}
-            username={me?.username ?? null}
-            displayName={me?.displayName ?? null}
-            loading={meLoading}
-            activating={activating}
-            error={meError}
-            onActivate={(displayName) => void onActivateCreator(displayName)}
-            onRetry={refreshMe}
-          />
-        </ScrollView>
+        <CreatorOnboardingPanel
+          onActivated={(next) => {
+            setMe(next);
+            showToast({ tone: 'success', title: CREATE_COPY.creatorActivatedManualToast });
+          }}
+          onAlreadyActive={setMe}
+          onCancel={() => void refreshMe()}
+        />
       </CreateScreenShell>
     );
   }
@@ -277,7 +248,7 @@ export default function ManualProductsScreen() {
             fontWeight: tokens.fontWeight.extraBold,
           }}
         >
-          {CREATE_COPY.manualHeadline}
+          {PRODUCTS_ONLY_COPY.headline}
         </Text>
         <Text
           style={{
@@ -296,7 +267,7 @@ export default function ManualProductsScreen() {
             fontWeight: tokens.fontWeight.semibold,
           }}
         >
-          {CREATE_COPY.contentUrlLabel}
+          {PRODUCTS_ONLY_COPY.contentUrlLabel}
         </Text>
         <TextInput
           value={videoUrl}

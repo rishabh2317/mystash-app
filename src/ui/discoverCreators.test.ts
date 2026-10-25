@@ -13,7 +13,7 @@ import {
   discoverCreatorsProfileSlice,
 } from './discoverCreators';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 function video(partial: Partial<Video> & Pick<Video, 'id' | 'curator_id'>): Video {
   return {
@@ -82,16 +82,34 @@ describe('discover creators architecture', () => {
     );
     const page = readFileSync(join(ROOT, 'app/profile/discover-creators.tsx'), 'utf8');
     const load = readFileSync(join(ROOT, 'src/services/discoverCreatorsLoad.ts'), 'utf8');
+    const hook = readFileSync(join(ROOT, 'src/hooks/useDiscoverCreators.ts'), 'utf8');
+    const publicProfile = readFileSync(
+      join(ROOT, 'components/creator/CreatorProfile.tsx'),
+      'utf8',
+    );
 
     assert.match(personal, /DiscoverCreatorsSection/);
+    assert.match(personal, /useDiscoverCreators/);
     assert.match(personal, /ProfileContentTabs/);
+    assert.doesNotMatch(personal, /loadDiscoverCreatorSuggestions/);
     assert.doesNotMatch(header, /DiscoverCreators/);
     assert.doesNotMatch(publicHeader, /DiscoverCreators/);
+    assert.match(publicHeader, /afterIdentity/);
+    assert.match(publicProfile, /DiscoverCreatorsSection/);
+    assert.match(publicProfile, /useDiscoverCreators/);
+    assert.doesNotMatch(publicProfile, /loadDiscoverCreatorSuggestions/);
 
     assert.match(section, /DISCOVER_CREATORS_COPY\.title/);
+    assert.match(section, /titleRole="tileTitle"/);
     assert.match(section, /See more|seeMore/);
     assert.match(section, /\/profile\/discover-creators/);
     assert.match(section, /variant="compact"/);
+    assert.doesNotMatch(section, /loadDiscoverCreatorSuggestions/);
+    assert.doesNotMatch(section, /useEffect/);
+
+    assert.match(hook, /loadedKeyRef/);
+    assert.match(hook, /load\(false\)/);
+    assert.match(hook, /load\(true\)/);
 
     assert.match(page, /showBack/);
     assert.match(page, /DISCOVER_CREATORS_PAGE_LIMIT/);
@@ -100,6 +118,7 @@ describe('discover creators architecture', () => {
 
     assert.match(card, /useCreatorFollowHandler/);
     assert.match(card, /FollowControl/);
+    assert.match(card, /radius="md"/);
     assert.match(card, /followedByLabel/);
     assert.match(card, /previewUrls/);
 

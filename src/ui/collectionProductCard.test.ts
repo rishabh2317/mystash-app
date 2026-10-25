@@ -94,7 +94,7 @@ describe('collection product card actions', () => {
     assert.doesNotMatch(collection, /extraBold/);
   });
 
-  it('related ProductCard uses shared transparent outline chrome', () => {
+  it('related ProductCard uses shared outline card chrome', () => {
     const src = readFileSync(join(ROOT, 'components/commerce/ProductCard.tsx'), 'utf8');
     const start = src.indexOf("variant === 'related'");
     const end = src.indexOf('\n  return (', start);
@@ -128,6 +128,9 @@ describe('collection product card actions', () => {
     const end = src.indexOf("if (variant === 'related')", start);
     const mini = src.slice(start, end === -1 ? undefined : end);
     assert.match(mini, /outlineCardChrome\(tokens\)/);
+    assert.match(mini, /backgroundColor: 'transparent'/);
+    assert.match(mini, /shadowOpacity: 0/);
+    assert.match(mini, /elevation: 0/);
     assert.match(mini, /typeStyle\(tokens, 'tileTitle'\)/);
     assert.match(mini, /numberOfLines=\{1\}/);
     assert.match(mini, /variant="icon"/);

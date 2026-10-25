@@ -1,43 +1,69 @@
 import type { CreatorStatus } from '@/src/types/creator';
 
 export const SETTINGS_COPY = {
-  title: 'Settings & Analytics',
-  subtitle: 'Account, creator tools, and how Mystash looks.',
+  title: 'Settings',
+  subtitle: 'Your profile, creator identity, and preferences.',
+  profile: 'Profile',
   creator: 'Creator',
-  account: 'Account',
   preferences: 'Preferences',
-  social: 'Social',
+  account: 'Account',
+  connectedAccounts: 'Connected accounts',
+  connectedAccountsHint: 'Link Instagram or YouTube to sync your library in Create.',
+  connectedYouTube: 'YouTube',
+  connectedInstagram: 'Instagram',
+  connectedNotConnected: 'Not connected',
+  connectedConnect: 'Connect',
+  connectedDisconnect: 'Disconnect',
+  connectedReauth: 'Re-auth',
+  connectedCheck: 'Check connection',
   session: 'Session',
   appearance: 'Appearance',
-  appearanceHint: 'Manage how Mystash looks',
+  appearanceHint: 'Light or dark canvas',
   appearanceLight: 'Light',
   appearanceDark: 'Dark',
-  notifications: 'Notifications',
-  notificationsValue: 'Push + Email enabled',
-  privacy: 'Privacy',
-  privacyValue: 'Manage data & permissions',
   analytics: 'Analytics',
-  analyticsHint: 'Views, followers, saves, and more',
-  publicProfile: 'Public profile',
+  analyticsHint: 'See how people find your collections',
+  publicProfile: 'View public profile',
   publicProfileValue: 'View as others see you',
-  profile: 'Profile',
   email: 'Email',
-  creatorStatus: 'Creator status',
-  plan: 'Plan',
-  planValue: 'Mystash Pro Beta',
-  payment: 'Payment',
-  paymentValue: 'Visa •••• 2189 (placeholder)',
-  shipping: 'Shipping address',
-  shippingValue: 'Add primary address',
+  username: 'Username',
+  usernameHint: 'Your account identifier. It cannot be changed here.',
+  displayName: 'Display name',
+  displayNameHint: 'The name shown on your public profile.',
+  displayNamePlaceholder: 'Your public name',
+  bio: 'Bio',
+  bioHint: 'A short line about what you create.',
+  bioPlaceholder: 'What you share on Mystash',
+  editProfile: 'Edit profile',
+  changePhoto: 'Change photo',
   shoppingCountry: 'Shopping country',
   shoppingCountryHint: 'Used for merchant prices and Buy links',
   shoppingCountryUseLocation: 'Use my location',
   shoppingCountryManual: 'Manual',
   shoppingCountryAuto: 'From location',
-  bag: 'Bag',
   signOut: 'Sign out',
   signInPrompt: 'Sign in from Profile to manage settings.',
   goToProfile: 'Go to Profile',
+  creatorMode: 'Creator mode',
+  becomeCreator: 'Become a creator',
+  becomeCreatorHint: 'Publish collections and see how they perform.',
+  finishCreatorSetup: 'Finish creator setup',
+  finishCreatorSetupHint: 'Complete onboarding to activate Creator Studio.',
+  creatorActiveHint: 'You can publish collections and view analytics.',
+  creatorSuspended: 'Creator suspended',
+  creatorSuspendedHint: 'Collection creation is blocked until privileges are reinstated.',
+  onboardingTitle: 'Become a creator on Mystash',
+  onboardingStepProfile: 'Your creator profile',
+  onboardingStepSocial: 'Social presence',
+  onboardingProfileWhy: 'Shown on your public profile so shoppers know who you are.',
+  onboardingSocialWhy: 'Connect accounts you already use. We never ask for platform IDs.',
+  onboardingSocialLater:
+    'You can connect Instagram or YouTube later from Settings when linking is available.',
+  onboardingPrimary: 'Become a creator',
+  onboardingFinish: 'Finish setup',
+  onboardingSecondary: 'Not now',
+  onboardingContinue: 'Continue',
+  onboardingBack: 'Back',
 } as const;
 
 export const SHOPPING_COUNTRY_OPTIONS: Array<{ code: string; label: string }> = [
@@ -70,13 +96,13 @@ export function settingsAppearanceValue(isLight: boolean): string {
 export function settingsCreatorStatusLabel(status: CreatorStatus | undefined): string {
   switch (status) {
     case 'ACTIVE':
-      return 'ACTIVE creator';
+      return 'On';
     case 'ONBOARDING':
-      return 'Onboarding in progress';
+      return 'Setup in progress';
     case 'SUSPENDED':
-      return 'Creator suspended';
+      return 'Suspended';
     case 'NONE':
-      return 'Shopper (not a creator)';
+      return 'Off';
     default:
       return 'Loading…';
   }
@@ -88,25 +114,25 @@ export function settingsCurateCopy(status: CreatorStatus | undefined): {
 } {
   if (status === 'ACTIVE') {
     return {
-      title: 'Curate collection',
-      subtitle: 'Paste a reel URL, review AI picks, publish to the feed',
+      title: SETTINGS_COPY.creatorMode,
+      subtitle: SETTINGS_COPY.creatorActiveHint,
     };
   }
   if (status === 'ONBOARDING') {
     return {
-      title: 'Finish creator setup',
-      subtitle: 'Complete onboarding on the Create tab to activate Collections.',
+      title: SETTINGS_COPY.finishCreatorSetup,
+      subtitle: SETTINGS_COPY.finishCreatorSetupHint,
     };
   }
   if (status === 'SUSPENDED') {
     return {
-      title: 'Creator suspended',
-      subtitle: 'Collection creation is blocked until creator privileges are reinstated.',
+      title: SETTINGS_COPY.creatorSuspended,
+      subtitle: SETTINGS_COPY.creatorSuspendedHint,
     };
   }
   return {
-    title: 'Become a creator',
-    subtitle: 'Activate your creator account on the Create tab to ingest Collections.',
+    title: SETTINGS_COPY.becomeCreator,
+    subtitle: SETTINGS_COPY.becomeCreatorHint,
   };
 }
 
@@ -117,4 +143,29 @@ export function settingsRowShowsChevron(input: {
 }): boolean {
   if (!input.hasAction) return false;
   return input.variant === 'navigation' || input.variant === 'highlighted';
+}
+
+export function settingsHandleLabel(username: string | null | undefined): string {
+  const handle = username?.trim().replace(/^@/, '');
+  return handle ? `@${handle}` : '';
+}
+
+function bareIdentity(value: string | null | undefined): string {
+  return value?.trim().replace(/^@/, '').toLowerCase() ?? '';
+}
+
+/** Display name for the settings header — never the @username, which has its own line. */
+export function settingsIdentityDisplayName(input: {
+  displayName: string | null | undefined;
+  username: string | null | undefined;
+  fullName: string | null | undefined;
+}): string {
+  const handle = bareIdentity(input.username);
+  for (const candidate of [input.displayName, input.fullName]) {
+    const name = candidate?.trim();
+    if (!name) continue;
+    if (handle && bareIdentity(name) === handle) continue;
+    return name;
+  }
+  return 'Your profile';
 }

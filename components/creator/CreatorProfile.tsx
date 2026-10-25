@@ -1,25 +1,38 @@
 import React from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import type { AddToCartOutcome } from '@/src/services/productActionOrchestration';
 import type { CreatorViewModel } from '@/src/types/creator';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import { PublicCollectionTile } from '@/components/collection/PublicCollectionTile';
+import { CollectionTileSkeleton } from '@/components/collection/CollectionTileSkeleton';
 import { ProductCard } from '@/components/commerce';
+import { ProductCardSkeleton } from '@/components/commerce/ProductCardSkeleton';
+import { SkeletonGrid } from '@/components/status/SkeletonStack';
+import { DiscoverCreatorsSection } from '@/components/profile/DiscoverCreatorsSection';
 import { Text } from '@/components/ui/Text';
 import {
   CreatorProfileHeader,
   type CreatorProfileTab,
 } from './CreatorProfileHeader';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { useDiscoverCreators } from '@/src/hooks/useDiscoverCreators';
 import { typeStyle } from '@/src/theme/typography';
+import { resolveListLoadState } from '@/src/ui/contentLoadState';
 import { CREATOR_PROFILE_FLATLIST_KEYS } from '@/src/ui/creatorProfileFlatList';
+import {
+  PROFILE_VIDEO_GRID_ASPECT,
+  PROFILE_VIDEO_GRID_COLUMNS,
+  PROFILE_VIDEO_GRID_GAP,
+  PROFILE_VIDEO_GRID_GUTTER,
+  profileGridCellWidth,
+} from '@/src/ui/personalProfile';
 
 type Props = {
   creator: CreatorViewModel;
@@ -72,29 +85,52 @@ export function CreatorProfile({
   onRetry,
 }: Props) {
   const { tokens } = useThemeMode();
+  const { width: screenWidth } = useWindowDimensions();
   const muted = tokens.color.textMuted;
   const text = tokens.color.text;
   const gutter = tokens.space.md;
   const gap = tokens.space.sm;
+  const videoCellWidth = profileGridCellWidth(
+    screenWidth,
+    PROFILE_VIDEO_GRID_GUTTER,
+    PROFILE_VIDEO_GRID_GAP,
+    PROFILE_VIDEO_GRID_COLUMNS,
+  );
+  const productCellWidth = profileGridCellWidth(screenWidth, gutter, gap);
+  const discover = useDiscoverCreators({
+    excludeUserId: creator.userId,
+    excludeUsername: creator.username,
+  });
 
   const header = (
-    <CreatorProfileHeader
-      creator={creator}
-      isLight={isLight}
-      isSelf={isSelf}
-      followPending={followPending}
-      activeTab={activeTab}
-      onFollowPress={onFollowPress}
-      onSharePress={onSharePress}
-      onTabChange={onTabChange}
-    />
+    <View style={{ paddingHorizontal: activeTab === 'collections' ? gutter : 0 }}>
+      <CreatorProfileHeader
+        creator={creator}
+        isLight={isLight}
+        isSelf={isSelf}
+        followPending={followPending}
+        activeTab={activeTab}
+        onFollowPress={onFollowPress}
+        onSharePress={onSharePress}
+        onTabChange={onTabChange}
+        afterIdentity={<DiscoverCreatorsSection items={discover.items} loading={discover.loading} />}
+      />
+    </View>
   );
 
-  const contentStyle = [
+  const collectionContentStyle = [
+    styles.content,
+    { paddingHorizontal: PROFILE_VIDEO_GRID_GUTTER },
+  ];
+  const productContentStyle = [
     styles.content,
     { paddingHorizontal: gutter, paddingTop: tokens.space.xs },
   ];
-  const rowStyle = [styles.row, { gap, marginBottom: gap }];
+  const videoRowStyle = [
+    styles.row,
+    { gap: PROFILE_VIDEO_GRID_GAP, marginBottom: PROFILE_VIDEO_GRID_GAP },
+  ];
+  const productRowStyle = [styles.row, { gap, marginBottom: gap }];
 
   const empty = (message: string) => (
     <Text style={[typeStyle(tokens, 'bodyMuted'), { marginTop: tokens.space.lg, textAlign: 'center' }]}>
@@ -108,20 +144,42 @@ export function CreatorProfile({
     </Pressable>
   );
 
+  const collectionLoad = resolveListLoadState({
+    itemCount: collections.length,
+    fetching: Boolean(collectionsLoading),
+    fetchingMore: collectionsLoadingMore,
+    error: Boolean(collectionsError),
+  });
+  const productLoad = resolveListLoadState({
+    itemCount: products.length,
+    fetching: Boolean(productsLoading),
+    fetchingMore: productsLoadingMore,
+    error: Boolean(productsError),
+  });
+
   if (activeTab === 'collections') {
-    if (collectionsLoading && collections.length === 0) {
+    if (collectionLoad === 'skeleton') {
       return (
-        <View style={[styles.centered, { paddingHorizontal: gutter }]}>
+        <View style={styles.centered}>
           {header}
-          <ActivityIndicator style={{ marginTop: tokens.space.lg }} color={text} />
+          <SkeletonGrid columns={PROFILE_VIDEO_GRID_COLUMNS} gap={PROFILE_VIDEO_GRID_GAP}>
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+          </SkeletonGrid>
         </View>
       );
     }
     if (collectionsError && collections.length === 0) {
       return (
-        <View style={[styles.centered, { paddingHorizontal: gutter }]}>
+        <View style={styles.centered}>
           {header}
-          <Text style={[styles.message, { color: muted }]}>{collectionsError}</Text>
+          <Text style={[styles.message, { color: muted, paddingHorizontal: gutter }]}>
+            {collectionsError}
+          </Text>
           {onRetry ? retry : null}
         </View>
       );
@@ -131,19 +189,32 @@ export function CreatorProfile({
         key={CREATOR_PROFILE_FLATLIST_KEYS.collections}
         data={collections}
         keyExtractor={(item) => item.collectionId}
-        numColumns={2}
-        columnWrapperStyle={rowStyle}
-        contentContainerStyle={contentStyle}
+        numColumns={PROFILE_VIDEO_GRID_COLUMNS}
+        columnWrapperStyle={videoRowStyle}
+        contentContainerStyle={collectionContentStyle}
         ListHeaderComponent={header}
-        ListEmptyComponent={empty('No collections yet')}
+        ListEmptyComponent={
+          <View style={{ paddingHorizontal: gutter }}>{empty('No collections yet')}</View>
+        }
         ListFooterComponent={
-          collectionsLoadingMore ? (
-            <ActivityIndicator style={{ marginVertical: tokens.space.md }} color={text} />
+          collectionLoad === 'contentPaginating' ? (
+            <View style={{ marginVertical: tokens.space.md }}>
+              <SkeletonGrid columns={PROFILE_VIDEO_GRID_COLUMNS} gap={PROFILE_VIDEO_GRID_GAP}>
+                <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+                <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+                <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+              </SkeletonGrid>
+            </View>
           ) : null
         }
         renderItem={({ item }) => (
-          <View style={styles.cell}>
-            <PublicCollectionTile collection={item} onPress={onPressCollection} />
+          <View style={{ width: videoCellWidth }}>
+            <PublicCollectionTile
+              collection={item}
+              aspectRatio={PROFILE_VIDEO_GRID_ASPECT}
+              flush
+              onPress={onPressCollection}
+            />
           </View>
         )}
         onEndReached={onEndReached}
@@ -152,11 +223,18 @@ export function CreatorProfile({
     );
   }
 
-  if (productsLoading && products.length === 0) {
+  if (productLoad === 'skeleton') {
     return (
       <View style={[styles.centered, { paddingHorizontal: gutter }]}>
         {header}
-        <ActivityIndicator style={{ marginTop: tokens.space.lg }} color={text} />
+        <View style={{ marginTop: tokens.space.md }}>
+          <SkeletonGrid columns={2} gap={gap}>
+            <ProductCardSkeleton variant="related" />
+            <ProductCardSkeleton variant="related" />
+            <ProductCardSkeleton variant="related" />
+            <ProductCardSkeleton variant="related" />
+          </SkeletonGrid>
+        </View>
       </View>
     );
   }
@@ -176,17 +254,22 @@ export function CreatorProfile({
       data={products}
       keyExtractor={(item) => item.catalogProductId ?? item.id}
       numColumns={2}
-      columnWrapperStyle={rowStyle}
-      contentContainerStyle={contentStyle}
+      columnWrapperStyle={productRowStyle}
+      contentContainerStyle={productContentStyle}
       ListHeaderComponent={header}
       ListEmptyComponent={empty('No products yet')}
       ListFooterComponent={
-        productsLoadingMore ? (
-          <ActivityIndicator style={{ marginVertical: tokens.space.md }} color={text} />
+        productLoad === 'contentPaginating' ? (
+          <View style={{ marginVertical: tokens.space.md }}>
+            <SkeletonGrid columns={2} gap={gap}>
+              <ProductCardSkeleton variant="related" />
+              <ProductCardSkeleton variant="related" />
+            </SkeletonGrid>
+          </View>
         ) : null
       }
       renderItem={({ item }) => (
-        <View style={styles.cell}>
+        <View style={{ width: productCellWidth }}>
           <ProductCard
             product={item}
             variant="related"
@@ -207,10 +290,6 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'flex-start',
-  },
-  cell: {
-    flex: 1,
-    minWidth: 0,
   },
   centered: {
     flex: 1,

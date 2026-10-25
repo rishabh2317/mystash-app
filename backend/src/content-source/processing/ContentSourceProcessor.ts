@@ -14,6 +14,12 @@ import type {
 } from '../ports';
 import { CONTENT_SOURCE_PROCESSOR_VERSION, ContentSourceTerminalError } from './errors';
 import { mapExtractedProducts, limitProductsForUserImport } from './mapCandidates';
+import { logger } from '../../logger';
+import type { PlaceRepository } from '../../place/PlaceRepository';
+import type { PlaceResolutionSummary } from '../../place/PlaceResolver';
+import { persistUnresolvedPlaceLeads } from '../../place/persistUnresolvedPlaceLeads';
+import { dropProductsMatchingKeptPlaces } from '../../place/dropProductsMatchingKeptPlaces';
+import type { ExtractedPlaceMention } from '../../place/parseReasonerPayload';
 
 export type ContentSourceProcessContext = {
   attemptsMade: number;
@@ -28,6 +34,18 @@ export type ContentSourceProcessorDeps = {
   now?: () => Date;
   processorVersion?: string;
   resolution?: ContentSourceResolutionPort | null;
+  /** When set without a resolver, specific video place mentions are saved as unresolved leads. */
+  places?: PlaceRepository | null;
+  /** When set, video place mentions are resolved. Canonical rows are written only on an accepted match. */
+  placeResolver?: ContentSourcePlaceResolutionPort | null;
+};
+
+export type ContentSourcePlaceResolutionPort = {
+  resolveMentions(input: {
+    contentSourceId: string;
+    imports: Array<{ id: string; userId: string }>;
+    mentions: ExtractedPlaceMention[];
+  }): Promise<PlaceResolutionSummary>;
 };
 
 /**
@@ -89,8 +107,8 @@ export class ContentSourceProcessor {
     );
 
     try {
-      const rows = await this.extractRows(claimed, data.traceId ?? claimed.id, base);
-      const persisted = await this.deps.sources.replaceProducts(claimed.id, rows);
+      const extracted = await this.extractRows(claimed, data.traceId ?? claimed.id, base);
+      const persisted = await this.deps.sources.replaceProducts(claimed.id, extracted.rows);
       emitContentSourceEvent(
         'ContentSourceCandidatesPersisted',
         buildContentSourceEventPayload({
@@ -100,13 +118,36 @@ export class ContentSourceProcessor {
         }),
       );
 
-      if (this.deps.resolution) {
-        await this.deps.resolution.resolveAndFanOut(claimed.id);
+      const [placeOutcome, productOutcome] = await Promise.allSettled([
+        this.resolvePlaces({
+          mediaKind: claimed.mediaKind,
+          contentSourceId: claimed.id,
+          imports,
+          mentions: extracted.places,
+        }),
+        this.resolveProducts(claimed.id, data.userImportId),
+      ]);
+
+      if (placeOutcome.status === 'rejected') {
+        logger.warn(
+          { err: placeOutcome.reason, contentSourceId: claimed.id },
+          'place.lead.persist_failed',
+        );
+        await this.saveUnresolvedPlaceLeadsFallback({
+          contentSourceId: claimed.id,
+          imports,
+          mentions: extracted.places,
+        });
       }
 
+      if (productOutcome.status === 'rejected') {
+        throw productOutcome.reason;
+      }
+
+      const attachedCount = productOutcome.value;
       const ready = await this.deps.sources.markReady(claimed.id, {
         lastProcessedAt: this.now().toISOString(),
-        candidateCount: persisted.length,
+        candidateCount: attachedCount,
       });
 
       emitContentSourceEvent(
@@ -114,20 +155,92 @@ export class ContentSourceProcessor {
         buildContentSourceEventPayload({
           ...base,
           processingStatus: ready?.processingStatus ?? 'READY',
-          candidateCount: persisted.length,
+          candidateCount: attachedCount,
           durationMs: Date.now() - started.getTime(),
         }),
       );
-
-      // Merchant enrichment is best-effort and must not keep discovery "looking".
-      if (this.deps.resolution?.enqueueMerchantEnrichment) {
-        void this.deps.resolution
-          .enqueueMerchantEnrichment(claimed.id, data.userImportId, data.traceId)
-          .catch(() => undefined);
-      }
     } catch (err) {
       await this.handleFailure(claimed, ctx, err, started, base);
     }
+  }
+
+  private async resolvePlaces(input: {
+    mediaKind: string;
+    contentSourceId: string;
+    imports: Array<{ id: string; userId: string }>;
+    mentions: ExtractedPlaceMention[];
+  }): Promise<void> {
+    if (input.mediaKind !== 'VIDEO' || (!this.deps.placeResolver && !this.deps.places)) return;
+    if (this.deps.placeResolver) {
+      const saved = await this.deps.placeResolver.resolveMentions({
+        contentSourceId: input.contentSourceId,
+        imports: input.imports,
+        mentions: input.mentions,
+      });
+      logger.info(
+        {
+          contentSourceId: input.contentSourceId,
+          kept: saved.kept,
+          discarded: saved.discarded,
+          leads: saved.leads,
+          resolved: saved.resolved,
+        },
+        'place.resolution.completed',
+      );
+      return;
+    }
+    if (!this.deps.places) return;
+    const saved = await persistUnresolvedPlaceLeads({
+      repository: this.deps.places,
+      contentSourceId: input.contentSourceId,
+      imports: input.imports,
+      mentions: input.mentions,
+    });
+    logger.info(
+      {
+        contentSourceId: input.contentSourceId,
+        kept: saved.kept,
+        discarded: saved.discarded,
+        leads: saved.leads,
+      },
+      'place.lead.persisted',
+    );
+  }
+
+  private async saveUnresolvedPlaceLeadsFallback(input: {
+    contentSourceId: string;
+    imports: Array<{ id: string; userId: string }>;
+    mentions: ExtractedPlaceMention[];
+  }): Promise<void> {
+    if (!this.deps.places) return;
+    try {
+      const saved = await persistUnresolvedPlaceLeads({
+        repository: this.deps.places,
+        contentSourceId: input.contentSourceId,
+        imports: input.imports,
+        mentions: input.mentions,
+      });
+      logger.info(
+        {
+          contentSourceId: input.contentSourceId,
+          kept: saved.kept,
+          discarded: saved.discarded,
+          leads: saved.leads,
+        },
+        'place.lead.persisted',
+      );
+    } catch (err) {
+      logger.warn(
+        { err, contentSourceId: input.contentSourceId },
+        'place.lead.persist_failed',
+      );
+    }
+  }
+
+  private async resolveProducts(contentSourceId: string, userImportId?: string): Promise<number> {
+    if (!this.deps.resolution) return 0;
+    const attached = await this.deps.resolution.resolveAndFanOut(contentSourceId, userImportId);
+    return Number.isInteger(attached) ? attached : 0;
   }
 
   private async extractRows(
@@ -142,7 +255,7 @@ export class ContentSourceProcessor {
       jobId: string;
       importCount: number;
     },
-  ): Promise<InsertContentSourceProductRow[]> {
+  ): Promise<{ rows: InsertContentSourceProductRow[]; places: ExtractedPlaceMention[] }> {
     const processorVersion =
       this.deps.processorVersion ??
       `${CONTENT_SOURCE_PROCESSOR_VERSION}/${getPipelineConfig().pipelineVersion}`;
@@ -158,6 +271,7 @@ export class ContentSourceProcessor {
           extractionMethod: extracted.extractionMethod,
         }),
       );
+      const products = dropProductsMatchingKeptPlaces(extracted.products, extracted.places ?? []);
       emitContentSourceEvent(
         'ContentSourceExtractionCompleted',
         buildContentSourceEventPayload({
@@ -173,27 +287,31 @@ export class ContentSourceProcessor {
         buildContentSourceEventPayload({
           ...base,
           processingStatus: 'PROCESSING',
-          candidateCount: extracted.products.length,
+          cacheHit: extracted.cacheHit,
           extractionMethod: extracted.extractionMethod,
+          candidateCount: products.length,
         }),
       );
       const capped = limitProductsForUserImport(
-        extracted.products,
+        products,
         getPipelineConfig().maxProductsPerImport,
       );
-      return mapExtractedProducts({
-        contentSourceId: source.id,
-        products: capped,
-        extractionMethod: extracted.extractionMethod,
-        processorVersion,
-        sourceMetadata: {
-          finalStage: extracted.finalStage,
-          cacheHit: extracted.cacheHit,
-          canonicalUrl: source.canonicalUrl,
-          platform: source.platform,
-          externalId: source.externalId,
-        },
-      });
+      return {
+        rows: mapExtractedProducts({
+          contentSourceId: source.id,
+          products: capped,
+          extractionMethod: extracted.extractionMethod,
+          processorVersion,
+          sourceMetadata: {
+            finalStage: extracted.finalStage,
+            cacheHit: extracted.cacheHit,
+            canonicalUrl: source.canonicalUrl,
+            platform: source.platform,
+            externalId: source.externalId,
+          },
+        }),
+        places: extracted.places ?? [],
+      };
     }
 
     if (source.mediaKind === 'WEB_PAGE') {
@@ -231,17 +349,20 @@ export class ContentSourceProcessor {
           extractionMethod: 'merchant_enrichment',
         }),
       );
-      return mapExtractedProducts({
-        contentSourceId: source.id,
-        products: limitProductsForUserImport(products, getPipelineConfig().maxProductsPerImport),
-        extractionMethod: 'merchant_enrichment',
-        processorVersion,
-        sourceMetadata: {
-          canonicalUrl: source.canonicalUrl,
-          platform: source.platform,
-          externalId: source.externalId,
-        },
-      });
+      return {
+        rows: mapExtractedProducts({
+          contentSourceId: source.id,
+          products: limitProductsForUserImport(products, getPipelineConfig().maxProductsPerImport),
+          extractionMethod: 'merchant_enrichment',
+          processorVersion,
+          sourceMetadata: {
+            canonicalUrl: source.canonicalUrl,
+            platform: source.platform,
+            externalId: source.externalId,
+          },
+        }),
+        places: [],
+      };
     }
 
     throw new ContentSourceTerminalError(

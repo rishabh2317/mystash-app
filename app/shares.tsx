@@ -2,7 +2,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
@@ -12,6 +11,8 @@ import {
 
 import { TopBar } from '@/components/chrome/TopBar';
 import { ShareActivityCard } from '@/components/search/ShareActivityCard';
+import { ShareActivityCardSkeleton } from '@/components/search/ShareActivityCardSkeleton';
+import { SkeletonStack } from '@/components/status/SkeletonStack';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { useImportSharesPoll } from '@/src/hooks/useImportSharesPoll';
@@ -47,9 +48,12 @@ export default function YourSharesScreen() {
   let body: React.ReactNode;
   if (authLoading || (user && !loaded)) {
     body = (
-      <View style={styles.center}>
-        <ActivityIndicator color={tokens.color.accent} />
-      </View>
+      <SkeletonStack gap={10} style={styles.list}>
+        <ShareActivityCardSkeleton />
+        <ShareActivityCardSkeleton />
+        <ShareActivityCardSkeleton />
+        <ShareActivityCardSkeleton />
+      </SkeletonStack>
     );
   } else if (!user) {
     body = (

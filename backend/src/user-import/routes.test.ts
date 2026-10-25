@@ -111,6 +111,23 @@ describe('POST /imports', () => {
     assert.equal(result.status, 201);
   });
 
+  it('rejects an unverified email session with 403', async () => {
+    const { UnverifiedEmailError } = await import('../auth/emailVerification');
+    const repo = new InMemoryUserImportRepository();
+    const { port } = createContentSourcePort();
+    const service = new UserImportService(repo, port, null, async () => undefined);
+    const handler = createUserImportHandler({
+      service,
+      authenticate: async () => {
+        throw new UnverifiedEmailError();
+      },
+    });
+    const result = await post(handler, { url: REEL_URL });
+    assert.equal(result.status, 403);
+    assert.equal((result.body as { code?: string }).code, 'EMAIL_NOT_VERIFIED');
+    assert.equal(repo.imports.size, 0);
+  });
+
   it('rejects an unauthenticated request', async () => {
     const { repo, handler } = createHarness();
     const missingHeader = await post(handler, { url: REEL_URL }, null);

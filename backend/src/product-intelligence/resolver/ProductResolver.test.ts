@@ -343,7 +343,7 @@ describe('ProductResolver', () => {
     assert.equal(store.created[0]?.verificationStatus, 'UNVERIFIED');
     assert.equal(
       (store.created[0]?.metadata?.verification as Record<string, unknown>)?.decision,
-      'created_metadata_only',
+      'created_unverified_low_score',
     );
   });
 
@@ -406,7 +406,7 @@ describe('ProductResolver', () => {
     assert.equal(store.created[0]?.verificationStatus, 'UNVERIFIED');
     assert.equal(
       (store.created[0]?.metadata?.verification as Record<string, unknown>)?.decision,
-      'created_unverified_weak_identity',
+      'created_unverified_low_score',
     );
     const scores = store.created[0]?.metadata?.scores as Record<string, number>;
     assert.ok((scores?.match ?? 1) < 0.85);
@@ -491,13 +491,20 @@ describe('ProductResolver', () => {
   });
 
   function commercePdp(overrides: Partial<import('../domain/types').SearchCandidate> = {}) {
+    const title = overrides.title ?? 'Sony PlayStation VR Camera Bundle';
+    const brand =
+      overrides.brand !== undefined
+        ? overrides.brand
+        : /zephyr/i.test(title)
+          ? 'ZephyrLabs'
+          : 'Sony';
     return {
       merchant: 'shop.example',
       merchantUrl: 'https://www.amazon.com/dp/B0747YTV7B',
-      title: 'Sony PlayStation VR Camera Bundle',
+      title,
       image: 'https://img.example/p.jpg',
       score: 0.9,
-      brand: 'Sony',
+      brand,
       price: '205.02',
       currency: 'USD',
       pdpScore: 0.79,
@@ -749,6 +756,7 @@ describe('ProductResolver', () => {
     const existing = catalogStub({
       id: 'cat-reuse',
       name: 'PlayStation VR Bundle',
+      brand: 'Sony',
       merchantUrl: 'https://www.amazon.com/dp/B0747YTV7B',
       verificationStatus: 'VERIFIED',
     });
@@ -829,41 +837,6 @@ describe('ProductResolver', () => {
     assert.match(result?.discovered?.identityKey ?? '', /^(m_|n_)/);
     assert.equal(result?.enqueueBackground, false);
     assert.equal(enqueued.length, 0);
-  });
-
-  it('resolveForUserImportFast creates discovered without searching merchants', async () => {
-    let searched = 0;
-    const store = { created: [] as CreateCatalogInput[] };
-    const resolver = new ProductResolver(
-      catalogService(store),
-      {
-        async search(): Promise<SearchResult> {
-          searched += 1;
-          return { kind: 'Succeeded', provider: 'mock', candidates: [] };
-        },
-      },
-      { async updateResolution() {} },
-      { async write() {} },
-      getProductIntelligenceConfig(),
-      null,
-      'content-source',
-    );
-    const [result] = await resolver.resolveForUserImportFast([
-      {
-        draftId: 'd1',
-        externalId: 'e1',
-        name: 'Mystery Gadget',
-        brand: 'Acme',
-        model: 'GX1',
-        confidence: 0.8,
-        category: 'smartphones',
-      },
-    ]);
-    assert.equal(searched, 0);
-    assert.equal(store.created.length, 0);
-    assert.equal(result?.catalogProductId, null);
-    assert.equal(result?.discovered?.category, 'electronics');
-    assert.equal(result?.discovered?.metadata?.enrichmentStatus, 'pending');
   });
 
   it('resolveForUserImport passes enrichAllCommerce so search keeps all merchants', async () => {
@@ -1384,5 +1357,356 @@ describe('ProductResolver', () => {
     assert.ok(result?.catalogProductId);
     assert.equal(store.created.length, 1);
     assert.equal(result?.discovered, undefined);
+  });
+
+  it('rejects a wrong-brand exact Amazon PDP and keeps a compatible Zara PDP', async () => {
+    const store = { created: [] as CreateCatalogInput[] };
+    const neudis = 'https://www.amazon.in/NEUDIS-Sheath-Dresses-Length-Sleeveless/dp/B0BQRMD35B';
+    const zara = 'https://www.zara.com/in/en/satin-midi-dress-p12345678.html';
+    const resolver = new ProductResolver(
+      catalogService(store),
+      {
+        async search(): Promise<SearchResult> {
+          return {
+            kind: 'Succeeded',
+            provider: 'mock',
+            candidates: [
+              commercePdp({
+                merchant: 'amazon.in',
+                merchantUrl: neudis,
+                title: 'NEUDIS Women Solid Satin Cowl Neck Sheath Dress',
+                brand: 'NEUDIS',
+                score: 1,
+                pdpScore: 1,
+              }),
+              commercePdp({
+                merchant: 'zara.com',
+                merchantUrl: zara,
+                title: 'Zara Satin Midi Dress in Olive ZM-440',
+                brand: 'Zara',
+                score: 0.4,
+                pdpScore: 0.5,
+                sourceType: 'OFFICIAL',
+              }),
+            ],
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true },
+      null,
+      'ingest-identity',
+    );
+    const [result] = await resolver.resolveIngest([
+      {
+        draftId: 'd-zara',
+        externalId: 'e-zara',
+        name: 'Satin Midi Dress in Olive',
+        brand: 'Zara',
+        model: 'ZM-440',
+        confidence: 0.95,
+        category: 'fashion',
+      },
+    ]);
+    const created = store.created[0];
+    const savedUrls = [created?.merchantUrl, created?.preferredShoppingUrl].filter(Boolean).join(' ');
+    assert.equal(savedUrls.includes('B0BQRMD35B'), false);
+    assert.match(savedUrls, /zara\.com/);
+    assert.notEqual(
+      (created?.metadata?.verification as Record<string, unknown> | undefined)?.decision,
+      undefined,
+    );
+    assert.equal(result?.resolutionStatus === 'VERIFIED' || result?.resolutionStatus === 'UNVERIFIED', true);
+  });
+
+  it('keeps only identity-compatible merchant offers and ignores a configured URL for a different product', async () => {
+    const repo = new InMemoryCatalogRepository();
+    const catalogId = '550e8400-e29b-41d4-a716-446655440099';
+    const jogger = 'https://www.myntra.com/grey-jogger/p/itm123';
+    repo.seed(
+      catalogStub({
+        id: catalogId,
+        name: 'Unrelated Catalog Row',
+        brand: 'Other',
+        merchantUrl: 'https://shop.example/unrelated',
+        preferredShoppingUrl: jogger,
+        metadata: { shoppingSelection: { configuredBuyingUrl: jogger } },
+      }),
+    );
+    const amazon = 'https://www.amazon.in/Levis-501-Black-Jeans/dp/B0LEVI501';
+    const flipkart = 'https://www.flipkart.com/levis-501-black-jeans/p/itm501';
+    const xm4 = 'https://www.sony.com/wh-1000xm4';
+    const blackDress = 'https://www.zara.com/black-satin-midi-dress-p1.html';
+    const resolver = new ProductResolver(
+      new CatalogService(repo),
+      {
+        async search(): Promise<SearchResult> {
+          return {
+            kind: 'Succeeded',
+            provider: 'mock',
+            candidates: [
+              commercePdp({
+                merchant: 'amazon.in',
+                merchantUrl: amazon,
+                title: 'Levis 501 Black Jeans',
+                brand: 'Levis',
+                sourceType: 'MARKETPLACE',
+              }),
+              commercePdp({
+                merchant: 'flipkart.com',
+                merchantUrl: flipkart,
+                title: 'Levis 501 Black Jeans',
+                brand: 'Levis',
+                sourceType: 'MARKETPLACE',
+              }),
+              commercePdp({
+                merchant: 'myntra.com',
+                merchantUrl: jogger,
+                title: 'Levis Grey Jogger',
+                brand: 'Levis',
+              }),
+              commercePdp({
+                merchant: 'sony.com',
+                merchantUrl: xm4,
+                title: 'Sony WH-1000XM4 Wireless Headphones',
+                brand: 'Sony',
+                sourceType: 'OFFICIAL',
+              }),
+              commercePdp({
+                merchant: 'zara.com',
+                merchantUrl: blackDress,
+                title: 'Zara Black Satin Midi Dress',
+                brand: 'Zara',
+                sourceType: 'OFFICIAL',
+              }),
+            ],
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    const [result] = await resolver.resolveForUserImport([
+      {
+        draftId: 'd-jeans',
+        externalId: 'e-jeans',
+        name: 'Levis 501 Black Jeans',
+        brand: 'Levis',
+        model: '501',
+        confidence: 0.95,
+        category: 'fashion',
+        catalogProductId: catalogId,
+      },
+    ]);
+    const saved = result?.discovered;
+    const offerUrls = [
+      result?.merchantUrl,
+      saved?.merchantUrl,
+      ...((saved?.metadata?.shopping_candidates as Array<{ url?: string }> | undefined) ?? []).map(
+        (offer) => offer.url,
+      ),
+    ]
+      .filter((url): url is string => typeof url === 'string')
+      .join(' ');
+    assert.equal(offerUrls.includes('grey-jogger'), false);
+    assert.equal(offerUrls.includes('wh-1000xm4'), false);
+    assert.equal(offerUrls.includes('black-satin'), false);
+    assert.match(result?.merchantUrl ?? '', /amazon\.in|flipkart\.com/);
+    assert.match(offerUrls, /amazon\.in/);
+    assert.match(offerUrls, /flipkart\.com/);
+    assert.equal(result?.catalogProductId, null);
+  });
+
+  it('does not copy a rejected user seed onto a compatible page', async () => {
+    const neudis = 'https://www.amazon.in/NEUDIS-Sheath-Dresses-Length-Sleeveless/dp/B0BQRMD35B';
+    const zara = 'https://www.zara.com/in/en/satin-midi-dress-p12345678.html';
+    const resolver = new ProductResolver(
+      new CatalogService(new InMemoryCatalogRepository()),
+      {
+        async search(): Promise<SearchResult> {
+          return {
+            kind: 'Succeeded',
+            provider: 'mock',
+            candidates: [
+              commercePdp({
+                merchant: 'amazon.in',
+                merchantUrl: neudis,
+                title: 'NEUDIS Women Solid Satin Cowl Neck Sheath Dress',
+                brand: 'NEUDIS',
+                image: 'https://img.example/neudis.jpg',
+                score: 1,
+                pdpScore: 1,
+              }),
+              commercePdp({
+                merchant: 'zara.com',
+                merchantUrl: zara,
+                title: 'Zara Satin Midi Dress in Olive ZM-440',
+                brand: 'Zara',
+                image: 'https://img.example/zara.jpg',
+                score: 0.9,
+                pdpScore: 0.8,
+                sourceType: 'OFFICIAL',
+              }),
+            ],
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'content-source',
+    );
+    const [result] = await resolver.resolveForUserImport([
+      {
+        draftId: 'd-seed',
+        externalId: 'e-seed',
+        name: 'Satin Midi Dress in Olive',
+        brand: 'Zara',
+        model: 'ZM-440',
+        confidence: 0.95,
+        category: 'fashion',
+        merchantUrl: neudis,
+        image: 'https://img.example/ai.jpg',
+        creatorSuppliedUrl: true,
+      },
+    ]);
+    const saved = result?.discovered;
+    assert.ok(saved);
+    assert.match(saved?.name ?? '', /Zara/i);
+    assert.equal(saved?.brand, 'Zara');
+    assert.doesNotMatch(saved?.model ?? '', /neudis/i);
+    assert.equal(saved?.merchantUrl?.includes('B0BQRMD35B'), false);
+    assert.match(saved?.merchantUrl ?? '', /zara\.com/);
+    assert.equal(saved?.imageUrl?.includes('neudis'), false);
+    assert.equal(result?.catalogProductId, null);
+  });
+
+  it('does not verify a wrong-brand exact /dp/ when it is the only candidate', async () => {
+    const store = { created: [] as CreateCatalogInput[] };
+    const neudis = 'https://www.amazon.in/NEUDIS-Sheath-Dresses-Length-Sleeveless/dp/B0BQRMD35B';
+    const resolver = new ProductResolver(
+      catalogService(store),
+      {
+        async search(): Promise<SearchResult> {
+          return {
+            kind: 'Succeeded',
+            provider: 'mock',
+            candidates: [
+              commercePdp({
+                merchant: 'amazon.in',
+                merchantUrl: neudis,
+                title: 'NEUDIS Womens Satin Midi Dress in Olive',
+                brand: null,
+                score: 1,
+                pdpScore: 1,
+              }),
+            ],
+          };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true },
+      null,
+      'ingest-identity-only',
+    );
+    const [result] = await resolver.resolveIngest([
+      {
+        draftId: 'd-zara-only',
+        externalId: 'e-zara-only',
+        name: 'Satin Midi Dress in Olive',
+        brand: 'Zara',
+        model: 'ZM-440',
+        confidence: 0.95,
+        category: 'fashion',
+      },
+    ]);
+    assert.equal(result?.resolutionStatus, 'UNVERIFIED');
+    assert.equal(store.created[0]?.verificationStatus, 'UNVERIFIED');
+    assert.notEqual(
+      (store.created[0]?.metadata?.verification as Record<string, unknown> | undefined)?.decision,
+      'created_verified',
+    );
+    assert.equal(store.created[0]?.merchantUrl ?? null, null);
+    assert.equal(store.created[0]?.preferredShoppingUrl ?? null, null);
+  });
+});
+
+describe('user brand-backed line search', () => {
+  function lineResolver() {
+    let searched = 0;
+    let query = '';
+    const resolver = new ProductResolver(
+      new CatalogService(new InMemoryCatalogRepository()),
+      {
+        async search(q): Promise<SearchResult> {
+          searched += 1;
+          query = q;
+          return { kind: 'Succeeded', provider: 'mock', candidates: [] };
+        },
+      },
+      { async updateResolution() {} },
+      { async write() {} },
+      { ...getProductIntelligenceConfig(), enabled: true, backgroundResolve: false },
+      null,
+      'line-search',
+    );
+    return { resolver, searched: () => searched, query: () => query };
+  }
+
+  it('does not search a below-threshold line on the creator path', async () => {
+    const harness = lineResolver();
+    const [result] = await harness.resolver.resolveIngest([
+      { draftId: 'd', externalId: 'e', name: 'Mind Shoes', brand: 'Nike', confidence: 0.9 },
+    ]);
+    assert.equal(harness.searched(), 0);
+    assert.equal(result?.decision, 'insufficient_specificity');
+  });
+
+  it('searches a brand-backed line for a user import and keeps the identity query', async () => {
+    const harness = lineResolver();
+    await harness.resolver.resolveForUserImport([
+      { draftId: 'd', externalId: 'e', name: 'Mind Shoes', brand: 'Nike', confidence: 0.9 },
+    ]);
+    assert.equal(harness.searched(), 1);
+    assert.match(harness.query(), /\bNike\b/);
+    assert.match(harness.query(), /\bMind\b/);
+    assert.match(harness.query(), /\bShoes\b/);
+  });
+
+  it('searches named lines with a brand and no model', async () => {
+    for (const [name, brand] of [
+      ['Nike Mind Shoes', 'Nike'],
+      ['Bose SoundLink Max', 'Bose'],
+      ['Dyson Airwrap', 'Dyson'],
+      ['Sony WH-1000XM6', 'Sony'],
+    ] as const) {
+      const harness = lineResolver();
+      await harness.resolver.resolveForUserImport([
+        { draftId: 'd', externalId: 'e', name, brand, confidence: 0.9 },
+      ]);
+      assert.equal(harness.searched(), 1, name);
+    }
+  });
+
+  it('does not search a brand plus a generic product type', async () => {
+    for (const [name, brand] of [
+      ['Nike Shoe', 'Nike'],
+      ['Adidas Shoes', 'Adidas'],
+      ['Samsung Phone', 'Samsung'],
+      ['Sony Headphones', 'Sony'],
+    ] as const) {
+      const harness = lineResolver();
+      const [result] = await harness.resolver.resolveForUserImport([
+        { draftId: 'd', externalId: 'e', name, brand, confidence: 0.9 },
+      ]);
+      assert.equal(harness.searched(), 0, name);
+      assert.equal(result?.decision, 'insufficient_specificity', name);
+    }
   });
 });

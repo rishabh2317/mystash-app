@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { typeStyle } from '@/src/theme/typography';
+import { type TypeRole, typeStyle } from '@/src/theme/typography';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 
@@ -15,6 +15,8 @@ type Props = {
   actionLabel?: string;
   onActionPress?: () => void;
   actionAccessibilityLabel?: string;
+  /** Default `sectionTitle`. Profile rails use `tileTitle` to match tab/card headings. */
+  titleRole?: Extract<TypeRole, 'sectionTitle' | 'tileTitle'>;
 };
 
 /**
@@ -27,6 +29,7 @@ export function SectionHeader({
   actionLabel,
   onActionPress,
   actionAccessibilityLabel,
+  titleRole = 'sectionTitle',
 }: Props) {
   const { tokens } = useThemeMode();
   const showAction = Boolean(actionLabel && onActionPress);
@@ -34,7 +37,7 @@ export function SectionHeader({
   return (
     <View style={[styles.row, { gap: tokens.space.sm }]}>
       <View style={styles.copy}>
-        <Text style={typeStyle(tokens, 'sectionTitle')}>{title}</Text>
+        <Text style={typeStyle(tokens, titleRole)}>{title}</Text>
         {subtitle ? (
           <Text
             style={[

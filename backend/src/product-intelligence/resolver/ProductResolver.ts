@@ -21,7 +21,11 @@ import { ProductNormalizer } from '../normalizer/ProductNormalizer';
 import { mergeEnrichedCandidates } from '../enrichment/MetadataMergeService';
 import { resolvePersistableCategory } from '../domain/categoryTaxonomy';
 import { emitPiEvent } from '../observability';
-import { scoreProductSpecificity } from '../specificity/ProductSpecificityScorer';
+import {
+  scoreProductSpecificity,
+  textSupportsProductLine,
+  userSearchLineTokens,
+} from '../specificity/ProductSpecificityScorer';
 import { buildProductSearchQuery } from '../search/ProductSearchQueryBuilder';
 import { classifyCandidatePage } from '../search/CandidatePageClassifier';
 import { scoreCandidateDecisions } from '../scoring/CandidateScoring';
@@ -43,6 +47,10 @@ import {
 import { pickOneOfferPerMerchant } from '../search/merchantOfferDedupe';
 import { resolveDiscoveryCountry } from '../search/discoveryCountry';
 import { discoveredProductIdentityKey } from '../discovered/identity';
+import {
+  assessProductIdentityCompatibility,
+  isProductIdentityCompatible,
+} from '../search/productIdentityCompatibility';
 
 function aiFieldProvenance(provider = 'ai'): Record<string, { source: string; provider?: string }> {
   return {
@@ -51,6 +59,44 @@ function aiFieldProvenance(provider = 'ai'): Record<string, { source: string; pr
     price: { source: 'ai', provider },
     heroImage: { source: 'ai', provider },
   };
+}
+
+function identityExpectation(norm: NormalizedProduct) {
+  return {
+    brand: norm.brand,
+    name: norm.name,
+    model: norm.model,
+    category: norm.category === 'unknown' ? null : norm.category,
+  };
+}
+
+function candidateMatchesIdentity(
+  norm: NormalizedProduct,
+  candidate: SearchCandidate,
+  lineTokens: string[] = [],
+): boolean {
+  if (
+    !isProductIdentityCompatible(identityExpectation(norm), {
+      title: candidate.title,
+      brand: candidate.brand,
+      model: candidate.model,
+      merchantUrl: candidate.merchantUrl,
+      category: candidate.category,
+    })
+  ) {
+    return false;
+  }
+  return textSupportsProductLine(lineTokens, [
+    candidate.title,
+    candidate.brand,
+    candidate.model,
+    candidate.merchantUrl,
+  ]);
+}
+
+function urlOnlyIdentityCompatible(norm: NormalizedProduct, url: string): boolean {
+  const result = assessProductIdentityCompatibility(identityExpectation(norm), { merchantUrl: url });
+  return result.ok || result.reason === 'brand_unsupported';
 }
 
 function sourceHost(url: string): string {
@@ -137,104 +183,31 @@ export class ProductResolver {
     return this.resolveIngest(drafts, { promoteOnMiss: false });
   }
 
-  /**
-   * Bag-critical path for user imports: local catalog hit or discovered stub from
-   * already-extracted candidate fields. Never awaits Serper/Tavily.
-   */
-  async resolveForUserImportFast(drafts: AiDraftInput[]): Promise<ResolveDraftResult[]> {
-    const out: ResolveDraftResult[] = [];
-    for (const draft of drafts) {
-      out.push(await this.resolveOneFast(draft));
-    }
-    return out;
-  }
-
-  private async resolveOneFast(draft: AiDraftInput): Promise<ResolveDraftResult> {
-    const norm = this.normalizer.normalize(draft);
-    const specificity = scoreProductSpecificity(draft, norm, this.cfg.specificityMin);
-    const category = resolvePersistableCategory(draft.category, norm.category);
-
-    const localHit = await this.catalog.localSearch(norm);
-    if (
-      localHit &&
-      localHit.score >= this.cfg.catalogHitMinScore &&
-      localHit.product.verificationStatus === 'VERIFIED'
-    ) {
-      emitPiEvent('catalog.hit', {
-        draftId: draft.draftId,
-        via: localHit.via,
-        score: localHit.score,
-        path: 'user_import_fast',
-      });
-      return this.finishWithCatalog(
-        draft,
-        norm.aiConfidence,
-        localHit.product,
-        localHit.score,
-        'local_hit',
-        localHit.via,
-        { specificityScore: specificity.score, pdpClassifierScore: null },
-        { persistDraft: false },
-      );
-    }
-
-    return this.finishAsDiscovered(
-      draft,
-      norm,
-      'user_import_fast_discovered',
-      'bag_critical_path_pending_merchant_enrichment',
-      0,
-      { specificityScore: specificity.score, pdpClassifierScore: null },
-      {
-        name: norm.name,
-        normalizedName: norm.normalizedName,
-        canonicalSlug: norm.canonicalSlugBase,
-        brand: norm.brand,
-        model: norm.model,
-        category,
-        imageUrl: norm.imageHint,
-        merchantUrl: norm.merchantUrlHint,
-        price: norm.priceHint,
-        currency: norm.currencyHint,
-        verificationStatus: 'UNVERIFIED',
-        verificationSource: 'user_import_fast',
-        verificationVersion: this.cfg.verificationVersion,
-        aiConfidence: norm.aiConfidence,
-        matchConfidence: null,
-        verificationConfidence: 0,
-        aliases: norm.aliases,
-        metadata: {
-          source: 'user_import_fast',
-          enrichmentStatus: 'pending',
-          field_provenance: {
-            title: { source: 'extraction' },
-            brand: { source: 'extraction' },
-            category: { source: category ? 'extraction' : 'none' },
-          },
-          scores: { specificity: specificity.score },
-        },
-      },
-    );
-  }
-
   private async resolveOne(
     draft: AiDraftInput,
     promoteOnMiss = true,
   ): Promise<ResolveDraftResult> {
     const norm = this.normalizer.normalize(draft);
     const specificity = scoreProductSpecificity(draft, norm, this.cfg.specificityMin);
+    // Creator keeps the score gate. User search may also proceed for a brand
+    // plus a distinctive line, then the same identity gate decides attachment.
+    const lineTokens = promoteOnMiss ? [] : userSearchLineTokens(specificity, norm);
+    const maySearch = specificity.decision === 'searchable' || lineTokens.length > 0;
+    const reasons = lineTokens.length
+      ? [...specificity.reasons, 'brand_backed_distinctive_line']
+      : specificity.reasons;
     const t0 = performance.now();
     emitPiEvent('specificity.assessed', {
       draftId: draft.draftId,
       specificityScore: specificity.score,
       threshold: this.cfg.specificityMin,
-      decision: specificity.decision,
-      reason: specificity.reasons.join(','),
+      decision: maySearch ? 'searchable' : specificity.decision,
+      reason: reasons.join(','),
     });
 
-    if (specificity.decision !== 'searchable') {
+    if (!maySearch) {
       const decision = 'insufficient_specificity';
-      const reason = specificity.reasons.join(',');
+      const reason = reasons.join(',');
       const result = await this.writeMiss(promoteOnMiss, draft, norm, decision, reason, 0, {
         specificityScore: specificity.score,
         pdpClassifierScore: null,
@@ -279,8 +252,25 @@ export class ProductResolver {
     }
 
     const localHit = await this.catalog.localSearch(norm);
+    const localIdentityOk =
+      !localHit ||
+      promoteOnMiss ||
+      (isProductIdentityCompatible(identityExpectation(norm), {
+        title: localHit.product.name,
+        brand: localHit.product.brand,
+        model: localHit.product.model,
+        merchantUrl: localHit.product.merchantUrl,
+        category: localHit.product.category,
+      }) &&
+        textSupportsProductLine(lineTokens, [
+          localHit.product.name,
+          localHit.product.brand,
+          localHit.product.model,
+          localHit.product.merchantUrl,
+        ]));
     if (
       localHit &&
+      localIdentityOk &&
       localHit.score >= this.cfg.catalogHitMinScore &&
       localHit.product.verificationStatus === 'VERIFIED'
     ) {
@@ -487,6 +477,7 @@ export class ProductResolver {
     const metadataCandidates = searchResult.candidates.filter(
       (c) =>
         c.enrichmentSucceeded === true &&
+        candidateMatchesIdentity(norm, c, lineTokens) &&
         (Boolean(creatorUrl && merchantUrlsMatch(c.merchantUrl, creatorUrl)) ||
           this.scorer.score(norm, c).score >= this.cfg.verificationMatchMin),
     );
@@ -534,7 +525,9 @@ export class ProductResolver {
           rejectionReason: metadataCandidateUrls.has(candidate.merchantUrl)
             ? 'no_purchasable_offer'
             : candidate.enrichmentSucceeded
-              ? 'below_match_threshold'
+              ? candidateMatchesIdentity(norm, candidate, lineTokens)
+                ? 'below_match_threshold'
+                : 'identity_incompatible'
               : 'enrichment_failed',
         });
       }
@@ -649,7 +642,7 @@ export class ProductResolver {
       resolverWinnerUrl: shoppingResolved?.preferredShoppingUrl ?? null,
       priority: shoppingResolvedSelection.merchantPriority,
     });
-    const shopping =
+    let shopping =
       shoppingChoice.preferredShoppingUrl != null
         ? {
             preferredShoppingUrl: shoppingChoice.preferredShoppingUrl,
@@ -661,6 +654,20 @@ export class ProductResolver {
             selectionSource: shoppingChoice.source,
           }
         : null;
+    if (!promoteOnMiss && shopping) {
+      const identityOffer = (url: string) =>
+        commerceCandidates.some((candidate) => merchantUrlsMatch(candidate.merchantUrl, url));
+      shopping = {
+        ...shopping,
+        offers: shopping.offers.filter((offer) => identityOffer(offer.url)),
+      };
+      if (!identityOffer(shopping.preferredShoppingUrl)) {
+        const fallback = commerceCandidates.find((candidate) => candidate.merchantUrl)?.merchantUrl ?? null;
+        shopping = fallback
+          ? { ...shopping, preferredShoppingUrl: fallback, selectionSource: 'resolver' }
+          : null;
+      }
+    }
 
     const metadataWinners = new Set(
       Object.values(merged.metadataSourceMap).map((field) => field.source),
@@ -688,7 +695,9 @@ export class ProductResolver {
           ? null
           : !metadataCandidateUrls.has(candidate.merchantUrl)
             ? candidate.enrichmentSucceeded
-              ? 'below_match_threshold'
+              ? candidateMatchesIdentity(norm, candidate, lineTokens)
+                ? 'below_match_threshold'
+                : 'identity_incompatible'
               : 'enrichment_failed'
             : (candidate.capabilities ?? classification.capabilities).commerce
               ? 'lower_shopping_score'
@@ -710,9 +719,24 @@ export class ProductResolver {
             (c) => c.enrichmentSucceeded && merchantUrlsMatch(c.merchantUrl, creatorUrl),
           ) ?? null
         : null;
-    const identityUrl = creatorUrl ?? shopping?.preferredShoppingUrl ??
+    // Creator still trusts a supplied URL. User import does not copy a seed that
+    // failed identity onto the saved product just because another page passed.
+    const seedAccepted = seedCandidate != null && candidateMatchesIdentity(norm, seedCandidate, lineTokens);
+    const trustSeed = Boolean(creatorUrl && seedCandidate && (promoteOnMiss || seedAccepted));
+    const identityUrl =
+      (trustSeed ? creatorUrl : null) ??
+      shopping?.preferredShoppingUrl ??
       commerceCandidates.find((c) => c.merchantUrl)?.merchantUrl ??
       null;
+    const identityCandidate = identityUrl
+      ? searchResult.candidates.find((candidate) => merchantUrlsMatch(candidate.merchantUrl, identityUrl)) ??
+        null
+      : null;
+    const identityCompatible = identityCandidate
+      ? candidateMatchesIdentity(norm, identityCandidate, lineTokens)
+      : identityUrl
+        ? urlOnlyIdentityCompatible(norm, identityUrl)
+        : true;
     const verificationDecision = decideProductVerification({
       hasCommerceOffer: hasShoppingOffer,
       bestMatch,
@@ -722,6 +746,7 @@ export class ProductResolver {
       verificationMatchMin: this.cfg.verificationMatchMin,
       pdpClassifierMin: this.cfg.pdpClassifierMin,
       hadExistingCatalog: Boolean(draft.catalogProductId),
+      identityCompatible,
     });
     const verificationStatus = verificationDecision.verificationStatus;
     const resolutionDecision = verificationDecision.decision;
@@ -755,17 +780,25 @@ export class ProductResolver {
       specificityScore: specificity.score,
       pdpClassifierScore: bestPdpScore,
     }, {
-      name: (creatorUrl ? seedCandidate?.title : null) || merged.title || norm.name,
+      name: (trustSeed ? seedCandidate?.title : null) || merged.title || norm.name,
       normalizedName: norm.normalizedName,
       canonicalSlug: norm.canonicalSlugBase,
-      brand: (creatorUrl ? seedCandidate?.brand : null) || merged.brand || norm.brand,
+      brand: (trustSeed ? seedCandidate?.brand : null) || merged.brand || norm.brand,
       model: merged.model ?? norm.model,
       category: resolvePersistableCategory(merged.category, norm.category),
-      description: merged.description ?? seedCandidate?.description ?? null,
-      imageUrl: merged.heroImage ?? seedCandidate?.image ?? norm.imageHint,
-      merchant: seedCandidate?.merchant ?? merged.offer?.merchant ?? verification?.merchant ?? null,
-      merchantUrl: creatorUrl ?? merged.offer?.merchantUrl ?? verification?.merchantUrl ?? null,
-      preferredShoppingUrl: shopping?.preferredShoppingUrl ?? creatorUrl ?? null,
+      description: merged.description ?? (trustSeed ? seedCandidate?.description ?? null : null),
+      imageUrl: merged.heroImage ?? (trustSeed ? seedCandidate?.image ?? null : null) ?? norm.imageHint,
+      merchant:
+        (trustSeed ? seedCandidate?.merchant : null) ??
+        merged.offer?.merchant ??
+        verification?.merchant ??
+        null,
+      merchantUrl:
+        (trustSeed ? creatorUrl : null) ??
+        merged.offer?.merchantUrl ??
+        verification?.merchantUrl ??
+        null,
+      preferredShoppingUrl: shopping?.preferredShoppingUrl ?? (trustSeed ? creatorUrl : null) ?? null,
       affiliateUrl: merged.offer?.affiliateUrl ?? null,
       shoppingProvider: shopping?.shoppingProvider ?? null,
       price: merged.offer?.price ?? null,

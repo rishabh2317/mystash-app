@@ -10,7 +10,8 @@ import {
   appendManualProductsToIngest,
   ManualAppendError,
 } from './manualProductAppend';
-import { createSupabaseAdmin, createSupabaseUserClient } from './supabase';
+import { requireAuthUser } from './auth/requireAuth';
+import { createSupabaseAdmin } from './supabase';
 import { handlePublishIngest } from './publish';
 import { logger } from './logger';
 import { enqueueIngestPipeline } from './workers/queue';
@@ -25,10 +26,15 @@ import { registerEngagementRoutes } from './engagement/routes';
 import { logSearchRuntime } from './search/factory';
 import { registerSearchRoutes } from './search/routes';
 import { registerCartRoutes } from './cart/routes';
+import { registerPlaceRoutes } from './place/routes';
 import { registerUserImportRoutes } from './user-import/routes';
 import { registerProductAiReviewRoutes } from './ai-review/routes';
 import { registerProductPageRoutes } from './product-page/routes';
 import { registerMerchantPricingRoutes } from './merchant-pricing/routes';
+import { registerConnectedAccountRoutes } from './connected-accounts/routes';
+import { registerBrandCampaignRoutes } from './brand-campaign/routes';
+import { registerCreatorLibraryRoutes } from './creator-library/routes';
+import { registerNotificationRoutes } from './notifications/routes';
 
 if (typeof globalThis.btoa !== 'function') {
   Object.assign(globalThis, {
@@ -59,7 +65,12 @@ registerUserRoutes(app);
 registerEngagementRoutes(app);
 registerSearchRoutes(app);
 registerCartRoutes(app);
+registerPlaceRoutes(app);
 registerUserImportRoutes(app);
+registerConnectedAccountRoutes(app);
+registerCreatorLibraryRoutes(app);
+registerBrandCampaignRoutes(app);
+registerNotificationRoutes(app);
 
 logSearchRuntime();
 
@@ -73,21 +84,8 @@ logSearchRuntime();
  */
 app.post('/ingest/manual', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || typeof authHeader !== 'string') {
-      res.status(401).json({ error: 'Missing authorization' });
-      return;
-    }
-
-    const userClient = createSupabaseUserClient(authHeader);
-    const {
-      data: { user },
-      error: userErr,
-    } = await userClient.auth.getUser();
-    if (userErr || !user) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
+    const user = await requireAuthUser(req, res, { requireVerifiedEmail: true });
+    if (!user) return;
 
     const body = req.body as { source_url?: string; product_urls?: unknown; video_title?: string; videoTitle?: string };
     const sourceUrl = (body.source_url ?? '').trim();
@@ -158,20 +156,8 @@ app.post('/ingest/manual', async (req, res) => {
 
 app.post('/ingest/:ingestId/resolve-unresolved', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || typeof authHeader !== 'string') {
-      res.status(401).json({ error: 'Missing authorization' });
-      return;
-    }
-    const userClient = createSupabaseUserClient(authHeader);
-    const {
-      data: { user },
-      error: userErr,
-    } = await userClient.auth.getUser();
-    if (userErr || !user) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
+    const user = await requireAuthUser(req, res, { requireVerifiedEmail: true });
+    if (!user) return;
 
     const ingestId = String(req.params.ingestId ?? '').trim();
     if (!ingestId) {
@@ -204,20 +190,8 @@ app.post('/ingest/:ingestId/resolve-unresolved', async (req, res) => {
  */
 app.post('/ingest/:ingestId/products', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || typeof authHeader !== 'string') {
-      res.status(401).json({ error: 'Missing authorization' });
-      return;
-    }
-    const userClient = createSupabaseUserClient(authHeader);
-    const {
-      data: { user },
-      error: userErr,
-    } = await userClient.auth.getUser();
-    if (userErr || !user) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
+    const user = await requireAuthUser(req, res, { requireVerifiedEmail: true });
+    if (!user) return;
 
     const ingestId = String(req.params.ingestId ?? '').trim();
     if (!ingestId) {
@@ -260,21 +234,8 @@ app.post('/publish', handlePublishIngest);
 
 app.post('/ingest', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || typeof authHeader !== 'string') {
-      res.status(401).json({ error: 'Missing authorization' });
-      return;
-    }
-
-    const userClient = createSupabaseUserClient(authHeader);
-    const {
-      data: { user },
-      error: userErr,
-    } = await userClient.auth.getUser();
-    if (userErr || !user) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
+    const user = await requireAuthUser(req, res, { requireVerifiedEmail: true });
+    if (!user) return;
 
     const httpTraceId = crypto.randomUUID();
     const admin = createSupabaseAdmin();
@@ -672,6 +633,16 @@ if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
     } catch (e) {
       logger.warn({ err: e }, 'embedded ingest worker failed to start — use npm run worker or fallback path');
     }
+    // Production runs the dedicated `npm run worker:notifications` process instead.
+    if (getEnv('NODE_ENV') !== 'production') {
+      try {
+        const { startNotificationWorker } = await import('./notifications/jobs/startNotificationWorker');
+        startNotificationWorker(createSupabaseAdmin());
+        logger.info('embedded notification materializer started (development only)');
+      } catch (e) {
+        logger.warn({ err: e }, 'embedded notification materializer failed to start');
+      }
+    }
     try {
       const { resolveRedisAvailability, shouldBypassBullmqEnqueue } = await import(
         './workers/redisConnection'
@@ -689,6 +660,9 @@ if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
       const { startContentSourceProcessingWorker } = await import('./content-source/factory');
       startContentSourceProcessingWorker(createSupabaseAdmin());
       logger.info('embedded content-source-processing worker started');
+      const { startCreatorLibrarySyncWorker } = await import('./creator-library/jobs/librarySyncWorker');
+      startCreatorLibrarySyncWorker(createSupabaseAdmin());
+      logger.info('embedded creator-library-sync worker started');
     } catch (e) {
       logger.warn({ err: e }, 'embedded product-resolve worker failed to start');
     }

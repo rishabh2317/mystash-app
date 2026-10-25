@@ -5,7 +5,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -16,13 +18,22 @@ import { TopBar } from '@/components/chrome/TopBar';
 import { ProductCard } from '@/components/commerce/ProductCard';
 import { CartPurchaseConfirmModal } from '@/components/commerce/CartPurchaseConfirmModal';
 import { StashCategoryCard } from '@/components/commerce/StashCategoryCard';
+import { StashSignedOutState } from '@/components/commerce/StashSignedOutState';
+import { StashHomeSkeleton } from '@/components/commerce/StashHomeSkeleton';
+import { PlaceCard } from '@/components/place/PlaceCard';
+import { PlaceCardSkeleton } from '@/components/place/PlaceCardSkeleton';
+import { SkeletonStack } from '@/components/status/SkeletonStack';
+import { ProfileContentTabs } from '@/components/profile/ProfileContentTabs';
+import { YourActivitySection } from '@/components/search/YourActivitySection';
 import { Text } from '@/components/ui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { useImportSharesPoll } from '@/src/hooks/useImportSharesPoll';
+import { fetchPlaces } from '@/src/services/placesApi';
 import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
 import { typeStyle } from '@/src/theme/typography';
+import type { PlaceStashItem } from '@/src/types/placeStash';
 import {
   BAG_PROGRESS_COPY,
   bagHasInFlightShares,
@@ -33,6 +44,18 @@ import {
 } from '@/src/ui/bag';
 import { BAG_COPY, controlOpacity, displayBagError, resolveControlPhase } from '@/src/ui/contracts';
 import { productPagePath } from '@/src/ui/productPage';
+import { resolveListLoadState } from '@/src/ui/contentLoadState';
+import { shareActivityLandingItems } from '@/src/ui/shareActivity';
+import {
+  DEFAULT_STASH_SEGMENT,
+  STASH_PLACES_COPY,
+  STASH_SEGMENT,
+  STASH_SEGMENT_TABS,
+  partitionPlaceStashItems,
+  placeStashItemKey,
+  stashContentTab,
+  type StashSegment,
+} from '@/src/ui/stashPlaces';
 
 const GUTTER = 16;
 const GRID_GAP = 12;
@@ -61,14 +84,20 @@ export default function StashScreen() {
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedCategoryKey, setSelectedCategoryKey] = useState<string | null>(null);
+  const [stashTab, setStashTab] = useState<StashSegment>(DEFAULT_STASH_SEGMENT);
+  const [placeItems, setPlaceItems] = useState<PlaceStashItem[]>([]);
+  const [placesStatus, setPlacesStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [placesError, setPlacesError] = useState<string | null>(null);
+  const [placesRefreshing, setPlacesRefreshing] = useState(false);
 
   const onBecameReady = useCallback(() => {
     void refresh();
   }, [refresh]);
-  const { shares, loaded: sharesLoaded } = useImportSharesPoll({
+  const { shares, loaded: sharesLoaded, refresh: refreshShares } = useImportSharesPoll({
     enabled: Boolean(user),
     onBecameReady,
   });
+  const activityItems = useMemo(() => shareActivityLandingItems(shares), [shares]);
 
   // Already-READY imports (e.g. completed on Search) must not leave a stale cart.
   useFocusEffect(
@@ -135,6 +164,47 @@ export default function StashScreen() {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)');
   }, [router, selectedCategoryKey]);
+
+  const loadPlaces = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+    if (!user) return;
+    if (mode === 'refresh') setPlacesRefreshing(true);
+    else setPlacesStatus((s) => (s === 'ready' ? 'ready' : 'loading'));
+    setPlacesError(null);
+    try {
+      const page = await fetchPlaces();
+      setPlaceItems(page.items);
+      setPlacesStatus('ready');
+    } catch (e) {
+      setPlacesStatus('error');
+      setPlacesError(e instanceof Error ? e.message : STASH_PLACES_COPY.loadError);
+    } finally {
+      setPlacesRefreshing(false);
+    }
+  }, [user]);
+
+  const onPlaceSearch = useCallback((url: string) => {
+    void Linking.openURL(url).catch(() => {
+      Alert.alert('Places', STASH_PLACES_COPY.openError);
+    });
+  }, []);
+
+  const onStashTabChange = useCallback(
+    (next: StashSegment) => {
+      setStashTab(next);
+      if (next === STASH_SEGMENT.places) void loadPlaces();
+    },
+    [loadPlaces],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user || stashTab !== STASH_SEGMENT.places) return undefined;
+      void loadPlaces();
+      return undefined;
+    }, [loadPlaces, stashTab, user]),
+  );
+
+  const contentTab = stashContentTab(stashTab, { selectedCategory: Boolean(selectedCategory) });
 
   /** Related product card in a clean 2-column shelf. Parent owns horizontal padding. */
   const renderRelatedGrid = (list: BagItemView[]) => {
@@ -225,47 +295,164 @@ export default function StashScreen() {
     }
 
     if (!user) {
-      return (
-        <View style={styles.center}>
-          <Text
-            style={{
-              color: tokens.color.text,
-              fontFamily: tokens.fontFamily.bold,
-              fontSize: tokens.fontSize.display,
-              textAlign: 'center',
-            }}
-          >
-            {BAG_COPY.signInTitle}
-          </Text>
-          <Text
-            style={{
-              color: tokens.color.textMuted,
-              fontFamily: tokens.fontFamily.regular,
-              fontSize: tokens.fontSize.body,
-              lineHeight: tokens.lineHeight.body,
-              textAlign: 'center',
-            }}
-          >
-            {BAG_COPY.signInBody}
-          </Text>
-          <Pressable
-            style={[styles.cta, { backgroundColor: tokens.color.primary, borderRadius: tokens.radius.lg }]}
-            onPress={() => router.push('/(tabs)/profile')}
-          >
-            <Text style={{ color: tokens.color.onPrimary, fontFamily: tokens.fontFamily.bold }}>
-              Sign in
+      return <StashSignedOutState onSignIn={() => router.push('/(tabs)/profile')} />;
+    }
+
+    if (contentTab === STASH_SEGMENT.places) {
+      const placesLoad = resolveListLoadState({
+        itemCount: placeItems.length,
+        fetching: placesStatus === 'loading',
+        error: placesStatus === 'error',
+      });
+      if (placesLoad === 'skeleton') {
+        return (
+          <SkeletonStack gap={tokens.space.md} style={{ paddingHorizontal: GUTTER, paddingTop: 8 }}>
+            <PlaceCardSkeleton />
+            <PlaceCardSkeleton />
+            <PlaceCardSkeleton />
+          </SkeletonStack>
+        );
+      }
+
+      if (placesStatus === 'error' && placeItems.length === 0) {
+        return (
+          <View style={styles.center}>
+            <Text
+              style={{
+                color: tokens.color.text,
+                fontFamily: tokens.fontFamily.bold,
+                fontSize: tokens.fontSize.display,
+                textAlign: 'center',
+              }}
+            >
+              {STASH_PLACES_COPY.loadError}
             </Text>
-          </Pressable>
-        </View>
+            {placesError ? (
+              <Text
+                style={{
+                  color: tokens.color.textMuted,
+                  fontFamily: tokens.fontFamily.regular,
+                  fontSize: tokens.fontSize.body,
+                  textAlign: 'center',
+                }}
+              >
+                {placesError}
+              </Text>
+            ) : null}
+            <Pressable
+              style={[styles.cta, { backgroundColor: tokens.color.primary, borderRadius: tokens.radius.lg }]}
+              onPress={() => void loadPlaces()}
+            >
+              <Text style={{ color: tokens.color.onPrimary, fontFamily: tokens.fontFamily.bold }}>
+                {STASH_PLACES_COPY.retry}
+              </Text>
+            </Pressable>
+          </View>
+        );
+      }
+
+      if (placeItems.length === 0) {
+        return (
+          <ScrollView
+            contentContainerStyle={[scrollPad, styles.centerGrow]}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={placesRefreshing}
+                onRefresh={() => void loadPlaces('refresh')}
+                tintColor={tokens.color.primary}
+              />
+            }
+          >
+            <Text
+              style={{
+                color: tokens.color.text,
+                fontFamily: tokens.fontFamily.bold,
+                fontSize: tokens.fontSize.headline,
+                lineHeight: tokens.lineHeight.headline,
+                textAlign: 'center',
+              }}
+            >
+              {STASH_PLACES_COPY.empty}
+            </Text>
+            <Text
+              style={{
+                color: tokens.color.textMuted,
+                fontFamily: tokens.fontFamily.regular,
+                fontSize: tokens.fontSize.body,
+                lineHeight: tokens.lineHeight.body,
+                textAlign: 'center',
+              }}
+            >
+              {STASH_PLACES_COPY.emptyHint}
+            </Text>
+          </ScrollView>
+        );
+      }
+
+      const grouped = partitionPlaceStashItems(placeItems);
+      return (
+        <ScrollView
+          contentContainerStyle={scrollPad}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={placesRefreshing}
+              onRefresh={() => void loadPlaces('refresh')}
+              tintColor={tokens.color.primary}
+            />
+          }
+        >
+          {placesStatus === 'error' && placesError ? (
+            <Text
+              style={{
+                color: tokens.color.danger,
+                fontFamily: tokens.fontFamily.semibold,
+                fontSize: tokens.fontSize.caption,
+                textAlign: 'center',
+                paddingHorizontal: GUTTER,
+                paddingBottom: tokens.space.sm,
+              }}
+            >
+              {placesError}
+            </Text>
+          ) : null}
+          <View style={{ paddingHorizontal: GUTTER, gap: tokens.space.lg }}>
+            {grouped.places.length > 0 ? (
+              <View style={{ gap: GRID_GAP }}>
+                <Text style={typeStyle(tokens, 'sectionTitle')}>{STASH_PLACES_COPY.placesSection}</Text>
+                {grouped.places.map((item) => (
+                  <PlaceCard key={placeStashItemKey(item)} item={item} onSearch={onPlaceSearch} />
+                ))}
+              </View>
+            ) : null}
+            {grouped.leads.length > 0 ? (
+              <View style={{ gap: GRID_GAP }}>
+                <Text
+                  style={[
+                    typeStyle(tokens, 'sectionTitle'),
+                    { color: tokens.color.textMuted, fontFamily: tokens.fontFamily.semibold },
+                  ]}
+                >
+                  {STASH_PLACES_COPY.leadsSection}
+                </Text>
+                {grouped.leads.map((item) => (
+                  <PlaceCard key={placeStashItemKey(item)} item={item} onSearch={onPlaceSearch} />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        </ScrollView>
       );
     }
 
-    if ((status === 'loading' && items.length === 0 && !looking) || (!sharesLoaded && items.length === 0)) {
-      return (
-        <View style={styles.center}>
-          <ActivityIndicator color={tokens.color.primary} />
-        </View>
-      );
+    const productsLoad = resolveListLoadState({
+      itemCount,
+      fetching: ((status === 'loading' && !looking) || !sharesLoaded) && itemCount === 0,
+      error: status === 'error',
+    });
+    if (productsLoad === 'skeleton') {
+      return <StashHomeSkeleton />;
     }
 
     if (status === 'error' && items.length === 0) {
@@ -427,6 +614,24 @@ export default function StashScreen() {
         showBag={false}
         onBack={onBack}
       />
+      {user && !selectedCategory ? (
+        <View
+          style={{
+            paddingHorizontal: GUTTER,
+            paddingBottom: tokens.space.sm,
+            gap: tokens.space.md,
+          }}
+        >
+          <YourActivitySection
+            items={activityItems}
+            loading={!sharesLoaded}
+            onRefresh={async () => {
+              await refreshShares();
+            }}
+          />
+          <ProfileContentTabs tabs={STASH_SEGMENT_TABS} active={stashTab} onChange={onStashTabChange} />
+        </View>
+      ) : null}
       {actionError ? (
         <Text
           style={{
@@ -465,6 +670,13 @@ const styles = StyleSheet.create({
   section: { marginBottom: 28 },
   center: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+    gap: 12,
+  },
+  centerGrow: {
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 28,

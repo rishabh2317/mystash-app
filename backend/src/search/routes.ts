@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { createSupabaseUserClient } from '../supabase';
+import { optionalVerifiedUserId } from '../auth/requireAuth';
 import {
   getSharedSearchService,
   SearchServiceError,
@@ -7,16 +7,7 @@ import {
 import { createSearchEventConsumer } from './eventConsumer';
 
 async function optionalUserId(req: Request): Promise<string | null> {
-  const auth = req.headers.authorization;
-  if (!auth) return null;
-  try {
-    const {
-      data: { user },
-    } = await createSupabaseUserClient(auth).auth.getUser();
-    return user?.id ?? null;
-  } catch {
-    return null;
-  }
+  return optionalVerifiedUserId(req);
 }
 
 /**

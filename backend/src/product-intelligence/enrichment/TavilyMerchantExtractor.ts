@@ -44,6 +44,7 @@ export class TavilyMerchantExtractor implements MerchantExtractor {
       extractedAt: new Date().toISOString(),
       provider: this.name,
       metadataCompleteness: 0,
+      identitySource: preview.identitySource ?? null,
     };
   }
 }

@@ -31,7 +31,8 @@
       "package": "com.anonymous.Mystash",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -62,7 +63,20 @@
           "isAndroidBackgroundLocationEnabled": false
         }
       ],
-      "./plugins/withAndroidShareIntent"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Mystash uses your photos to set a profile picture."
+        }
+      ],
+      "./plugins/withAndroidShareIntent",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#E6F4FE"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

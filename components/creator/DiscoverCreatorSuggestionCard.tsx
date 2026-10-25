@@ -117,6 +117,7 @@ export function DiscoverCreatorSuggestionCard({
               emphasis="brand"
               slim
               fullWidth
+              radius="md"
               onPress={() => void onFollowPress()}
             />
           </View>
@@ -156,6 +157,7 @@ export function DiscoverCreatorSuggestionCard({
             isLight={isLight}
             emphasis="brand"
             slim
+            radius="md"
             onPress={() => void onFollowPress()}
           />
         ) : null}

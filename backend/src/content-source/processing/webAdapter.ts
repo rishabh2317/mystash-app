@@ -61,6 +61,7 @@ function webPort(enrich: MerchantEnrichFn): WebEnrichmentPort {
             evidence: {
               merchant: metadata.merchant,
               provider: metadata.provider,
+              identitySource: metadata.identitySource ?? null,
               specifications: metadata.specifications,
               externalId: externalIdForProductUrl(canonical),
               canonicalUrl: canonical,

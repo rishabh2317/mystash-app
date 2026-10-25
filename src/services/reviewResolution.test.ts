@@ -114,4 +114,17 @@ describe('reviewResolution', () => {
     const resolving = product({ id: 'r', name: 'D' });
     assert.equal(selectedProductsCanPublish([resolving], { r: true }), false);
   });
+
+  it('keeps UNVERIFIED extracted products on the draft list even when none are selected', () => {
+    const unverified = product({
+      id: 'uv',
+      name: 'C',
+      catalogProductId: 'cat-2',
+      resolutionStatus: 'UNVERIFIED',
+    });
+    const listed = [unverified];
+    assert.equal(listed.length, 1);
+    assert.equal(selectedProductsCanPublish(listed, {}), false);
+    assert.equal(isPublishableReviewProduct(unverified), true);
+  });
 });

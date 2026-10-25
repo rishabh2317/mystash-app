@@ -33,7 +33,7 @@ function createEnrichmentService(admin: SupabaseClient): ContentSourceResolution
     createDiscoveredProductService(admin),
     {
       resolveForUserImport: (drafts) => pi.resolver.resolveForUserImport(drafts),
-      resolveForUserImportFast: (drafts) => pi.resolver.resolveForUserImportFast(drafts),
+      getCatalogProduct: (id) => pi.catalog.getById(id),
     },
     userImports,
     createCartService(admin),

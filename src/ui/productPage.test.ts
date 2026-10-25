@@ -12,6 +12,7 @@ import {
   discoverySourcePath,
   discoveryWatchLabel,
   featuredMediaFromPage,
+  featuredSourceCanPlayInline,
   productAiReviewFromPage,
   productPageBestPriceLabel,
   productPageBuyingFreshnessLine,
@@ -309,6 +310,16 @@ describe('product page presentation', () => {
     assert.match(collection, /productPagePath/);
     assert.doesNotMatch(collection, /ProductDetailsSheet/);
     assert.equal(relatedMediaPath({ collectionId: 'col-1' }), '/reel/col-1');
+    assert.equal(relatedMediaPath({ collectionId: 'discovery:cs-1' }), null);
+    assert.equal(
+      featuredSourceCanPlayInline({
+        url: 'https://www.youtube.com/shorts/dQw4w9WgXcQ',
+        collectionId: null,
+      }),
+      true,
+    );
+    assert.match(screen, /FeaturedSourcePlayer/);
+    assert.match(screen, /WebView/);
   });
 
   it('puts discovery inside Featured and keeps AI Review available for discovered ids', () => {

@@ -72,9 +72,16 @@ type Props = {
 };
 
 /** Square media in the Collection card; the rail card uses a full-width crop. */
-const COLLECTION_THUMB_SIZE = 96;
-const RELATED_MEDIA_ASPECT = 1;
-const MINI_MEDIA_ASPECT = 1;
+export const PRODUCT_CARD_LAYOUT = {
+  collectionThumbSize: 96,
+  relatedMediaAspect: 1,
+  miniMediaAspect: 1,
+  standardThumb: 88,
+  compactThumb: 56,
+} as const;
+const COLLECTION_THUMB_SIZE = PRODUCT_CARD_LAYOUT.collectionThumbSize;
+const RELATED_MEDIA_ASPECT = PRODUCT_CARD_LAYOUT.relatedMediaAspect;
+const MINI_MEDIA_ASPECT = PRODUCT_CARD_LAYOUT.miniMediaAspect;
 
 export function ProductCard({
   product,
@@ -372,6 +379,11 @@ export function ProductCard({
           {
             width: '100%',
             ...outlineCardChrome(tokens),
+            backgroundColor: 'transparent',
+            shadowOpacity: 0,
+            elevation: 0,
+            borderColor: tokens.immersive.ring,
+            borderWidth: 1,
             borderRadius: tokens.radius.md,
             padding: inset,
           },
@@ -415,7 +427,10 @@ export function ProductCard({
               paddingHorizontal: 1,
             }}
           >
-            <Text style={typeStyle(tokens, 'tileTitle')} numberOfLines={1}>
+            <Text
+              style={[typeStyle(tokens, 'tileTitle'), { color: IMMERSIVE_TOKENS.text }]}
+              numberOfLines={1}
+            >
               {product.title}
             </Text>
           </View>
@@ -653,13 +668,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   thumb: {
-    width: 88,
-    height: 88,
+    width: PRODUCT_CARD_LAYOUT.standardThumb,
+    height: PRODUCT_CARD_LAYOUT.standardThumb,
     borderRadius: 10,
   },
   thumbCompact: {
-    width: 56,
-    height: 56,
+    width: PRODUCT_CARD_LAYOUT.compactThumb,
+    height: PRODUCT_CARD_LAYOUT.compactThumb,
     borderRadius: 8,
   },
   body: { flex: 1, justifyContent: 'center', gap: 4 },

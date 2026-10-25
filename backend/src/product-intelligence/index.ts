@@ -106,7 +106,7 @@ export async function resolveIngestDrafts(
         (d.provider as string | null) === 'manual',
     };
     await pdpSearchHintsAls.run(
-      { brand: draft.brand, name: draft.name, category: draft.category },
+      { brand: draft.brand, name: draft.name, model: draft.model, category: draft.category },
       () => pi.resolver.resolveIngest([draft]),
     );
   }

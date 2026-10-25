@@ -58,7 +58,9 @@ export type SelectionSource =
   | 'CREATOR_MANUAL'
   | 'CREATOR_ACCEPTED_AI'
   | 'IMPORT'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'CAMPAIGN'
+  | 'BRAND_FEED';
 
 /** V1 writers: PRIMARY | SECONDARY. Future values reserved in DB. */
 export type RecommendationStrength =
@@ -101,7 +103,9 @@ export function mapLegacyTagSource(tagSource: TagSource): SelectionSource {
 }
 
 export function toLegacyTagSource(selection: SelectionSource): TagSource {
-  if (selection === 'CREATOR_MANUAL') return 'manual';
+  if (selection === 'CREATOR_MANUAL' || selection === 'CAMPAIGN' || selection === 'BRAND_FEED') {
+    return 'manual';
+  }
   if (selection === 'IMPORT') return 'import';
   return 'ai';
 }
@@ -267,6 +271,10 @@ export type CollectionProductTag = {
   id: string;
   collectionId: string;
   catalogProductId: string | null;
+  /** Campaign offering this tag was selected from. Not a second product identity. */
+  campaignProductId?: string | null;
+  /** Set when the tag carries a discovered product that is not yet catalog identity. */
+  discoveredProductId?: string | null;
   sortOrder: number;
   /** Synced denorm: true iff recommendationStrength === PRIMARY */
   isPrimary: boolean;

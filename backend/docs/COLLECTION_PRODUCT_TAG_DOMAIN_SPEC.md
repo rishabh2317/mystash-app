@@ -256,6 +256,8 @@ Do **not** treat as open vocabulary. New values require a deliberate domain vers
 
 **Legacy map:** early `tag_source` `ai` → `AI_DETECTED` (or `CREATOR_ACCEPTED_AI` after accept); `manual` → `CREATOR_MANUAL`; `import` → `IMPORT`.
 
+**Reserved (not writable yet):** Creator Ecosystem Phase 0 contracts reserve `AFFILIATE_URL`, `CAMPAIGN`, and `BRAND_FEED` for future multi-source attachment. See [`docs/creator-ecosystem-phase-0-contracts.md`](../../docs/creator-ecosystem-phase-0-contracts.md) §5 and `backend/src/creator-ecosystem/contracts.ts`. Do **not** persist these until Phase 4+ extends this enum + DB CHECK with a deliberate writer.
+
 ### 3.3 Intent invariants
 
 1. AI may **propose**; creator (or policy) **accepts**.  

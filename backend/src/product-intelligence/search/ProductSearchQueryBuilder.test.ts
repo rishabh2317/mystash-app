@@ -40,7 +40,8 @@ describe('ProductSearchQueryBuilder', () => {
     };
     const result = buildProductSearchQuery(draft, new ProductNormalizer().normalize(draft));
     assert.notEqual(result.query, 'headphones');
-    assert.match(result.query, /Sony WH-1000XM6/i);
+    assert.notEqual(result.query, 'electronics');
+    assert.match(result.query, /sony\s+wh\s+1000xm6/i);
   });
 
   it('removes noisy extraction words from the query', () => {

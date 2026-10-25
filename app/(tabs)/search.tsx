@@ -20,7 +20,12 @@ import { ProductCard } from '@/components/commerce/ProductCard';
 import { StashCategoryCard } from '@/components/commerce/StashCategoryCard';
 import { CreatorCard } from '@/components/creator/CreatorCard';
 import { SearchModeSwitch, type SearchUtilityMode } from '@/components/search/SearchModeSwitch';
-import { ShareActivityCard } from '@/components/search/ShareActivityCard';
+import {
+  SearchDiscoverSkeleton,
+  SearchMoreSkeleton,
+  SearchResultsSkeleton,
+} from '@/components/search/SearchSkeletonLayouts';
+import { YourActivitySection } from '@/components/search/YourActivitySection';
 import { ContentRail } from '@/components/ui/ContentRail';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Text } from '@/components/ui/Text';
@@ -47,8 +52,6 @@ import {
 } from '@/src/services/searchApi';
 import { fetchVideos } from '@/src/services/supabase';
 import {
-  deleteUserImport,
-  retryUserImport,
   submitUserImport,
   UserImportApiError,
 } from '@/src/services/userImportApi';
@@ -85,10 +88,8 @@ import {
   searchSectionTitle,
   type SearchSectionKind,
 } from '@/src/ui/searchSections';
-import {
-  SHARE_ACTIVITY_COPY,
-  shareActivityLandingItems,
-} from '@/src/ui/shareActivity';
+import { shareActivityLandingItems } from '@/src/ui/shareActivity';
+import { resolveListLoadState, resourceIdentity, retainLoadedContent } from '@/src/ui/contentLoadState';
 import { extractSharedLink, sharedLinkMessage } from '@/src/ui/shareImport';
 
 const DEBOUNCE_MS = 300;
@@ -169,6 +170,9 @@ type ListRow =
   | { key: string; kind: 'collection'; collection: CollectionViewModel }
   | { key: string; kind: 'creator'; creator: CreatorViewModel }
   | { key: string; kind: 'product'; product: CatalogProductViewModel }
+  | { key: string; kind: 'skeleton_discover' }
+  | { key: string; kind: 'skeleton_search' }
+  | { key: string; kind: 'skeleton_more' }
   | { key: string; kind: 'footer' };
 
 export default function SearchScreen() {
@@ -183,35 +187,11 @@ export default function SearchScreen() {
   const onImportBecameReady = useCallback(() => {
     void refreshCart();
   }, [refreshCart]);
-  const { shares, refresh: refreshShares } = useImportSharesPoll({
+  const { shares, loaded: sharesLoaded, refresh: refreshShares } = useImportSharesPoll({
     enabled: Boolean(user),
     onBecameReady: onImportBecameReady,
   });
   const activityItems = useMemo(() => shareActivityLandingItems(shares), [shares]);
-
-  const onRetryShare = useCallback(
-    async (importId: string) => {
-      try {
-        await retryUserImport(importId);
-        await refreshShares();
-      } catch {
-        /* surface via next poll */
-      }
-    },
-    [refreshShares],
-  );
-
-  const onDeleteShare = useCallback(
-    async (importId: string) => {
-      try {
-        await deleteUserImport(importId);
-        await refreshShares();
-      } catch {
-        /* ignore */
-      }
-    },
-    [refreshShares],
-  );
 
   const [mode, setMode] = useState<SearchUtilityMode>('search');
   const [input, setInput] = useState('');
@@ -318,11 +298,20 @@ export default function SearchScreen() {
     }
 
     const gen = ++loadGen.current;
-    activeQueryRef.current = query;
+    const previousQuery = activeQueryRef.current;
+    const queryIdentity = resourceIdentity('search', query);
+    const previousIdentity = resourceIdentity('search', previousQuery);
     const append = Boolean(opts?.append && opts.cursor);
+    const keep = append || retainLoadedContent(queryIdentity, previousIdentity);
+    activeQueryRef.current = query;
 
     if (append) setLoadingMore(true);
     else {
+      if (!keep) {
+        setSections(EMPTY_SECTIONS);
+        setZeroResult(false);
+        setNextCursor(null);
+      }
       setLoading(true);
       setError(null);
     }
@@ -366,6 +355,7 @@ export default function SearchScreen() {
     if (mode !== 'search' || !debouncedQuery) {
       if (!debouncedQuery) {
         loadGen.current += 1;
+        activeQueryRef.current = '';
         setSections(EMPTY_SECTIONS);
         setNextCursor(null);
         setZeroResult(false);
@@ -599,25 +589,42 @@ export default function SearchScreen() {
     productCollectionRows.push(discover.productCollections.slice(i, i + 2));
   }
 
+  const resultCount =
+    sections.collections.length + sections.creators.length + sections.products.length;
+  const searchLoad = resolveListLoadState({
+    itemCount: resultCount,
+    fetching: loading,
+    fetchingMore: loadingMore,
+    error: Boolean(error),
+  });
+  const discoverLoad = resolveListLoadState({
+    itemCount: hasDiscover ? 1 : 0,
+    fetching: discoverLoading,
+  });
+
   const rows: ListRow[] = [];
   if (!hasQuery) {
-    if (activityItems.length > 0) {
+    if (user) {
       rows.push({ key: 'activity', kind: 'activity' });
     }
-    if (discover.posts.length > 0) {
-      rows.push({ key: 'discover_posts', kind: 'discover_posts' });
+    if (discoverLoad === 'skeleton') {
+      rows.push({ key: 'skeleton_discover', kind: 'skeleton_discover' });
+    } else {
+      if (discover.posts.length > 0) {
+        rows.push({ key: 'discover_posts', kind: 'discover_posts' });
+      }
+      if (discover.productCollections.length > 0) {
+        rows.push({ key: 'discover_product_collections', kind: 'discover_product_collections' });
+      }
+      if (discover.products.length > 0) {
+        rows.push({ key: 'discover_products', kind: 'discover_products' });
+      }
+      if (discoverLoad === 'empty') {
+        rows.push({ key: 'landing_empty', kind: 'landing_empty' });
+      }
     }
-    if (discover.productCollections.length > 0) {
-      rows.push({ key: 'discover_product_collections', kind: 'discover_product_collections' });
-    }
-    if (discover.products.length > 0) {
-      rows.push({ key: 'discover_products', kind: 'discover_products' });
-    }
-    if (!discoverLoading && !hasDiscover && activityItems.length === 0) {
-      rows.push({ key: 'landing_empty', kind: 'landing_empty' });
-    }
-  } else if (loading && !hasResults) {
-    rows.push({ key: 'loading', kind: 'status', text: 'Searching…' });
+  } else if (searchLoad === 'skeleton') {
+    rows.push({ key: 'skeleton_search', kind: 'skeleton_search' });
   } else if (error && !hasResults) {
     rows.push({
       key: 'error',
@@ -675,7 +682,9 @@ export default function SearchScreen() {
       }
     };
     for (const kind of order) pushSection(kind);
-    if (nextCursor || loadingMore) {
+    if (searchLoad === 'contentPaginating') {
+      rows.push({ key: 'skeleton_more', kind: 'skeleton_more' });
+    } else if (nextCursor || loadingMore) {
       rows.push({ key: 'footer', kind: 'footer' });
     }
   }
@@ -815,33 +824,16 @@ export default function SearchScreen() {
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.4}
         onScrollBeginDrag={() => setShowSuggestions(false)}
-        ListHeaderComponent={
-          !hasQuery && discoverLoading && !hasDiscover ? (
-            <View style={styles.statusBlock}>
-              <ActivityIndicator color={tokens.color.primary} />
-            </View>
-          ) : null
-        }
         renderItem={({ item }) => {
           if (item.kind === 'activity') {
             return (
-              <View style={{ gap: tokens.space.md }}>
-                <SectionHeader
-                  title={SHARE_ACTIVITY_COPY.sectionTitle}
-                  actionLabel={SHARE_ACTIVITY_COPY.seeAll}
-                  onActionPress={() => router.push('/shares' as Href)}
-                />
-                {activityItems.map((activity) => (
-                  <ShareActivityCard
-                    key={activity.importId}
-                    item={activity}
-                    compact
-                    expandable
-                    onRetry={onRetryShare}
-                    onDelete={onDeleteShare}
-                  />
-                ))}
-              </View>
+              <YourActivitySection
+                items={activityItems}
+                loading={!sharesLoaded}
+                onRefresh={async () => {
+                  await refreshShares();
+                }}
+              />
             );
           }
           if (item.kind === 'discover_posts') {
@@ -942,16 +934,21 @@ export default function SearchScreen() {
               </View>
             );
           }
+          if (item.kind === 'skeleton_discover') {
+            return <SearchDiscoverSkeleton />;
+          }
+          if (item.kind === 'skeleton_search') {
+            return <SearchResultsSkeleton />;
+          }
+          if (item.kind === 'skeleton_more') {
+            return <SearchMoreSkeleton />;
+          }
           if (item.kind === 'status') {
             return (
               <View style={styles.statusBlock}>
-                {item.text === 'Searching…' ? (
-                  <ActivityIndicator color={tokens.color.primary} />
-                ) : (
-                  <Text style={[typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' }]}>
-                    {item.text}
-                  </Text>
-                )}
+                <Text style={[typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' }]}>
+                  {item.text}
+                </Text>
                 {item.action ? (
                   <Pressable onPress={item.action} style={{ padding: tokens.space.sm }}>
                     <Text style={typeStyle(tokens, 'link')}>Retry</Text>
@@ -991,11 +988,7 @@ export default function SearchScreen() {
               </View>
             );
           }
-          return (
-            <View style={styles.footer}>
-              {loadingMore ? <ActivityIndicator color={tokens.color.primary} /> : null}
-            </View>
-          );
+          return <View style={styles.footer} />;
         }}
       />
     </View>

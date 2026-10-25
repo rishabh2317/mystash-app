@@ -9,6 +9,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 
 import { AiReviewSheet } from '@/components/commerce/AiReviewSheet';
 import { ProductAiReviewCard } from '@/components/commerce/ProductAiReviewCard';
@@ -24,19 +25,21 @@ import { fetchLivePrices } from '@/src/services/livePricesApi';
 import { searchBlended } from '@/src/services/searchApi';
 import { openProductShopping } from '@/src/services/shoppingClick';
 import { getCommerceCountry } from '@/src/services/commerceCountry';
-import { outlineCardChrome } from '@/src/theme/tokens';
+import { IMMERSIVE_TOKENS, outlineCardChrome } from '@/src/theme/tokens';
 import { typeStyle } from '@/src/theme/typography';
 import type { LivePriceResult } from '@/src/types/livePrices';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { ProductPageOffer, ProductPageRelatedMedia, ProductPageView } from '@/src/types/productPage';
 import { pickRelatedProducts } from '@/src/ui/collectionRelatedProducts';
+import { COLLECTION_YOUTUBE_CROP_SCALE } from '@/src/ui/collectionLayout';
 import { BAG_COPY } from '@/src/ui/contracts';
 import {
   PRODUCT_PAGE_COPY,
   catalogViewFromProductPage,
   collectionViewFromRelatedMedia,
   featuredMediaFromPage,
+  featuredSourceCanPlayInline,
   productAiReviewFromPage,
   productPageAvailabilityLabel,
   productPageBestPriceLabel,
@@ -52,6 +55,13 @@ import {
 } from '@/src/ui/productPage';
 import { comparePath } from '@/src/ui/productCompare';
 import { railCardWidth } from '@/src/ui/rail';
+import { buildInstagramEmbedHtml } from '@/src/utils/instagramWebViewEmbed';
+import { getVideoUrlInfo } from '@/src/utils/videoUtils';
+import {
+  buildYoutubeWebHtml,
+  extractYoutubeVideoIdFromUrl,
+  resolveYoutubeParentOrigin,
+} from '@/src/utils/youtubeWebViewEmbed';
 
 type Props = {
   page: ProductPageView;
@@ -129,6 +139,7 @@ export function ProductPage({ page }: Props) {
 
   const [similar, setSimilar] = useState<CatalogProductViewModel[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [playingFeaturedId, setPlayingFeaturedId] = useState<string | null>(null);
   const [liveByOfferId, setLiveByOfferId] = useState<Record<string, LivePriceResult>>({});
   const [pricesLoading, setPricesLoading] = useState(page.offers.length > 0);
   const [countryCtx, setCountryCtx] = useState<{
@@ -240,8 +251,11 @@ export function ProductPage({ page }: Props) {
     const path = relatedMediaPath(media);
     if (path) {
       router.push(path as Href);
+      return;
     }
-    // No external YouTube/Instagram handoff — in-app reel only.
+    if (featuredSourceCanPlayInline(media)) {
+      setPlayingFeaturedId(media.id);
+    }
   };
 
   return (
@@ -415,10 +429,14 @@ export function ProductPage({ page }: Props) {
                 ) : (
                   <View style={{ height: tokens.lineHeight.micro }} />
                 )}
-                <PublicCollectionTile
-                  collection={collection}
-                  onPress={(next) => onFeaturedPress(next, media)}
-                />
+                {playingFeaturedId === media.id ? (
+                  <FeaturedSourcePlayer url={media.url} />
+                ) : (
+                  <PublicCollectionTile
+                    collection={collection}
+                    onPress={(next) => onFeaturedPress(next, media)}
+                  />
+                )}
               </View>
             ))}
           </ContentRail>
@@ -475,6 +493,47 @@ export function ProductPage({ page }: Props) {
         hideInternalStatus
       />
     </ScrollView>
+  );
+}
+
+function FeaturedSourcePlayer({ url }: { url: string }) {
+  const { tokens } = useThemeMode();
+  const info = getVideoUrlInfo(url);
+  const parentOrigin = resolveYoutubeParentOrigin();
+  const youtubeId = extractYoutubeVideoIdFromUrl(url);
+  const youtubeHtml = youtubeId
+    ? buildYoutubeWebHtml(youtubeId, parentOrigin, COLLECTION_YOUTUBE_CROP_SCALE, { loop: true })
+    : null;
+  const instagramHtml =
+    info.platform === 'instagram' ? buildInstagramEmbedHtml(url, { crop: 'collection' }) : null;
+  const html = info.platform === 'youtube' ? youtubeHtml : instagramHtml;
+  const baseUrl = info.platform === 'youtube' ? `${parentOrigin}/` : 'https://www.instagram.com';
+  return (
+    <View
+      style={{
+        width: '100%',
+        aspectRatio: 9 / 14,
+        borderRadius: tokens.radius.md,
+        overflow: 'hidden',
+        backgroundColor: IMMERSIVE_TOKENS.stage,
+      }}
+    >
+      {html ? (
+        <WebView
+          source={{ html, baseUrl }}
+          style={StyleSheet.absoluteFill}
+          originWhitelist={['*']}
+          javaScriptEnabled
+          domStorageEnabled
+          allowsInlineMediaPlayback
+          mediaPlaybackRequiresUserAction={false}
+          allowsFullscreenVideo={false}
+          scrollEnabled={false}
+          bounces={false}
+          androidLayerType="hardware"
+        />
+      ) : null}
+    </View>
   );
 }
 

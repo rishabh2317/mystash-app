@@ -3,6 +3,9 @@ import { getEnv } from '../env';
 /** Cache namespace for normalized inputs that affect reasoning results. */
 export const EXTRACTION_CONTEXT_VERSION = 'youtube-text-captions-v1';
 
+/** User-import rows only. Keeps creator cache keys on EXTRACTION_CONTEXT_VERSION. */
+export const USER_IMPORT_PLACE_CACHE_VERSION = 'places-v2';
+
 function num(key: string, fallback: number): number {
   const raw = getEnv(key);
   if (raw == null) return fallback;
@@ -104,15 +107,22 @@ export function buildCacheKey(params: {
   externalVideoId: string;
   pipelineVersion?: string;
   providerVersion?: string;
+  /** User-import extractions use `user-import` so Creator cache rows are not reused. */
+  scope?: string;
 }): string {
   const cfg = getPipelineConfig();
-  return [
+  const parts = [
     params.platform,
     params.externalVideoId,
     params.pipelineVersion ?? cfg.pipelineVersion,
     params.providerVersion ?? cfg.providerVersion,
     EXTRACTION_CONTEXT_VERSION,
-  ].join(':');
+  ];
+  if (params.scope) {
+    parts.push(params.scope);
+    if (params.scope === 'user-import') parts.push(USER_IMPORT_PLACE_CACHE_VERSION);
+  }
+  return parts.join(':');
 }
 
 /** Adaptive Stage-2 frame count from duration (seconds). */

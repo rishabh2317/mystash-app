@@ -1,9 +1,18 @@
 import React from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { CollectionTile, type CollectionTileVariant } from '@/components/collection/CollectionTile';
+import { CollectionTileSkeleton } from '@/components/collection/CollectionTileSkeleton';
+import { SkeletonGrid } from '@/components/status/SkeletonStack';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import type { CollectionViewModel } from '@/src/types/collection';
+import { resolveListLoadState } from '@/src/ui/contentLoadState';
+import {
+  PROFILE_VIDEO_GRID_COLUMNS,
+  PROFILE_VIDEO_GRID_GAP,
+  PROFILE_VIDEO_GRID_GUTTER,
+  profileGridCellWidth,
+} from '@/src/ui/personalProfile';
 
 type Props = {
   items: CollectionViewModel[];
@@ -27,11 +36,31 @@ export function PersonalCollectionList({
   loadingMore,
 }: Props) {
   const { tokens } = useThemeMode();
+  const { width: screenWidth } = useWindowDimensions();
+  const cellWidth = profileGridCellWidth(
+    screenWidth,
+    PROFILE_VIDEO_GRID_GUTTER,
+    PROFILE_VIDEO_GRID_GAP,
+    PROFILE_VIDEO_GRID_COLUMNS,
+  );
+  const loadState = resolveListLoadState({
+    itemCount: items.length,
+    fetching: Boolean(loading),
+    fetchingMore: loadingMore,
+    error: Boolean(error),
+  });
 
-  if (loading && items.length === 0) {
+  if (loadState === 'skeleton') {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator color={tokens.color.text} />
+      <View>
+        <SkeletonGrid columns={PROFILE_VIDEO_GRID_COLUMNS} gap={PROFILE_VIDEO_GRID_GAP}>
+          <CollectionTileSkeleton variant={variant} />
+          <CollectionTileSkeleton variant={variant} />
+          <CollectionTileSkeleton variant={variant} />
+          <CollectionTileSkeleton variant={variant} />
+          <CollectionTileSkeleton variant={variant} />
+          <CollectionTileSkeleton variant={variant} />
+        </SkeletonGrid>
       </View>
     );
   }
@@ -48,12 +77,11 @@ export function PersonalCollectionList({
     <FlatList
       data={items}
       keyExtractor={(item) => item.collectionId}
-      numColumns={2}
-      columnWrapperStyle={{ gap: tokens.space.sm }}
+      numColumns={PROFILE_VIDEO_GRID_COLUMNS}
+      columnWrapperStyle={{ gap: PROFILE_VIDEO_GRID_GAP, marginBottom: PROFILE_VIDEO_GRID_GAP }}
       contentContainerStyle={{
-        padding: tokens.space.md,
+        paddingHorizontal: PROFILE_VIDEO_GRID_GUTTER,
         paddingBottom: tokens.space.xxl,
-        gap: tokens.space.sm,
       }}
       ListEmptyComponent={
         <Text style={{ color: tokens.color.textMuted, textAlign: 'center', marginTop: tokens.space.lg }}>
@@ -61,10 +89,18 @@ export function PersonalCollectionList({
         </Text>
       }
       ListFooterComponent={
-        loadingMore ? <ActivityIndicator color={tokens.color.text} style={{ marginVertical: 16 }} /> : null
+        loadState === 'contentPaginating' ? (
+          <View style={{ marginVertical: 16 }}>
+            <SkeletonGrid columns={PROFILE_VIDEO_GRID_COLUMNS} gap={PROFILE_VIDEO_GRID_GAP}>
+              <CollectionTileSkeleton variant={variant} />
+              <CollectionTileSkeleton variant={variant} />
+              <CollectionTileSkeleton variant={variant} />
+            </SkeletonGrid>
+          </View>
+        ) : null
       }
       renderItem={({ item }) => (
-        <View style={styles.cell}>
+        <View style={{ width: cellWidth }}>
           <CollectionTile collection={item} variant={variant} onPress={onPress} />
         </View>
       )}
@@ -80,8 +116,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-  },
-  cell: {
-    flex: 1,
   },
 });

@@ -26,8 +26,9 @@ export function mapContentSourceToPageSource(
     kind,
     label: productPageSourceLabel(kind),
     url: source.canonicalUrl,
-    title: null,
+    title: source.title?.trim() || null,
     collectionId: null,
+    thumbnailUrl: source.thumbnailUrl?.trim() || null,
   };
 }
 

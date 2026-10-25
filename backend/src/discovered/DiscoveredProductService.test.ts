@@ -68,6 +68,7 @@ describe('DiscoveredProductService', () => {
       'v1',
     );
     assert.equal(second.created, false);
+    assert.equal(second.record.id, first.record.id);
     assert.equal(second.record.imageUrl, 'https://cdn.example.com/original.jpg');
   });
 

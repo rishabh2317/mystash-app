@@ -43,6 +43,9 @@ function mapRow(row: ContentSourceRow): ContentSourceRecord {
     lastProcessedAt: row.last_processed_at,
     candidateCount: row.candidate_count ?? 0,
     failureReason: row.failure_reason,
+    title: (row as ContentSourceRow & { title?: string | null }).title ?? null,
+    thumbnailUrl: (row as ContentSourceRow & { thumbnail_url?: string | null }).thumbnail_url ?? null,
+    publishedAt: (row as ContentSourceRow & { published_at?: string | null }).published_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     schemaVersion: row.schema_version,
@@ -90,6 +93,24 @@ export class SupabaseContentSourceRepository implements ContentSourceRepository 
       .single();
     if (error) throw error;
     return mapRow(data as ContentSourceRow);
+  }
+
+  async patchDisplay(
+    id: string,
+    patch: { title?: string | null; thumbnailUrl?: string | null; publishedAt?: string | null },
+  ): Promise<ContentSourceRecord | null> {
+    const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (patch.title !== undefined) body.title = patch.title;
+    if (patch.thumbnailUrl !== undefined) body.thumbnail_url = patch.thumbnailUrl;
+    if (patch.publishedAt !== undefined) body.published_at = patch.publishedAt;
+    const { data, error } = await this.admin
+      .from('content_sources')
+      .update(body)
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapRow(data as ContentSourceRow) : null;
   }
 
   /** Single conditional UPDATE — the status guard is evaluated by Postgres, not here. */
@@ -206,7 +227,8 @@ export class SupabaseContentSourceRepository implements ContentSourceRepository 
     const { error: delErr } = await this.admin
       .from('content_source_products')
       .delete()
-      .eq('content_source_id', contentSourceId);
+      .eq('content_source_id', contentSourceId)
+      .is('attachment_source', null);
     if (delErr) throw delErr;
     if (rows.length === 0) return [];
 
@@ -232,6 +254,7 @@ export class SupabaseContentSourceRepository implements ContentSourceRepository 
           processor_version: row.processorVersion,
           catalog_product_id: row.catalogProductId ?? null,
           discovered_product_id: row.discoveredProductId ?? null,
+          attachment_source: row.attachmentSource ?? null,
         })),
       )
       .select('*');
@@ -239,10 +262,65 @@ export class SupabaseContentSourceRepository implements ContentSourceRepository 
     return ((data ?? []) as ContentSourceProductRow[]).map(mapProductRow);
   }
 
-  async listProducts(contentSourceId: string): Promise<ContentSourceProductRecord[]> {
+  async findProductByExternalId(
+    contentSourceId: string,
+    externalId: string,
+  ): Promise<ContentSourceProductRecord | null> {
     const { data, error } = await this.admin
       .from('content_source_products')
       .select('*')
+      .eq('content_source_id', contentSourceId)
+      .eq('external_id', externalId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapProductRow(data as ContentSourceProductRow) : null;
+  }
+
+  async insertProduct(row: InsertContentSourceProductRow): Promise<ContentSourceProductRecord> {
+    const { data, error } = await this.admin
+      .from('content_source_products')
+      .insert({
+        content_source_id: row.contentSourceId,
+        position: row.position,
+        external_id: row.externalId,
+        name: row.name,
+        brand: row.brand,
+        model: row.model,
+        category: row.category,
+        price: row.price,
+        currency: row.currency,
+        image: row.image,
+        merchant_url: row.merchantUrl,
+        confidence: row.confidence,
+        extraction_method: row.extractionMethod,
+        sources: row.sources,
+        evidence: row.evidence,
+        processor_version: row.processorVersion,
+        catalog_product_id: row.catalogProductId ?? null,
+        discovered_product_id: row.discoveredProductId ?? null,
+        attachment_source: row.attachmentSource ?? null,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return mapProductRow(data as ContentSourceProductRow);
+  }
+
+  async deleteProduct(contentSourceId: string, productId: string): Promise<boolean> {
+    const { data, error } = await this.admin
+      .from('content_source_products')
+      .delete()
+      .eq('content_source_id', contentSourceId)
+      .eq('id', productId)
+      .select('id');
+    if (error) throw error;
+    return (data ?? []).length > 0;
+  }
+
+  async listProducts(contentSourceId: string): Promise<ContentSourceProductRecord[]> {
+    const { data, error } = await this.admin
+      .from('content_source_products')
+      .select('*, catalog_products(image_url), discovered_products(image_url)')
       .eq('content_source_id', contentSourceId)
       .order('position', { ascending: true });
     if (error) throw error;
@@ -251,15 +329,23 @@ export class SupabaseContentSourceRepository implements ContentSourceRepository 
 
   async bindProductResolution(
     productId: string,
-    bind: { catalogProductId: string | null; discoveredProductId: string | null },
+    bind: {
+      catalogProductId: string | null;
+      discoveredProductId: string | null;
+      image?: string | null;
+    },
   ): Promise<ContentSourceProductRecord | null> {
+    const patch: Record<string, unknown> = {
+      catalog_product_id: bind.catalogProductId,
+      discovered_product_id: bind.discoveredProductId,
+      updated_at: new Date().toISOString(),
+    };
+    if (typeof bind.image === 'string' && bind.image.startsWith('http')) {
+      patch.image = bind.image;
+    }
     const { data, error } = await this.admin
       .from('content_source_products')
-      .update({
-        catalog_product_id: bind.catalogProductId,
-        discovered_product_id: bind.discoveredProductId,
-        updated_at: new Date().toISOString(),
-      })
+      .update(patch)
       .eq('id', productId)
       .select('*')
       .maybeSingle();
@@ -318,12 +404,24 @@ type ContentSourceProductRow = {
   processor_version: string;
   catalog_product_id: string | null;
   discovered_product_id: string | null;
+  attachment_source?: string | null;
   created_at: string;
   updated_at: string;
   schema_version: number;
+  catalog_products?: { image_url?: string | null } | { image_url?: string | null }[] | null;
+  discovered_products?: { image_url?: string | null } | { image_url?: string | null }[] | null;
 };
 
+function nestedHttpImage(
+  value: { image_url?: string | null } | { image_url?: string | null }[] | null | undefined,
+): string | null {
+  const row = Array.isArray(value) ? value[0] : value;
+  const image = row?.image_url?.trim();
+  return image && image.startsWith('http') ? image : null;
+}
+
 function mapProductRow(row: ContentSourceProductRow): ContentSourceProductRecord {
+  const stored = row.image?.trim() && row.image.startsWith('http') ? row.image : null;
   return {
     id: row.id,
     contentSourceId: row.content_source_id,
@@ -335,7 +433,7 @@ function mapProductRow(row: ContentSourceProductRow): ContentSourceProductRecord
     category: row.category,
     price: row.price,
     currency: row.currency,
-    image: row.image,
+    image: stored ?? nestedHttpImage(row.catalog_products) ?? nestedHttpImage(row.discovered_products),
     merchantUrl: row.merchant_url,
     confidence: row.confidence,
     extractionMethod: row.extraction_method as ContentExtractionMethod,
@@ -347,6 +445,12 @@ function mapProductRow(row: ContentSourceProductRow): ContentSourceProductRecord
     processorVersion: row.processor_version,
     catalogProductId: row.catalog_product_id ?? null,
     discoveredProductId: row.discovered_product_id ?? null,
+    attachmentSource:
+      row.attachment_source === 'CREATOR_MANUAL' ||
+      row.attachment_source === 'CAMPAIGN' ||
+      row.attachment_source === 'BRAND_FEED'
+        ? row.attachment_source
+        : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     schemaVersion: row.schema_version,

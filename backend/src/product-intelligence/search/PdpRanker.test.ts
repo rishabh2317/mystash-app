@@ -84,4 +84,46 @@ describe('PdpRanker', () => {
     assert.equal(ranked[1]?.sourceType, 'REVIEW');
     assert.equal(ranked[1]?.pageType, 'REVIEW');
   });
+
+  it('drops a higher-scored incompatible PDP before ranking', () => {
+    const hints = {
+      brand: 'Zara',
+      name: 'Satin Midi Dress in Olive',
+      category: 'fashion',
+    };
+    const neudis = c({
+      merchantUrl: 'https://www.amazon.in/NEUDIS-Sheath-Dresses-Length-Sleeveless/dp/B0BQRMD35B',
+      title: 'NEUDIS Women Solid Satin Cowl Neck Sheath Dress',
+      score: 0.99,
+    });
+    const zara = c({
+      merchantUrl: 'https://shop.example/satin-midi-dress',
+      title: 'Zara Satin Midi Dress in Olive',
+      score: 0.4,
+    });
+    assert.ok(scorePdpCandidate(neudis, hints) > scorePdpCandidate(zara, hints));
+    const ranked = rankPdpCandidates([neudis, zara], hints);
+    assert.deepEqual(ranked.map((candidate) => candidate.merchantUrl), [zara.merchantUrl]);
+  });
+
+  it('still lets a compatible Zara Amazon PDP outrank a weaker compatible page', () => {
+    const hints = {
+      brand: 'Zara',
+      name: 'Satin Midi Dress in Olive',
+      category: 'fashion',
+    };
+    const amazon = c({
+      merchantUrl: 'https://www.amazon.in/Zara-Satin-Midi-Dress-Olive/dp/B0ZARA1',
+      title: 'Zara Satin Midi Dress in Olive',
+      score: 0.8,
+    });
+    const boutique = c({
+      merchantUrl: 'https://shop.example/satin-midi-dress',
+      title: 'Zara Satin Midi Dress in Olive',
+      score: 0.8,
+    });
+    const ranked = rankPdpCandidates([boutique, amazon], hints);
+    assert.equal(ranked[0]?.merchantUrl, amazon.merchantUrl);
+    assert.equal(ranked.length, 2);
+  });
 });

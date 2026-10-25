@@ -10,7 +10,7 @@ import type { ProductAiReviewResult } from '@/src/types/productAiReview';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionViewModel } from '@/src/types/collection';
 import { formatProductPrice } from '@/src/ui/collectionSections';
-import { getYouTubeThumbnailUrl } from '@/src/utils/videoUtils';
+import { getYouTubeThumbnailUrl, getVideoUrlInfo } from '@/src/utils/videoUtils';
 
 export const PRODUCT_PAGE_COPY = {
   buy: 'Buy',
@@ -254,7 +254,17 @@ export function relatedMediaWatchLabel(kind: ProductPageSourceKind): string {
 /** In-app reel path when discovery/featured media is a published collection. */
 export function relatedMediaPath(item: Pick<ProductPageRelatedMedia, 'collectionId'>): string | null {
   const collectionId = item.collectionId?.trim();
-  return collectionId ? `/reel/${collectionId}` : null;
+  if (!collectionId || collectionId.startsWith('discovery:')) return null;
+  return `/reel/${collectionId}`;
+}
+
+/** User-import / unbound source URL can play in-app when it is YT or IG. */
+export function featuredSourceCanPlayInline(item: {
+  url: string;
+  collectionId?: string | null;
+}): boolean {
+  if (relatedMediaPath(item)) return false;
+  return getVideoUrlInfo(item.url).isValid;
 }
 
 export function discoverySourcePath(source: ProductPageSource): string | null {
@@ -287,7 +297,7 @@ export function featuredMediaFromPage(page: ProductPageView): ProductPageRelated
       label: source.label,
       url: source.url,
       title: source.title?.trim() || source.label,
-      thumbnailUrl: null,
+      thumbnailUrl: source.thumbnailUrl ?? null,
       collectionId: source.collectionId,
       creator: null,
       views: 0,

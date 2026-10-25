@@ -23,6 +23,8 @@ type Props = {
   onFollowPress: () => void;
   onSharePress: () => void;
   onTabChange: (tab: CreatorProfileTab) => void;
+  /** Inserted between identity/actions and Collection/Products tabs. */
+  afterIdentity?: React.ReactNode;
 };
 
 /**
@@ -55,6 +57,7 @@ function ProfileActionRow({
             disabled
             fullWidth
             slim
+            radius="md"
             labelOverride="You"
             onPress={() => {}}
           />
@@ -66,6 +69,7 @@ function ProfileActionRow({
             emphasis="brand"
             fullWidth
             slim
+            radius="md"
             onPress={onFollowPress}
           />
         )}
@@ -77,7 +81,7 @@ function ProfileActionRow({
         style={({ pressed }) => [
           styles.shareBtn,
           {
-            borderRadius: tokens.radius.pill,
+            borderRadius: tokens.radius.md,
             borderWidth: tokens.stroke.hairline,
             borderColor: tokens.color.border,
             backgroundColor: tokens.color.surface,
@@ -111,6 +115,7 @@ export function CreatorProfileHeader({
   onFollowPress,
   onSharePress,
   onTabChange,
+  afterIdentity,
 }: Props) {
   const { tokens } = useThemeMode();
   const metaInput = {
@@ -142,6 +147,8 @@ export function CreatorProfileHeader({
           />
         }
       />
+
+      {afterIdentity}
 
       <ProfileContentTabs
         tabs={

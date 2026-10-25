@@ -32,6 +32,12 @@ export class InMemoryCollectionRepository implements CollectionRepository {
   media = new Map<string, CollectionMedia>();
   tags = new Map<string, CollectionProductTag>();
 
+  async listOwnedCollections(creatorId: string): Promise<Array<Pick<Collection, 'id' | 'title' | 'status'>>> {
+    return [...this.collections.values()]
+      .filter((row) => row.creatorId === creatorId && !row.deletedAt)
+      .map((row) => ({ id: row.id, title: row.title, status: row.status }));
+  }
+
   async insertCollection(input: CreateCollectionInput): Promise<Collection> {
     for (const c of this.collections.values()) {
       if (c.slug === input.slug) throw new Error('duplicate slug');
@@ -229,6 +235,8 @@ export class InMemoryCollectionRepository implements CollectionRepository {
       id,
       collectionId: input.collectionId,
       catalogProductId: input.catalogProductId ?? null,
+      campaignProductId: input.campaignProductId ?? null,
+      discoveredProductId: input.discoveredProductId ?? null,
       sortOrder: input.sortOrder ?? 0,
       isPrimary: strength === 'PRIMARY',
       recommendationStrength: strength,

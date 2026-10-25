@@ -1,23 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getPipelineConfig } from '../../config/pipelineConfig';
-import type { EvidenceSource, ProductCandidate } from '../../domain/types';
+import type { EvidenceSource } from '../../domain/types';
 import { createOpenAIClient } from '../../pipeline/openaiClient';
 import { openaiCompletionWithRateLimit } from '../../pipeline/openaiRateLimit';
-import { buildReasonerUserPayload, PRODUCT_REASONER_SYSTEM } from '../../prompts/productReasoner';
+import { buildReasonerUserPayload, buildUserImportReasonerUserPayload, PRODUCT_REASONER_SYSTEM, USER_IMPORT_REASONER_SYSTEM } from '../../prompts/productReasoner';
+import { splitReasonerPayload, type ExtractedPlaceMention } from '../../place/parseReasonerPayload';
 import type { ReasonerInput, ReasonerOutput, ReasonerProvider } from './ReasonerProvider';
-
-function parseProducts(raw: string): ProductCandidate[] {
-  let body = raw.trim();
-  const fence = body.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
-  if (fence?.[1]) body = fence[1].trim();
-  try {
-    const j = JSON.parse(body) as { products?: unknown };
-    if (!Array.isArray(j.products)) return [];
-    return j.products.filter((p) => p && typeof p === 'object') as ProductCandidate[];
-  } catch {
-    return [];
-  }
-}
 
 export class OpenAiReasonerProvider implements ReasonerProvider {
   readonly name = 'openai-reasoner';
@@ -39,21 +27,32 @@ export class OpenAiReasonerProvider implements ReasonerProvider {
           temperature: 0.2,
           max_tokens: 4096,
           messages: [
-            { role: 'system', content: PRODUCT_REASONER_SYSTEM },
-            { role: 'user', content: buildReasonerUserPayload(input.context) },
+            {
+              role: 'system',
+              content: input.includePlaces ? USER_IMPORT_REASONER_SYSTEM : PRODUCT_REASONER_SYSTEM,
+            },
+            {
+              role: 'user',
+              content: input.includePlaces
+                ? buildUserImportReasonerUserPayload(input.context)
+                : buildReasonerUserPayload(input.context),
+            },
           ],
         }),
     );
 
     const raw = completion.choices[0]?.message?.content?.trim() ?? '';
-    const products = parseProducts(raw).map((p) => ({
+    const split = splitReasonerPayload(raw);
+    const products = split.products.map((p) => ({
       ...p,
       sources: (Array.isArray(p.sources) ? p.sources : []) as EvidenceSource[],
     }));
+    const places: ExtractedPlaceMention[] | undefined = input.includePlaces ? split.places : undefined;
 
     const usage = completion.usage;
     return {
       products,
+      places,
       rawText: raw,
       meta: {
         provider: this.name,

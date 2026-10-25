@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.8';
 import { detectPlatform, extractYouTubeVideoId } from '../_shared/detect.ts';
+import { EMAIL_NOT_VERIFIED, isAuthEmailVerified } from '../_shared/emailVerification.ts';
 import { transformToEmbedUrl } from '../_shared/embed.ts';
 import { resolveSelectedDraftProducts } from '../_shared/publishResolveDrafts.ts';
 
@@ -40,6 +41,15 @@ Deno.serve(async (req) => {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+    if (!isAuthEmailVerified(user)) {
+      return new Response(
+        JSON.stringify({ error: 'Confirm your email to continue.', code: EMAIL_NOT_VERIFIED }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      );
     }
 
     const admin = createClient(supabaseUrl, serviceKey);

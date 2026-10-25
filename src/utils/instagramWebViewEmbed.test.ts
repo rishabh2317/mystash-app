@@ -25,5 +25,8 @@ describe('instagramWebViewEmbed', () => {
     assert.match(html, /data-instgrm-permalink="https:\/\/www.instagram.com\/reel\/AbC123xyz\/"/);
     assert.match(html, /mystashApplyCover/);
     assert.match(html, /max-width: none/);
+    assert.match(html, /postMessage\('firstFrame'\)/);
+    assert.match(html, /clearInterval\(kickTimer\)/);
+    assert.doesNotMatch(html, /setInterval\([\s\S]*350/);
   });
 });

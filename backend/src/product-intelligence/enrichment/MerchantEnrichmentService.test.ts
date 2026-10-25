@@ -67,6 +67,34 @@ describe('MerchantMetadataNormalizer', () => {
     assert.equal(out.specifications.Color, 'Midnight');
     assert.ok(out.metadataCompleteness >= 70);
   });
+
+  it('does not copy a requested brand hint onto a page that names another brand', () => {
+    const n = new MerchantMetadataNormalizer();
+    const out = n.normalize(
+      {
+        title: 'NEUDIS Women Solid Satin Cowl Neck Sheath Dress',
+        merchantUrl: 'https://www.amazon.in/NEUDIS-Sheath-Dresses-Length-Sleeveless/dp/B0BQRMD35B',
+        provider: 'tavily',
+      },
+      { brandHint: 'Zara', productName: 'Satin Midi Dress in Olive' },
+    );
+    assert.equal(out.brand, null);
+  });
+
+  it('keeps an extracted brand instead of replacing it with the hint', () => {
+    const n = new MerchantMetadataNormalizer();
+    const out = n.normalize(
+      {
+        title: 'Satin Midi Dress',
+        brand: 'NEUDIS',
+        merchantUrl: 'https://www.amazon.in/dp/B0BQRMD35B',
+        provider: 'tavily',
+      },
+      { brandHint: 'Zara', productName: 'Satin Midi Dress in Olive' },
+    );
+    assert.equal(out.brand, 'Neudis');
+    assert.notEqual(out.brand, 'Zara');
+  });
 });
 
 describe('MerchantMetadataValidator', () => {

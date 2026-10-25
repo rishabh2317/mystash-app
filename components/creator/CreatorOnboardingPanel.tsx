@@ -1,229 +1,370 @@
-import React, { useState } from 'react';
+import { Image } from 'expo-image';
+import React from 'react';
 import {
-  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
-  Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 
-import { useThemeTokens } from '@/src/theme/useThemeTokens';
-import type { CreatorStatus } from '@/src/types/creator';
-import {
-  createFieldColors,
-  createPrimaryButtonStyle,
-} from '@/src/ui/createChrome';
+import { SettingsRow } from '@/components/settings/SettingsRow';
+import { SettingsSection } from '@/components/settings/SettingsSection';
 import { StatusBlock } from '@/components/status/StatusBlock';
+import { ActionButton } from '@/components/ui/ActionButton';
+import { Text } from '@/components/ui/Text';
+import { useCreatorOnboarding } from '@/src/hooks/useCreatorOnboarding';
+import { useThemeTokens } from '@/src/theme/useThemeTokens';
+import { typeStyle } from '@/src/theme/typography';
+import type { UserSettingsViewModel } from '@/src/services/userApi';
+import { createFieldColors, createSurfaceStyle } from '@/src/ui/createChrome';
+import { CREATE_COPY } from '@/src/ui/createCopy';
+import {
+  CREATOR_ONBOARDING_BIO_MAX,
+  creatorOnboardingStepLabel,
+} from '@/src/ui/creatorOnboarding';
+import { pickProviderAccount, providerStatusLabel, shouldShowConnectedProvider } from '@/src/ui/connectedAccounts';
+import { SETTINGS_COPY, settingsHandleLabel } from '@/src/ui/settingsHub';
+
+const HERO = require('../../assets/images/creator_studio_video_hero.png');
 
 type Props = {
-  /** @deprecated Colors come from ThemeMode tokens. */
-  isLight?: boolean;
-  creatorStatus: CreatorStatus | null;
-  username: string | null;
-  displayName: string | null;
-  loading?: boolean;
-  activating?: boolean;
-  error?: string | null;
-  onActivate: (displayName: string | null) => void;
-  onRetry?: () => void;
+  onActivated: (me: UserSettingsViewModel) => void;
+  onAlreadyActive?: (me: UserSettingsViewModel) => void;
+  onSuspended?: (me: UserSettingsViewModel) => void;
+  onCancel?: () => void;
 };
 
 /**
- * Presentation-only Creator onboarding gate (UX-CREATE-B.8 tokens).
- * Parents call User APIs — this component does not.
+ * Canonical creator onboarding: redesigned hero + card around the original
+ * two-step form (profile → optional social). Parents own post-activation
+ * navigation. Completion is step 2 only.
  */
 export function CreatorOnboardingPanel({
-  creatorStatus,
-  username,
-  displayName,
-  loading,
-  activating,
-  error,
-  onActivate,
-  onRetry,
+  onActivated,
+  onAlreadyActive,
+  onSuspended,
+  onCancel,
 }: Props) {
   const tokens = useThemeTokens();
-  const [name, setName] = useState(displayName ?? '');
   const field = createFieldColors(tokens);
+  const {
+    me,
+    step,
+    displayName,
+    bio,
+    loading,
+    busy,
+    error,
+    connected,
+    connectedBusy,
+    setDisplayName,
+    setBio,
+    setStep,
+    load,
+    onContinueProfile,
+    onBecomeCreator,
+    onNotNow,
+    onConnectedPress,
+  } = useCreatorOnboarding({
+    onActivated,
+    onAlreadyActive,
+    onSuspended,
+    onCancel,
+  });
+
+  const handle = settingsHandleLabel(me?.username);
+  const pending = busy;
+  const youtubeAccount = pickProviderAccount(connected, 'youtube');
+  const instagramAccount = pickProviderAccount(connected, 'instagram');
+  const showYouTube = shouldShowConnectedProvider(
+    connected?.providers.youtube?.linkingEnabled ?? false,
+    youtubeAccount,
+  );
+  const showInstagram = shouldShowConnectedProvider(
+    connected?.providers.instagram?.linkingEnabled ?? false,
+    instagramAccount,
+  );
 
   if (loading) {
-    return (
-      <StatusBlock
-        kind="loading"
-        message="Checking creator status…"
-        fill
-      />
-    );
+    return <StatusBlock kind="loading" message={CREATE_COPY.onboardingLoading} fill />;
   }
 
-  if (!creatorStatus) {
+  if (!me) {
     return (
       <StatusBlock
         kind="error"
-        title="Could not load account"
-        message={error ?? 'Something went wrong loading your account.'}
-        actionLabel={onRetry ? 'Try again' : undefined}
-        onAction={onRetry}
+        title={CREATE_COPY.onboardingLoadErrorTitle}
+        message={error ?? CREATE_COPY.onboardingLoadErrorBody}
+        actionLabel={CREATE_COPY.onboardingTryAgain}
+        onAction={() => void load()}
         fill
       />
     );
   }
 
-  if (creatorStatus === 'SUSPENDED') {
+  if (me.creatorStatus === 'ACTIVE') {
+    return <StatusBlock kind="loading" message={CREATE_COPY.onboardingLoading} fill />;
+  }
+
+  if (me.creatorStatus === 'SUSPENDED') {
     return (
-      <View style={[styles.card, { gap: tokens.space.sm }]}>
-        <Text
-          style={{
-            color: tokens.color.text,
-            fontSize: tokens.fontSize.display,
-            fontWeight: tokens.fontWeight.extraBold,
-          }}
-        >
-          Creator suspended
-        </Text>
-        <Text
-          style={{
-            color: tokens.color.textMuted,
-            fontSize: tokens.fontSize.bodyStrong,
-            lineHeight: 20,
-          }}
-        >
-          Your creator privileges are suspended. You can still browse, but you cannot create
-          Collections until reinstated.
-        </Text>
+      <View style={styles.page}>
+        <Hero />
+        <View style={[styles.card, cardChrome(tokens)]}>
+          <Text style={typeStyle(tokens, 'identityBrand')}>{CREATE_COPY.onboardingEyebrow}</Text>
+          <Headline>{CREATE_COPY.onboardingSuspendedTitle}</Headline>
+          <Text style={typeStyle(tokens, 'bodyMuted')}>{CREATE_COPY.onboardingSuspendedBody}</Text>
+        </View>
       </View>
     );
   }
 
-  const isOnboarding = creatorStatus === 'ONBOARDING';
-  const cta = isOnboarding ? 'Finish creator setup' : 'Become a creator';
-  const primary = createPrimaryButtonStyle(tokens, { pending: !!activating });
+  const isSetup = me.creatorStatus === 'ONBOARDING';
+  const inputStyle = {
+    color: field.color,
+    borderColor: field.borderColor,
+    backgroundColor: field.backgroundColor,
+    borderRadius: tokens.radius.md,
+    fontSize: tokens.fontSize.body,
+    fontFamily: tokens.fontFamily.regular,
+    paddingHorizontal: tokens.space.md,
+    paddingVertical: tokens.space.sm,
+  };
 
   return (
-    <View style={[styles.card, { gap: tokens.space.sm }]}>
-      <Text
-        style={{
-          color: tokens.color.textMuted,
-          fontSize: tokens.fontSize.caption,
-          fontWeight: tokens.fontWeight.bold,
-          textTransform: 'uppercase',
-          letterSpacing: 0.6,
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={{
+          paddingHorizontal: tokens.space.md,
+          paddingTop: tokens.space.xs,
+          paddingBottom: tokens.space.xxl,
         }}
+        keyboardShouldPersistTaps="handled"
       >
-        {isOnboarding ? 'Creator onboarding' : 'Creator Studio'}
-      </Text>
-      <Text
-        style={{
-          color: tokens.color.text,
-          fontSize: tokens.fontSize.display,
-          fontWeight: tokens.fontWeight.extraBold,
-        }}
-      >
-        {isOnboarding ? 'Activate your creator account' : 'Become a Mystash creator'}
-      </Text>
-      <Text
-        style={{
-          color: tokens.color.textMuted,
-          fontSize: tokens.fontSize.bodyStrong,
-          lineHeight: 20,
-        }}
-      >
-        Collections can only be created by ACTIVE creators. This uses your existing Mystash
-        account — no separate creator signup.
-      </Text>
+        <View style={styles.page}>
+          <Hero />
+          <View style={[styles.card, cardChrome(tokens)]}>
+            <View style={{ gap: tokens.space.xs }}>
+              <Text style={typeStyle(tokens, 'identityBrand')}>
+                {isSetup ? CREATE_COPY.onboardingEyebrowSetup : CREATE_COPY.onboardingEyebrow}
+              </Text>
+              <Headline>
+                {isSetup ? CREATE_COPY.onboardingHeadlineSetup : CREATE_COPY.onboardingHeadline}
+              </Headline>
+              <Text style={typeStyle(tokens, 'tileMeta')}>{creatorOnboardingStepLabel(step)}</Text>
+              <Text style={typeStyle(tokens, 'identityTitle')}>
+                {step === 'profile'
+                  ? SETTINGS_COPY.onboardingStepProfile
+                  : SETTINGS_COPY.onboardingStepSocial}
+              </Text>
+              <Text style={typeStyle(tokens, 'bodyMuted')}>
+                {step === 'profile'
+                  ? SETTINGS_COPY.onboardingProfileWhy
+                  : SETTINGS_COPY.onboardingSocialWhy}
+              </Text>
+            </View>
 
-      {username ? (
-        <Text
-          style={{
-            color: tokens.color.text,
-            fontSize: tokens.fontSize.body,
-            fontWeight: tokens.fontWeight.bold,
-            marginTop: tokens.space.xxs,
-          }}
-        >
-          @{username}
-        </Text>
-      ) : null}
+            {handle ? (
+              <Text style={typeStyle(tokens, 'identityTitle')} numberOfLines={1}>
+                {handle}
+              </Text>
+            ) : null}
 
-      <Text
-        style={{
-          color: tokens.color.textMuted,
-          fontSize: tokens.fontSize.caption,
-          marginTop: tokens.space.xs,
-        }}
-      >
-        Display name (optional)
-      </Text>
-      <TextInput
-        value={name}
-        onChangeText={setName}
-        placeholder="Shown on your public profile"
-        placeholderTextColor={field.placeholderTextColor}
-        style={[
-          styles.input,
-          {
-            color: field.color,
-            borderColor: field.borderColor,
-            backgroundColor: field.backgroundColor,
-            borderRadius: tokens.radius.md,
-            fontSize: tokens.fontSize.body,
-          },
-        ]}
-      />
+            {step === 'profile' ? (
+              <>
+                <View style={{ gap: tokens.space.xs }}>
+                  <Text style={typeStyle(tokens, 'tileTitle')}>{SETTINGS_COPY.displayName}</Text>
+                  <TextInput
+                    value={displayName}
+                    onChangeText={setDisplayName}
+                    placeholder={SETTINGS_COPY.displayNamePlaceholder}
+                    placeholderTextColor={field.placeholderTextColor}
+                    editable={!pending}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    accessibilityLabel={SETTINGS_COPY.displayName}
+                    style={[styles.input, inputStyle, { minHeight: 48 }]}
+                  />
+                </View>
+                <View style={{ gap: tokens.space.xs }}>
+                  <Text style={typeStyle(tokens, 'tileTitle')}>{SETTINGS_COPY.bio}</Text>
+                  <TextInput
+                    value={bio}
+                    onChangeText={setBio}
+                    placeholder={SETTINGS_COPY.bioPlaceholder}
+                    placeholderTextColor={field.placeholderTextColor}
+                    editable={!pending}
+                    multiline
+                    maxLength={CREATOR_ONBOARDING_BIO_MAX}
+                    accessibilityLabel={SETTINGS_COPY.bio}
+                    style={[styles.input, styles.bio, inputStyle]}
+                  />
+                </View>
+              </>
+            ) : (
+              <>
+                {showYouTube || showInstagram ? (
+                  <SettingsSection title={SETTINGS_COPY.connectedAccounts}>
+                    {showYouTube ? (
+                      <SettingsRow
+                        variant="navigation"
+                        icon="logo-youtube"
+                        title={SETTINGS_COPY.connectedYouTube}
+                        value={
+                          connectedBusy
+                            ? 'Updating…'
+                            : providerStatusLabel(
+                                youtubeAccount,
+                                connected?.providers.youtube.linkingEnabled ?? false,
+                              )
+                        }
+                        onPress={() => onConnectedPress('youtube')}
+                      />
+                    ) : null}
+                    {showInstagram ? (
+                      <SettingsRow
+                        variant="navigation"
+                        icon="logo-instagram"
+                        title={SETTINGS_COPY.connectedInstagram}
+                        value={
+                          connectedBusy
+                            ? 'Updating…'
+                            : providerStatusLabel(
+                                instagramAccount,
+                                connected?.providers.instagram.linkingEnabled ?? false,
+                              )
+                        }
+                        onPress={() => onConnectedPress('instagram')}
+                      />
+                    ) : null}
+                  </SettingsSection>
+                ) : (
+                  <Text style={typeStyle(tokens, 'bodyMuted')}>
+                    {SETTINGS_COPY.onboardingSocialLater}
+                  </Text>
+                )}
+              </>
+            )}
 
-      {error ? (
-        <Text style={{ color: tokens.color.danger, fontSize: 13 }}>{error}</Text>
-      ) : null}
+            {error ? (
+              <Text style={{ color: tokens.color.danger, fontSize: tokens.fontSize.caption }}>
+                {error}
+              </Text>
+            ) : null}
 
-      <TouchableOpacity
-        style={[
-          styles.primary,
-          primary,
-          {
-            marginTop: tokens.space.xs,
-            minHeight: 48,
-          },
-        ]}
-        disabled={!!activating}
-        onPress={() => onActivate(name.trim() || null)}
-      >
-        {activating ? (
-          <ActivityIndicator color={tokens.color.successOn} />
-        ) : (
-          <Text
-            style={{
-              color: tokens.color.successOn,
-              fontWeight: tokens.fontWeight.extraBold,
-              fontSize: tokens.fontSize.body,
-            }}
-          >
-            {cta}
-          </Text>
-        )}
-      </TouchableOpacity>
+            {step === 'profile' ? (
+              <ActionButton
+                variant="filled"
+                label={SETTINGS_COPY.onboardingContinue}
+                trailingIcon={pending ? undefined : 'arrow-forward'}
+                pending={pending}
+                disabled={pending}
+                onPress={() => void onContinueProfile()}
+              />
+            ) : (
+              <ActionButton
+                variant="filled"
+                label={SETTINGS_COPY.onboardingPrimary}
+                trailingIcon={pending ? undefined : 'arrow-forward'}
+                pending={pending}
+                disabled={pending}
+                onPress={() => void onBecomeCreator()}
+              />
+            )}
 
-      {onRetry ? (
-        <TouchableOpacity onPress={onRetry} style={styles.retry}>
-          <Text style={{ color: tokens.color.textMuted, fontWeight: tokens.fontWeight.semibold }}>
-            Refresh status
-          </Text>
-        </TouchableOpacity>
-      ) : null}
-    </View>
+            {step === 'social' ? (
+              <ActionButton
+                variant="quiet"
+                label={SETTINGS_COPY.onboardingBack}
+                disabled={pending}
+                onPress={() => setStep('profile')}
+              />
+            ) : null}
+
+            <ActionButton
+              variant="quiet"
+              label={SETTINGS_COPY.onboardingSecondary}
+              disabled={pending}
+              onPress={() => void onNotNow()}
+            />
+
+            <Pressable
+              onPress={() => void load()}
+              disabled={pending}
+              accessibilityRole="button"
+              accessibilityLabel={CREATE_COPY.onboardingRefresh}
+              style={[styles.refresh, { opacity: pending ? tokens.motion.pressOpacity : 1 }]}
+            >
+              <Text style={typeStyle(tokens, 'link')}>{CREATE_COPY.onboardingRefresh}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
+function Headline({ children }: { children: string }) {
+  const tokens = useThemeTokens();
+  return (
+    <Text
+      style={{
+        color: tokens.color.text,
+        fontSize: tokens.fontSize.headline,
+        lineHeight: tokens.lineHeight.headline,
+        fontFamily: tokens.fontFamily.extraBold,
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+function Hero() {
+  return (
+    <Image
+      source={HERO}
+      style={styles.hero}
+      contentFit="contain"
+      accessibilityIgnoresInvertColors
+      importantForAccessibility="no"
+      accessibilityElementsHidden
+    />
+  );
+}
+
+function cardChrome(tokens: ReturnType<typeof useThemeTokens>) {
+  return {
+    ...createSurfaceStyle(tokens),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: tokens.radius.xl,
+    padding: tokens.space.lg,
+    gap: tokens.space.md,
+  };
+}
+
 const styles = StyleSheet.create({
-  card: { paddingVertical: 8 },
-  input: {
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  flex: { flex: 1 },
+  page: { width: '100%' },
+  hero: {
+    width: '100%',
+    height: 220,
+    marginBottom: -28,
+    zIndex: 0,
   },
-  primary: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  card: { zIndex: 1 },
+  input: { borderWidth: 1 },
+  bio: { minHeight: 96, textAlignVertical: 'top' },
+  refresh: {
+    alignSelf: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
   },
-  retry: { alignSelf: 'center', padding: 10 },
 });

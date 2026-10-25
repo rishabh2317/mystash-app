@@ -1,24 +1,11 @@
 import type { Express, Request, Response } from 'express';
-import { createSupabaseAdmin, createSupabaseUserClient } from '../supabase';
+import { requireAuthUser } from '../auth/requireAuth';
+import { createSupabaseAdmin } from '../supabase';
 import { createUserService, UserServiceError } from './factory';
 import { logger } from '../logger';
 
 async function requireUser(req: Request, res: Response) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || typeof authHeader !== 'string') {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const userClient = createSupabaseUserClient(authHeader);
-  const {
-    data: { user },
-    error,
-  } = await userClient.auth.getUser();
-  if (error || !user) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return null;
-  }
-  return user;
+  return requireAuthUser(req, res, { requireVerifiedEmail: true });
 }
 
 function handleServiceError(res: Response, e: unknown): void {

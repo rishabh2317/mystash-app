@@ -10,7 +10,7 @@ import {
   reconcilePublicCollectionCount,
 } from './publicCreatorProfile';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 describe('public creator profile copy', () => {
   it('formats Posts / Followers / Following from real creator counts', () => {
@@ -56,6 +56,13 @@ describe('public creator profile architecture', () => {
     const card = readFileSync(join(ROOT, 'components/commerce/ProductCard.tsx'), 'utf8');
 
     assert.match(profile, /PublicCollectionTile/);
+    assert.match(profile, /DiscoverCreatorsSection/);
+    assert.match(profile, /useDiscoverCreators/);
+    assert.match(profile, /PROFILE_VIDEO_GRID_COLUMNS/);
+    assert.match(profile, /PROFILE_VIDEO_GRID_ASPECT/);
+    assert.match(profile, /PROFILE_VIDEO_GRID_GAP/);
+    assert.match(profile, /flush/);
+    assert.match(profile, /numColumns=\{2\}/);
     assert.match(profile, /variant="related"/);
     assert.doesNotMatch(profile, /variant="publicProfile"/);
     assert.match(tile, /'public'/);
@@ -71,6 +78,8 @@ describe('public creator profile architecture', () => {
     assert.match(header, /FollowControl/);
     assert.match(header, /emphasis="brand"/);
     assert.match(header, /fullWidth/);
+    assert.match(header, /radius="md"/);
+    assert.match(header, /tokens\.radius\.md/);
     assert.match(header, /Share/);
     assert.match(header, /onSharePress/);
     assert.match(header, /showHandle=\{false\}/);

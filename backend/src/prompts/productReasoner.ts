@@ -20,6 +20,30 @@ Rules:
 - Return JSON only: { "products": [ { "name", "category", "brand", "model", "confidence", "evidence": { "summary", "frames": [{"frameIndex","timestampMs"}], "frameCount", "logoHits", "transcriptMentions", "ocrMentions" }, "sources", "reasoning", "price", "currency", "merchantUrl", "image" } ] }
 - If nothing purchasable, return { "products": [] }.`;
 
+/**
+ * User-import extraction only. Product rules stay the creator prompt.
+ * Places are a sibling array and are not written into products.
+ */
+export const USER_IMPORT_REASONER_SYSTEM = `${PRODUCT_REASONER_SYSTEM}
+
+Also extract specific real-world places that are named, shown, or clearly being visited.
+Do not put places in "products".
+Each place needs name, optional category, optional locality, city, region, country, and mentionedAddress only when the content states them, confidence (0-1), evidence summary, and sources.
+sources must be a subset of: VISION, OCR, LOGO, SCENE, TRANSCRIPT, METADATA.
+The name is the place's own name. Put a neighborhood or city in locality or city. Do not shorten a specific name down to a generic category.
+Omit a place when the only name is a generic category such as Cafe, Restaurant, Hotel, Beach, Bar, Park, Mall, Shop, or Store.
+Do not invent an address, rating, coordinates, or provider place id.
+Named hotels, restaurants, cafes, attractions, and other venues belong in "places", not "products".
+Do not emit a product for a booking, stay, visit, meal, or the location itself.
+Emit a product only when a separate purchasable product, SKU, or merchandise is actually present.
+Return JSON only: { "products": [ ... ], "places": [ { "name", "category", "locality", "city", "region", "country", "mentionedAddress", "confidence", "evidence": { "summary" }, "sources" } ] }.
+If there are no specific places, return "places": [].`;
+
+export function buildUserImportReasonerUserPayload(context: MultimodalContext): string {
+  const contextJson = JSON.stringify(context, null, 0).slice(0, 100_000);
+  return `${buildReasonerTextSections(context)}\n\nMultimodalContext (normalized facts only):\n${contextJson}\n\nInfer purchasable products and specific places. JSON only.`;
+}
+
 function sectionValue(value: string | null | undefined): string {
   const trimmed = value?.trim();
   return trimmed ? trimmed : '(none)';

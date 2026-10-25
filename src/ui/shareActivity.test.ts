@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import type { ImportShare } from '@/src/services/importShareMap';
 import {
+  SHARE_ACTIVITY_COPY,
   shareActivityDestination,
   shareActivityLandingItems,
   shareActivityRelativeTime,
@@ -136,6 +137,15 @@ describe('shareActivityRelativeTime', () => {
 });
 
 describe('shareActivity source boundaries', () => {
+  it('keeps Your Activity empty copy on the shared section', () => {
+    const section = readFileSync(join(ROOT, 'components/search/YourActivitySection.tsx'), 'utf8');
+    assert.equal(SHARE_ACTIVITY_COPY.empty, 'No activity yet');
+    assert.match(section, /ShareActivityCardSkeleton/);
+    assert.match(section, /SHARE_ACTIVITY_COPY\.empty/);
+    assert.match(section, /retryUserImport/);
+    assert.match(section, /deleteUserImport/);
+  });
+
   it('does not import content-source internals', () => {
     const code = readFileSync(join(ROOT, 'src/ui/shareActivity.ts'), 'utf8');
     assert.doesNotMatch(code, /ContentProcessingStatus|QUEUED|ContentSourceService/);

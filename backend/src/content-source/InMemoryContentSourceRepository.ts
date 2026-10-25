@@ -66,6 +66,23 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
     return { ...record };
   }
 
+  async patchDisplay(
+    id: string,
+    patch: { title?: string | null; thumbnailUrl?: string | null; publishedAt?: string | null },
+  ): Promise<ContentSourceRecord | null> {
+    const record = this.sources.get(id);
+    if (!record) return null;
+    const next: ContentSourceRecord = {
+      ...record,
+      title: patch.title === undefined ? record.title ?? null : patch.title,
+      thumbnailUrl: patch.thumbnailUrl === undefined ? record.thumbnailUrl ?? null : patch.thumbnailUrl,
+      publishedAt: patch.publishedAt === undefined ? record.publishedAt ?? null : patch.publishedAt,
+      updatedAt: now(),
+    };
+    this.sources.set(id, next);
+    return { ...next };
+  }
+
   async markQueued(id: string, queuedAt: string): Promise<ContentSourceRecord | null> {
     const record = this.sources.get(id);
     if (!record) return null;
@@ -167,7 +184,9 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
     rows: InsertContentSourceProductRow[],
   ): Promise<ContentSourceProductRecord[]> {
     for (const [id, product] of [...this.products.entries()]) {
-      if (product.contentSourceId === contentSourceId) this.products.delete(id);
+      if (product.contentSourceId === contentSourceId && !product.attachmentSource) {
+        this.products.delete(id);
+      }
     }
     const ts = now();
     const stored: ContentSourceProductRecord[] = [];
@@ -192,6 +211,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
         processorVersion: row.processorVersion,
         catalogProductId: row.catalogProductId ?? null,
         discoveredProductId: row.discoveredProductId ?? null,
+        attachmentSource: row.attachmentSource ?? null,
         createdAt: row.createdAt ?? ts,
         updatedAt: row.updatedAt ?? ts,
         schemaVersion: row.schemaVersion ?? 1,
@@ -200,6 +220,54 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       stored.push({ ...record, sources: [...record.sources], evidence: { ...record.evidence } });
     }
     return stored.sort((a, b) => a.position - b.position);
+  }
+
+  async findProductByExternalId(
+    contentSourceId: string,
+    externalId: string,
+  ): Promise<ContentSourceProductRecord | null> {
+    const found = [...this.products.values()].find(
+      (row) => row.contentSourceId === contentSourceId && row.externalId === externalId,
+    );
+    return found ? { ...found, sources: [...found.sources], evidence: { ...found.evidence } } : null;
+  }
+
+  async insertProduct(row: InsertContentSourceProductRow): Promise<ContentSourceProductRecord> {
+    const ts = now();
+    const record: ContentSourceProductRecord = {
+      id: row.id ?? randomUUID(),
+      contentSourceId: row.contentSourceId,
+      position: row.position,
+      externalId: row.externalId,
+      name: row.name,
+      brand: row.brand,
+      model: row.model,
+      category: row.category,
+      price: row.price,
+      currency: row.currency,
+      image: row.image,
+      merchantUrl: row.merchantUrl,
+      confidence: row.confidence,
+      extractionMethod: row.extractionMethod,
+      sources: [...row.sources],
+      evidence: { ...row.evidence },
+      processorVersion: row.processorVersion,
+      catalogProductId: row.catalogProductId ?? null,
+      discoveredProductId: row.discoveredProductId ?? null,
+      attachmentSource: row.attachmentSource ?? null,
+      createdAt: row.createdAt ?? ts,
+      updatedAt: row.updatedAt ?? ts,
+      schemaVersion: row.schemaVersion ?? 1,
+    };
+    this.products.set(record.id, record);
+    return { ...record, sources: [...record.sources], evidence: { ...record.evidence } };
+  }
+
+  async deleteProduct(contentSourceId: string, productId: string): Promise<boolean> {
+    const row = this.products.get(productId);
+    if (!row || row.contentSourceId !== contentSourceId) return false;
+    this.products.delete(productId);
+    return true;
   }
 
   async listProducts(contentSourceId: string): Promise<ContentSourceProductRecord[]> {
@@ -211,14 +279,21 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
 
   async bindProductResolution(
     productId: string,
-    bind: { catalogProductId: string | null; discoveredProductId: string | null },
+    bind: {
+      catalogProductId: string | null;
+      discoveredProductId: string | null;
+      image?: string | null;
+    },
   ): Promise<ContentSourceProductRecord | null> {
     const record = this.products.get(productId);
     if (!record) return null;
+    const image =
+      typeof bind.image === 'string' && bind.image.startsWith('http') ? bind.image : record.image;
     const next: ContentSourceProductRecord = {
       ...record,
       catalogProductId: bind.catalogProductId,
       discoveredProductId: bind.discoveredProductId,
+      image,
       updatedAt: now(),
     };
     this.products.set(productId, next);

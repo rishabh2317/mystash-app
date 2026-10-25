@@ -228,6 +228,11 @@ export type ProductLinkPreview = {
   description?: string;
   /** Structured specs when extractor can provide them (JSON object). */
   specifications?: Record<string, string>;
+  /**
+   * Where the page identity came from. `tavily_gpt` is a hypothesis and must
+   * not, by itself, become a User product.
+   */
+  identitySource?: 'merchant_html' | 'tavily_gpt' | 'canonical_cache';
 };
 
 export type ProductLinkPreviewContext = {
@@ -366,6 +371,7 @@ async function loadFreshCanonical(
     image: row.image ?? undefined,
     merchantUrl: canonicalUrl,
     merchant: merchantFromUrl(canonicalUrl),
+    identitySource: row.extraction_source === 'ai_currency_v2' ? 'tavily_gpt' : 'merchant_html',
   };
 }
 
@@ -594,6 +600,7 @@ function toPreview(
     merchant?: string;
     specifications?: Record<string, string>;
     priceSource?: ProductLinkPreview['priceSource'];
+    identitySource?: ProductLinkPreview['identitySource'];
   },
 ): ProductLinkPreview {
   return {
@@ -608,6 +615,7 @@ function toPreview(
     brand: extras?.brand,
     description: extras?.description,
     specifications: extras?.specifications,
+    identitySource: extras?.identitySource,
   };
 }
 
@@ -694,6 +702,7 @@ async function runTavilyCommerceFallback(
     description: aiDesc,
     specifications: aiSpecs,
     priceSource: 'ai',
+    identitySource: 'tavily_gpt',
   });
 }
 
@@ -778,6 +787,7 @@ export async function previewProductLink(
       toPreview(canonicalUrl, scrape.name, scrape.price, scrape.currency, scrape.image, {
         description: metaDescription(scrape.html),
         priceSource: 'scrape',
+        identitySource: 'merchant_html',
       }),
     );
   }
@@ -804,6 +814,7 @@ export async function previewProductLink(
       {
         description: metaDescription(scrape.html),
         priceSource: scrape.price === '—' ? undefined : 'scrape',
+        identitySource: 'merchant_html',
       },
     ),
   );

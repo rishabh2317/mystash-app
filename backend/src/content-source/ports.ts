@@ -24,7 +24,8 @@ export type WebEnrichmentPort = {
 };
 
 export type ContentSourceResolutionPort = {
-  resolveAndFanOut(contentSourceId: string): Promise<void>;
+  /** Returns how many candidates were bound to a catalog or discovered product. */
+  resolveAndFanOut(contentSourceId: string, userImportId?: string): Promise<number>;
   enqueueMerchantEnrichment?(
     contentSourceId: string,
     userImportId: string,

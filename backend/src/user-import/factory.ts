@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createContentSourceService } from '../content-source/factory';
 import { createUserImportBagSync } from '../content-source/processing/userImportBagSync';
+import { SupabasePlaceRepository } from '../place/SupabasePlaceRepository';
 import { SupabaseUserImportRepository } from './SupabaseUserImportRepository';
 import { UserImportService } from './UserImportService';
 import type { UserImportBagSyncPort, UserImportContentSourcePort } from './ports';
@@ -23,10 +24,14 @@ export function createUserImportService(
   contentSource?: UserImportContentSourcePort,
   bagSync?: UserImportBagSyncPort | null,
 ): UserImportService {
+  const places = new SupabasePlaceRepository(admin);
   return new UserImportService(
     new SupabaseUserImportRepository(admin),
     contentSource ?? createUserImportContentSourcePort(admin),
     bagSync === undefined ? createUserImportBagSync(admin) : bagSync,
+    undefined,
+    undefined,
+    (userImportId) => places.countByUserImport(userImportId),
   );
 }
 

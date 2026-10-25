@@ -1,13 +1,21 @@
 import { Video } from '@/src/mocks/videos';
 import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
+import {
+  FEED_WEBVIEW_UA_ANDROID,
+  FEED_WEBVIEW_UA_IOS,
+  createPlaybackTrace,
+  notePlayerMounted,
+  notePlayerReleased,
+  playbackPlayerCount,
+  playbackLogLine,
+  recordPlaybackMark,
+  shouldRevealFeedFrame,
+  type PlaybackTrace,
+} from '@/src/ui/feedPlaybackTiming';
 import { buildInstagramEmbedHtml } from '@/src/utils/instagramWebViewEmbed';
 import { Image } from 'expo-image';
 import React, { useEffect, useRef, useState } from 'react';
-import {
-    Animated,
-    StyleSheet,
-    View,
-} from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 interface InstagramReelItemProps {
@@ -17,66 +25,55 @@ interface InstagramReelItemProps {
   webViewRef?: React.RefObject<any>;
 }
 
+function logPlayback(trace: PlaybackTrace, event: Parameters<typeof playbackLogLine>[1], mounted: number) {
+  if (!__DEV__) return;
+  console.log('[Mystash:Playback]', playbackLogLine(trace, event, mounted));
+}
+
 export default function InstagramReelItem({
   video,
   isActive,
-  fadeMs = 300,
+  fadeMs: _fadeMs = 300,
   webViewRef: externalWebViewRef,
 }: InstagramReelItemProps) {
-  const [showWebView, setShowWebView] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const [revealedUrl, setRevealedUrl] = useState<string | null>(null);
   const internalWebViewRef = useRef<WebView>(null);
   const webViewRef = externalWebViewRef || internalWebViewRef;
+  const traceRef = useRef<PlaybackTrace | null>(null);
+  const embedUrl = video.embed_url?.trim() || '';
+  const mountPlayer = Boolean(isActive && embedUrl);
+  const revealed = mountPlayer && revealedUrl === embedUrl;
 
   useEffect(() => {
-    if (isActive && video.embed_url) {
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: fadeMs,
-        useNativeDriver: true,
-      }).start(() => {
-        setShowWebView(true);
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: fadeMs,
-          useNativeDriver: true,
-        }).start();
-      });
-    } else {
-      setShowWebView(false);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 0,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [fadeAnim, fadeMs, isActive, video.embed_url]);
+    if (!mountPlayer) return;
+    const trace = createPlaybackTrace('instagram', embedUrl);
+    recordPlaybackMark(trace, 'active');
+    recordPlaybackMark(trace, 'mount');
+    traceRef.current = trace;
+    logPlayback(trace, 'mount', notePlayerMounted());
+    return () => {
+      recordPlaybackMark(trace, 'release');
+      logPlayback(trace, 'release', notePlayerReleased());
+      if (traceRef.current === trace) traceRef.current = null;
+    };
+  }, [embedUrl, mountPlayer]);
 
   return (
     <View style={styles.container}>
       <View style={styles.videoContainer}>
-        <Animated.View style={[styles.thumbnailContainer, { opacity: showWebView ? 0 : fadeAnim }]}>
-          <Image
-            source={{ uri: video.thumbnail }}
-            style={styles.thumbnail}
-            contentFit="cover"
-            priority="high"
-            cachePolicy="memory-disk"
-          />
-        </Animated.View>
-
-        {isActive && video.embed_url && showWebView ? (
-          <Animated.View style={[styles.webViewContainer, { opacity: fadeAnim }]}>
+        {mountPlayer ? (
+          <View style={styles.webViewContainer}>
             <WebView
               ref={webViewRef}
               source={{
-                html: buildInstagramEmbedHtml(video.embed_url),
+                html: buildInstagramEmbedHtml(embedUrl),
                 baseUrl: 'https://www.instagram.com',
               }}
               style={styles.webView}
               originWhitelist={['*']}
               javaScriptEnabled
               domStorageEnabled
+              cacheEnabled
               allowsInlineMediaPlayback
               mediaPlaybackRequiresUserAction={false}
               allowsFullscreenVideo
@@ -85,23 +82,51 @@ export default function InstagramReelItem({
               showsVerticalScrollIndicator={false}
               bounces={false}
               androidLayerType="hardware"
-              injectedJavaScript={`
-                (function() {
-                  try {
-                    if (typeof window.__mystashKickPlayback === 'function') {
-                      window.__mystashKickPlayback();
-                    }
-                  } catch (e) {}
-                  true;
-                })();
-              `}
-              userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+              userAgent={Platform.OS === 'android' ? FEED_WEBVIEW_UA_ANDROID : FEED_WEBVIEW_UA_IOS}
+              onLoadStart={() => {
+                const trace = traceRef.current;
+                if (!trace) return;
+                recordPlaybackMark(trace, 'loadStart');
+                logPlayback(trace, 'loadStart', playbackPlayerCount());
+              }}
+              onLoadEnd={() => {
+                const trace = traceRef.current;
+                if (!trace) return;
+                recordPlaybackMark(trace, 'loadEnd');
+                logPlayback(trace, 'loadEnd', playbackPlayerCount());
+              }}
+              onMessage={(event) => {
+                const message = event.nativeEvent.data;
+                const trace = traceRef.current;
+                if (!trace) return;
+                if (message === 'playerVisible') {
+                  logPlayback(trace, 'playerVisible', playbackPlayerCount());
+                  setRevealedUrl(embedUrl);
+                }
+                if (shouldRevealFeedFrame(message)) {
+                  recordPlaybackMark(trace, 'firstFrame');
+                  logPlayback(trace, 'firstFrame', playbackPlayerCount());
+                  setRevealedUrl(embedUrl);
+                }
+              }}
               onError={(error) => {
                 if (__DEV__) console.warn('Instagram WebView:', error.nativeEvent);
               }}
             />
-          </Animated.View>
+          </View>
         ) : null}
+        <View
+          pointerEvents="none"
+          style={[styles.thumbnailContainer, { opacity: revealed ? 0 : 1 }]}
+        >
+          <Image
+            source={{ uri: video.thumbnail }}
+            style={styles.thumbnail}
+            contentFit="cover"
+            priority="high"
+            cachePolicy="memory-disk"
+          />
+        </View>
       </View>
     </View>
   );
@@ -123,6 +148,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    zIndex: 2,
   },
   thumbnail: {
     width: '100%',
@@ -138,5 +164,6 @@ const styles = StyleSheet.create({
   webView: {
     width: '100%',
     height: '100%',
+    backgroundColor: IMMERSIVE_TOKENS.stage,
   },
 });

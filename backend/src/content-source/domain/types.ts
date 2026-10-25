@@ -6,6 +6,8 @@
  * product identity, Cart owns Bag membership.
  */
 
+import type { ExtractedPlaceMention } from '../../place/parseReasonerPayload';
+
 /** Lowercase to match `detectPlatform` and `video_extraction_cache.platform`. */
 export type ContentSourcePlatform = 'youtube' | 'instagram' | 'web';
 
@@ -36,6 +38,10 @@ export type ContentSourceRecord = ContentSourceIdentity & {
   createdAt: string;
   updatedAt: string;
   schemaVersion: number;
+  /** Library display metadata. Absent on rows written before Phase 3. */
+  title?: string | null;
+  thumbnailUrl?: string | null;
+  publishedAt?: string | null;
 };
 
 export type InsertContentSourceRow = ContentSourceIdentity & {
@@ -58,7 +64,7 @@ export type RequestProcessingResult = {
   jobId: string | null;
 };
 
-export type ContentExtractionMethod = 'ai_extract' | 'cache' | 'merchant_enrichment';
+export type ContentExtractionMethod = 'ai_extract' | 'cache' | 'merchant_enrichment' | 'creator_manual';
 
 /**
  * A product candidate belonging to a content source — not Catalog, not Bag.
@@ -84,6 +90,8 @@ export type ContentSourceProductRecord = {
   processorVersion: string;
   catalogProductId: string | null;
   discoveredProductId: string | null;
+  /** How this row was attached. Null on extract rows written before Phase 4. */
+  attachmentSource?: 'CREATOR_MANUAL' | 'CAMPAIGN' | 'BRAND_FEED' | null;
   createdAt: string;
   updatedAt: string;
   schemaVersion: number;
@@ -122,6 +130,8 @@ export type VideoExtractionPortResult = {
   empty: boolean;
   finalStage: string;
   extractionMethod: ContentExtractionMethod;
+  /** Specific and generic mentions from the user-import reasoner. Generic names are dropped before save. */
+  places?: ExtractedPlaceMention[];
 };
 
 export type WebEnrichmentPortResult = {

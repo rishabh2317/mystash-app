@@ -2,7 +2,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   StyleSheet,
   View,
@@ -10,6 +9,8 @@ import {
 
 import { TopBar } from '@/components/chrome/TopBar';
 import { DiscoverCreatorSuggestionCard } from '@/components/creator/DiscoverCreatorSuggestionCard';
+import { DiscoverCreatorSuggestionCardSkeleton } from '@/components/creator/DiscoverCreatorSuggestionCardSkeleton';
+import { SkeletonStack } from '@/components/status/SkeletonStack';
 import { Text } from '@/components/ui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
@@ -72,9 +73,18 @@ export default function DiscoverCreatorsScreen() {
       <TopBar mode="page" title={DISCOVER_CREATORS_COPY.title} showBack showBag={false} />
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={tokens.color.text} />
-        </View>
+        <SkeletonStack
+          gap={tokens.space.sm}
+          style={{
+            paddingHorizontal: tokens.space.md,
+            paddingTop: tokens.space.sm,
+          }}
+        >
+          <DiscoverCreatorSuggestionCardSkeleton variant="detail" />
+          <DiscoverCreatorSuggestionCardSkeleton variant="detail" />
+          <DiscoverCreatorSuggestionCardSkeleton variant="detail" />
+          <DiscoverCreatorSuggestionCardSkeleton variant="detail" />
+        </SkeletonStack>
       ) : items.length === 0 ? (
         <View style={styles.centered}>
           <Text style={[typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' }]}>

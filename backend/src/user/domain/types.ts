@@ -61,6 +61,34 @@ export function isCreator(user: Pick<User, 'creatorStatus'>): boolean {
   return user.creatorStatus === 'ACTIVE';
 }
 
+/** Fields safe to return from GET /users/by-username and public.user_public_profiles. */
+export const PUBLIC_USER_PROFILE_FIELDS = [
+  'id',
+  'username',
+  'displayName',
+  'profilePhotoUrl',
+  'bio',
+  'websiteUrl',
+  'socialLinks',
+  'creatorStatus',
+  'isCreator',
+  'accountType',
+  'joinedAt',
+  'publicStats',
+] as const;
+
+export const PRIVATE_USER_FIELDS = [
+  'emailMirrored',
+  'accountStatus',
+  'authProvider',
+  'country',
+  'language',
+  'timezone',
+  'countryDetectedAt',
+  'lastLocationCheckAt',
+  'countrySource',
+] as const;
+
 export type PublicUserProfile = {
   id: string;
   username: string;

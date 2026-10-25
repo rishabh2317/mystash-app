@@ -1,61 +1,49 @@
 import { Session, User } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
+import { AUTH_COPY, formatAuthError } from '@/src/auth/authErrors';
+import { completeAuthCallback, getAuthParamsFromUrl } from '@/src/auth/authCallback';
+import { isAuthEmailVerified } from '@/src/auth/emailVerified';
+import {
+  beginInAppAuthSession,
+  endInAppAuthSession,
+  interpretAuthSessionResult,
+} from '@/src/auth/oauthCallbackOwnership';
+import { supabaseAuthCallbackDeps } from '@/src/auth/supabaseAuthCallback';
+import { passwordMeetsPolicy, passwordPolicyMessage } from '@/src/auth/passwordPolicy';
+import {
+  clearPendingConfirmationEmail,
+  readPasswordRecoveryPending,
+  readPendingConfirmationEmail,
+  writePasswordRecoveryPending,
+  writePendingConfirmationEmail,
+  RESEND_LAST_SENT_KEY,
+} from '@/src/auth/pendingAuth';
+import { canResendConfirmation } from '@/src/auth/resendCooldown';
 import {
   type AuthIntent,
   appendAuthIntentToRedirectUrl,
 } from '@/src/navigation/authIntent';
+import { unlinkPushBeforeSignOut } from '@/src/notifications/pushRegistration';
 import { supabase } from '@/src/services/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
 
-function formatSignInError(err: { message: string; code?: string } | null): string | null {
-  if (!err) return null;
-  const code = err.code;
-  const msg = err.message;
-
-  if (code === 'email_not_confirmed') {
-    return 'Your email is not confirmed yet. Open the Supabase confirmation email (check spam), tap the link, then sign in again.\n\nFor testing: Supabase → Authentication → Providers → Email → disable "Confirm email".';
-  }
-
-  if (code === 'invalid_credentials') {
-    return 'Invalid email or password.\n\n• If you signed up with "Continue with Google", use that button — password sign-in will not work for that account.\n• If you just registered by email, confirm the link in your inbox first.\n• Otherwise reset the password in Supabase → Authentication → Users (or use Forgot password when we add it).';
-  }
-
-  if (code === 'user_banned') {
-    return 'This account is disabled. Check Supabase → Authentication → Users.';
-  }
-
-  if (code === 'provider_email_needs_verification') {
-    return 'Google needs you to verify the email on their side, or the account is linked differently. Try Google sign-in again or use a different email.';
-  }
-
-  return msg;
+function authCallbackUrl(): string {
+  return Linking.createURL('auth/callback');
 }
 
-function getAuthParamsFromUrl(url: string): Record<string, string> {
-  const params: Record<string, string> = {};
-
-  const query = url.includes('?') ? url.split('?')[1].split('#')[0] : '';
-  const hash = url.includes('#') ? url.split('#')[1] : '';
-
-  if (query) {
-    const q = new URLSearchParams(query);
-    q.forEach((value, key) => {
-      params[key] = value;
-    });
+/** Host + path only. Never include query, hash, codes, or tokens. */
+function oauthUrlDiagnostic(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.host}${parsed.pathname}`;
+  } catch {
+    return '(unparseable)';
   }
-
-  if (hash) {
-    const h = new URLSearchParams(hash);
-    h.forEach((value, key) => {
-      params[key] = value;
-    });
-  }
-
-  return params;
 }
 
 type SignUpPayload = {
@@ -67,15 +55,11 @@ type SignUpPayload = {
 
 export type SignUpResult = {
   error: string | null;
-  /** Supabase has "Confirm email" enabled: user must click link, then use Sign in. */
+  /** Confirm email is required: no session until the link is opened. */
   needsEmailConfirmation: boolean;
 };
 
 export type GoogleSignInOptions = {
-  /**
-   * Optional route-level auth intent to embed on OAuth redirectTo.
-   * Survives cold Google callback → auth/callback → Profile resume.
-   */
   authIntent?: AuthIntent | null;
 };
 
@@ -83,9 +67,16 @@ type AuthContextValue = {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  emailVerified: boolean;
+  pendingConfirmationEmail: string | null;
+  passwordRecoveryPending: boolean;
   signUpWithEmail: (payload: SignUpPayload) => Promise<SignUpResult>;
   signInWithEmail: (email: string, password: string) => Promise<{ error: string | null }>;
   signInWithGoogle: (options?: GoogleSignInOptions) => Promise<{ error: string | null }>;
+  resendConfirmationEmail: (email?: string) => Promise<{ error: string | null }>;
+  dismissPendingConfirmation: () => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
+  updatePassword: (password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 };
 
@@ -94,23 +85,45 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<string | null>(null);
+  const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
 
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (!mounted) return;
-        setSession(data.session ?? null);
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
+    void Promise.all([
+      supabase.auth.getSession(),
+      readPendingConfirmationEmail(AsyncStorage),
+      readPasswordRecoveryPending(AsyncStorage),
+    ]).then(([sessionResult, pendingEmail, recovery]) => {
+      if (!mounted) return;
+      const next = sessionResult.data.session ?? null;
+      setSession(next);
+      setPendingConfirmationEmail(pendingEmail);
+      setPasswordRecoveryPending(recovery);
+      if (next?.user && isAuthEmailVerified(next.user)) {
+        void clearPendingConfirmationEmail(AsyncStorage);
+        setPendingConfirmationEmail(null);
+      }
+    }).finally(() => {
+      if (mounted) setLoading(false);
+    });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession ?? null);
       setLoading(false);
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecoveryPending(true);
+        void writePasswordRecoveryPending(AsyncStorage, true);
+      }
+      if (nextSession?.user && isAuthEmailVerified(nextSession.user) && event !== 'PASSWORD_RECOVERY') {
+        void clearPendingConfirmationEmail(AsyncStorage);
+        setPendingConfirmationEmail(null);
+      }
+      if (!nextSession) {
+        setPasswordRecoveryPending(false);
+        void writePasswordRecoveryPending(AsyncStorage, false);
+      }
     });
 
     return () => {
@@ -124,11 +137,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user: session?.user ?? null,
       session,
       loading,
+      emailVerified: isAuthEmailVerified(session?.user),
+      pendingConfirmationEmail,
+      passwordRecoveryPending,
       signUpWithEmail: async ({ fullName, username, email, password }) => {
+        if (!passwordMeetsPolicy(password)) {
+          return { error: passwordPolicyMessage(), needsEmailConfirmation: false };
+        }
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
+            emailRedirectTo: authCallbackUrl(),
             data: {
               full_name: fullName,
               username,
@@ -137,36 +157,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (error) {
-          return { error: error.message ?? 'Sign up failed', needsEmailConfirmation: false };
+          return { error: formatAuthError(error, 'signup'), needsEmailConfirmation: false };
         }
 
         const needsEmailConfirmation = !data.session && !!data.user;
+        if (needsEmailConfirmation) {
+          await writePendingConfirmationEmail(AsyncStorage, email);
+          setPendingConfirmationEmail(email.trim().toLowerCase());
+          await AsyncStorage.setItem(RESEND_LAST_SENT_KEY, String(Date.now()));
+        }
         return { error: null, needsEmailConfirmation };
       },
       signInWithEmail: async (email, password) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error && __DEV__) {
-          console.log('[auth] signIn error', { code: (error as { code?: string }).code, message: error.message });
+          console.log('[auth] signIn error', { code: (error as { code?: string }).code });
         }
-        return { error: formatSignInError(error as { message: string; code?: string }) };
+        return { error: error ? formatAuthError(error, 'signin') : null };
       },
       signInWithGoogle: async (options) => {
-        // Use a real Expo Router route, not the app root. The path must be
-        // allowlisted in Supabase Auth → URL Configuration. When an ADD_TO_CART
-        // intent is present, the same route-level query params are embedded on
-        // redirectTo so a cold deep-link callback can forward them to Profile.
         const redirectBase = Linking.createURL('auth/callback');
         const redirectTo = appendAuthIntentToRedirectUrl(
           redirectBase,
           options?.authIntent ?? null,
         );
-        alert(`redirectTo = ${redirectTo}`);
-        console.log('redirectTo =', redirectTo);
         if (__DEV__) {
-          console.log(
-            '[auth] OAuth redirect URL (allowlist auth/callback path in Supabase):',
-            redirectTo,
-          );
+          console.log('[auth] OAuth redirect path', oauthUrlDiagnostic(redirectTo));
         }
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
@@ -175,70 +191,96 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             skipBrowserRedirect: true,
           },
         });
-        alert(data?.url ?? 'No URL');
 
-        if (error) return { error: error.message };
+        if (error) return { error: formatAuthError(error, 'google') };
         if (!data?.url) return { error: 'Unable to start Google sign in.' };
 
-        // Match on path-only redirectBase. Supabase may reorder/append auth
-        // query params; expo-web-browser polyfill uses startsWith(returnUrl).
-        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectBase);
-        if (__DEV__) {
-          const urlHint = result.type === 'success' && result.url ? `${result.url.split('?')[0]}…` : '(none)';
-          console.log('[auth] OAuth WebBrowser result:', result.type, urlHint);
-        }
-        if (result.type === 'cancel' || result.type === 'dismiss') {
-          return { error: 'Google sign in canceled.' };
-        }
-        if (result.type !== 'success' || !result.url) {
-          return { error: 'Google sign in did not return a valid callback URL.' };
-        }
+        beginInAppAuthSession();
+        try {
+          const result = await WebBrowser.openAuthSessionAsync(data.url, redirectBase);
+          if (__DEV__) {
+            const urlHint =
+              result.type === 'success' && result.url ? oauthUrlDiagnostic(result.url) : '(none)';
+            console.log('[auth] OAuth WebBrowser result:', result.type, urlHint);
+          }
+          const interpreted = interpretAuthSessionResult(result);
+          if (interpreted.kind === 'cancel') {
+            return { error: AUTH_COPY.googleCanceled };
+          }
+          if (interpreted.kind === 'error') {
+            return { error: interpreted.message };
+          }
 
-        const params = getAuthParamsFromUrl(result.url);
-        if (params.error_description || params.error) {
-          return { error: params.error_description || params.error || 'Google sign in failed.' };
-        }
-
-        if (params.code) {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code);
-          if (exchangeError) {
-            const m = exchangeError.message ?? '';
-            if (
-              m.toLowerCase().includes('code verifier') ||
-              m.toLowerCase().includes('non-empty') ||
-              (exchangeError as { code?: string }).code === 'validation_failed'
-            ) {
-              return {
-                error:
-                  'OAuth could not complete (PKCE verifier missing). This is fixed in the current build by using AsyncStorage for auth — reload the app and try Google again.',
-              };
-            }
-            if (__DEV__) {
-              console.log('[auth] exchangeCodeForSession error', {
-                message: m,
-                code: (exchangeError as { code?: string }).code,
-              });
-            }
-            return { error: m };
+          const params = getAuthParamsFromUrl(interpreted.url);
+          const completed = await completeAuthCallback(supabaseAuthCallbackDeps(), params);
+          void WebBrowser.dismissBrowser().catch(() => undefined);
+          if (completed.status === 'error') {
+            return { error: completed.message ?? AUTH_COPY.googleFailed };
+          }
+          if (completed.status === 'password_recovery') {
+            await writePasswordRecoveryPending(AsyncStorage, true);
+            setPasswordRecoveryPending(true);
           }
           return { error: null };
+        } finally {
+          endInAppAuthSession();
         }
-
-        if (params.access_token && params.refresh_token) {
-          const { error: setSessionError } = await supabase.auth.setSession({
-            access_token: params.access_token,
-            refresh_token: params.refresh_token,
-          });
-          return { error: setSessionError?.message ?? null };
+      },
+      dismissPendingConfirmation: async () => {
+        await clearPendingConfirmationEmail(AsyncStorage);
+        setPendingConfirmationEmail(null);
+      },
+      resendConfirmationEmail: async (email) => {
+        const target = (email ?? pendingConfirmationEmail ?? session?.user?.email ?? '').trim();
+        if (!target) return { error: 'Enter the email you used to sign up.' };
+        const raw = await AsyncStorage.getItem(RESEND_LAST_SENT_KEY);
+        const last = raw ? Number(raw) : null;
+        if (!canResendConfirmation(Number.isFinite(last) ? last : null)) {
+          return { error: formatAuthError({ code: 'over_email_send_rate_limit' }, 'resend') };
         }
-
-        return { error: 'Google sign in callback did not contain session tokens.' };
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email: target,
+          options: { emailRedirectTo: authCallbackUrl() },
+        });
+        if (error) return { error: formatAuthError(error, 'resend') };
+        await writePendingConfirmationEmail(AsyncStorage, target);
+        setPendingConfirmationEmail(target.toLowerCase());
+        await AsyncStorage.setItem(RESEND_LAST_SENT_KEY, String(Date.now()));
+        return { error: null };
+      },
+      requestPasswordReset: async (email) => {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: authCallbackUrl(),
+        });
+        if (error) {
+          const formatted = formatAuthError(error, 'recovery');
+          if (formatted === AUTH_COPY.offline || formatted === AUTH_COPY.rateLimited) {
+            return { error: formatted };
+          }
+        }
+        return { error: null };
+      },
+      updatePassword: async (password) => {
+        if (!passwordMeetsPolicy(password)) {
+          return { error: passwordPolicyMessage() };
+        }
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) return { error: formatAuthError(error, 'update-password') };
+        await writePasswordRecoveryPending(AsyncStorage, false);
+        setPasswordRecoveryPending(false);
+        return { error: null };
       },
       signOut: async () => {
+        await unlinkPushBeforeSignOut().catch(() => undefined);
+        await clearPendingConfirmationEmail(AsyncStorage);
+        await writePasswordRecoveryPending(AsyncStorage, false);
+        setPendingConfirmationEmail(null);
+        setPasswordRecoveryPending(false);
         await supabase.auth.signOut();
       },
     }),
-    [session, loading],
+    [session, loading, pendingConfirmationEmail, passwordRecoveryPending],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -249,4 +291,3 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
   return ctx;
 }
-

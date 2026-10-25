@@ -21,14 +21,24 @@ export type OutlineBorderVariant = 'ultraSubtle' | 'refined' | 'crisp';
 export const OUTLINE_BORDER_VARIANT: OutlineBorderVariant = 'crisp';
 
 /**
+ * Card-surface experiment (token-level only — flip to compare).
+ * `outline` = transparent fill, canvas unchanged (prior system).
+ * `raised` = opaque card sit on a slightly recessed canvas.
+ */
+export type CardSurfaceVariant = 'outline' | 'raised';
+
+/** Dev switch — change this one constant to revert the card-surface experiment. */
+export const CARD_SURFACE_VARIANT: CardSurfaceVariant = 'outline';
+
+/**
  * Nested semantic aliases for the outline-card language.
- * `surface.outlineCard` is transparent so page canvas/gradients show through;
- * cards are defined by border + structure, not a filled surface.
+ * `surface.outlineCard` is the card fill (`transparent` in `outline`,
+ * opaque in `raised`). Apply via `outlineCardChrome()`, not as a page fill.
  */
 export type ThemeSemanticTokens = {
   surface: {
     canvas: string;
-    /** Transparent card shell — use via `outlineCardChrome()`, not as a page fill. */
+    /** Card shell fill — use via `outlineCardChrome()`, not as a page fill. */
     outlineCard: string;
   };
   border: {
@@ -56,8 +66,8 @@ export type ThemeColorTokens = {
   /** Recessed surface for rows/tiles nested inside a `surface` card. */
   surfaceSubtle: string;
   /**
-   * Information-card shell fill — transparent so the page canvas/gradient
-   * shows through. Prefer `outlineCardChrome()` for card chrome.
+   * Information-card shell fill. Prefer `outlineCardChrome()` for card chrome.
+   * `outline` experiment: transparent. `raised` experiment: opaque vs canvas.
    */
   outlineCard: string;
   /** Quiet card/chrome border; tracks `OUTLINE_BORDER_VARIANT`. */
@@ -68,8 +78,8 @@ export type ThemeColorTokens = {
   overlay: string;
   overlayPressed: string;
   /**
-   * Brand primary. Identical in both modes — the primary colour never changes
-   * with the theme. Prefer this over `accent` for new/redesigned surfaces.
+   * Brand primary. Titanium raised uses TITANIUM_EXPERIMENT.primary;
+   * Nebula keeps the shared PRIMARY constant.
    */
   primary: string;
   /** Content laid on top of a `primary` fill. */
@@ -294,9 +304,8 @@ const SHARED_TYPE = {
   },
 };
 
-/** Primary is one colour for the whole product — never mode-dependent. */
-const PRIMARY = '#00AFC0';
-/** Light label on primary fills (switches, primary CTAs). */
+/** Nebula + Titanium outline mode. Titanium raised uses TITANIUM_EXPERIMENT.primary. */
+const PRIMARY = '#000000';
 const ON_PRIMARY = '#FFFFFF';
 
 /**
@@ -315,6 +324,38 @@ const OUTLINE_BORDER: Record<ThemeModeName, Record<OutlineBorderVariant, string>
     crisp: 'rgba(255,255,255,0.16)',
   },
 };
+
+/* =========================================================
+   MYSTASH LIGHT THEME EXPERIMENT
+   Edit only these values to test alternate palettes.
+   Do not scatter experiment colors through the token file.
+   Consumed when CARD_SURFACE_VARIANT === 'raised' (TITANIUM_RAISED).
+   ========================================================= */
+export const TITANIUM_EXPERIMENT = {
+  canvas: '#FFFFFF',
+  canvasEnd: '#FFFFFF',
+  canvasSoft: '#FFFFFF',
+  canvasSoftEnd: '#FFFFFF',
+
+  card: '#FFFFFF',
+
+  primary: '#000000',
+  onPrimary: '#FFFFFF',
+  primarySurface: '#F3F4F6',
+  onPrimarySurface: '#000000',
+  accent: '#000000',
+
+  /** Matches Titanium crisp hairline — edit here without changing Nebula. */
+  cardBorder: 'rgba(0,0,0,0.08)',
+  /** ~1px vertical, short soft blur; not a floating modal. */
+  cardShadow: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 1, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 0,
+    elevation: 4,
+  },
+} as const;
 
 function buildSemantic(color: ThemeColorTokens): ThemeSemanticTokens {
   return {
@@ -363,35 +404,37 @@ export const IMMERSIVE_TOKENS: ThemeImmersiveTokens = {
 const MEDIA_SCRIM_COLORS = ['transparent', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.82)'] as const;
 const MEDIA_SCRIM_LOCATIONS = [0, 0.45, 1] as const;
 
+const TITANIUM_RAISED = CARD_SURFACE_VARIANT === 'raised';
+
 const TITANIUM_COLOR: ThemeColorTokens = {
   text: '#1A1A1A',
   textMuted: '#666666',
   textOnAccent: '#F8FAFC',
-  canvas: '#FFFFFF',
-  canvasEnd: '#F7F7F7',
-  canvasSoft: '#FFFFFF',
-  canvasSoftEnd: '#F5F5F5',
+  canvas: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.canvas : '#FFFFFF',
+  canvasEnd: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.canvasEnd : '#F7F7F7',
+  canvasSoft: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.canvasSoft : '#FFFFFF',
+  canvasSoftEnd: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.canvasSoftEnd : '#F5F5F5',
   surface: '#FFFFFF',
   surfaceRaised: '#FFFFFF',
   surfaceSubtle: '#F5F5F5',
-  outlineCard: 'transparent',
+  outlineCard: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.card : 'transparent',
   border: OUTLINE_BORDER.titanium[OUTLINE_BORDER_VARIANT],
   borderStrong: '#1A1A1A',
   divider: 'rgba(0,0,0,0.06)',
   overlay: 'rgba(0,0,0,0.06)',
   overlayPressed: 'rgba(0,0,0,0.10)',
-  primary: PRIMARY,
-  onPrimary: ON_PRIMARY,
-  primarySurface: '#D9F1F4',
-  onPrimarySurface: '#04494F',
-  accent: '#00AFC0',
+  primary: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.primary : PRIMARY,
+  onPrimary: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.onPrimary : ON_PRIMARY,
+  primarySurface: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.primarySurface : '#E8F5F4',
+  onPrimarySurface: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.onPrimarySurface : '#18504F',
+  accent: TITANIUM_RAISED ? TITANIUM_EXPERIMENT.accent : PRIMARY,
   cta: '#0EA5E9',
   success: '#059669',
   successOn: '#FFFFFF',
   warning: '#B45309',
   danger: '#B91C1C',
   dangerOn: '#FFFFFF',
-  tabBar: '#FFFFFF',
+  tabBar: 'rgba(255, 255, 255, 0.85)',
   tabInactive: '#666666',
   icon: '#1A1A1A',
 };
@@ -401,40 +444,42 @@ const TITANIUM_COLOR: ThemeColorTokens = {
  * here is white-alpha, so these few opaque values decide the whole theme's hue:
  * when they were navy every card layered over them read navy too.
  *
- * Information cards must use `outlineCard` (transparent) via `outlineCardChrome`,
+ * Information cards must use `outlineCard` via `outlineCardChrome`,
  * not `surface` — `surface` stays as a lightly raised chrome fill for docks/sheets only.
  */
+const NEBULA_RAISED = CARD_SURFACE_VARIANT === 'raised';
+
 const NEBULA_COLOR: ThemeColorTokens = {
   text: '#FFFFFF',
   textMuted: '#A0A0A6',
-  textOnAccent: '#1A1A1B',
-  canvas: '#08080A',
-  canvasEnd: '#101012',
+  textOnAccent: '#000000',
+  canvas: '#000000',
+  canvasEnd: '#111111',
   // Chrome sits a hair above the canvas and fades into it, so the top bar
   // reads as raised without leaving a visible band across the page.
-  canvasSoft: '#0C0C0E',
-  canvasSoftEnd: '#08080A',
-  surface: 'rgba(255,255,255,0.06)',
-  surfaceRaised: 'rgba(255,255,255,0.08)',
-  surfaceSubtle: 'rgba(255,255,255,0.035)',
-  outlineCard: 'transparent',
-  border: OUTLINE_BORDER.nebula[OUTLINE_BORDER_VARIANT],
-  borderStrong: '#FFFFFF',
+  canvasSoft: '#000000',
+  canvasSoftEnd: '#000000',
+  surface: 'rgba(255,255,255,0.08)',
+  surfaceRaised: 'rgba(255,255,255,0.12)',
+  surfaceSubtle: 'rgba(255,255,255,0.04)',
+  outlineCard: 'rgba(255, 255, 255, 0.07)',
+  border: 'rgba(255,255,255,0.15)',
+  borderStrong: 'rgba(255,255,255,0.25)',
   divider: 'rgba(255,255,255,0.08)',
   overlay: 'rgba(255,255,255,0.1)',
   overlayPressed: 'rgba(255,255,255,0.16)',
-  primary: PRIMARY,
-  onPrimary: ON_PRIMARY,
-  primarySurface: '#12414C',
-  onPrimarySurface: '#E6FAFC',
-  accent: '#A855F7',
-  cta: '#A855F7',
+  primary: '#FFFFFF',
+  onPrimary: '#000000',
+  primarySurface: 'rgba(255,255,255,0.15)',
+  onPrimarySurface: '#FFFFFF',
+  accent: '#FFFFFF',
+  cta: '#FFFFFF',
   success: '#10B981',
   successOn: '#FFFFFF',
   warning: '#FBBF24',
   danger: '#FCA5A5',
   dangerOn: '#FFFFFF',
-  tabBar: '#0C0C0E',
+  tabBar: '#000000',
   tabInactive: '#A0A0A6',
   icon: '#FFFFFF',
 };
@@ -451,18 +496,48 @@ export function getThemeTokens(mode: ThemeModeName): ThemeTokens {
 }
 
 /**
- * Information / multi-data card chrome — transparent fill + quiet outline border
- * so page canvas/gradients show through. Use for creator suggestion, category,
- * merchant/info, profile info cards. Do not use on media-first cards.
+ * Information / multi-data card chrome — `outlineCard` fill + quiet outline
+ * border. Titanium raised adds experiment micro-elevation only.
+ * Use for creator suggestion, category, merchant/info, profile info cards.
+ * Do not use on media-first cards.
  */
 export function outlineCardChrome(tokens: ThemeTokens): {
   backgroundColor: string;
   borderColor: string;
+  shadowColor?: string;
+  shadowOffset?: { width: number; height: number };
+  shadowOpacity?: number;
+  shadowRadius?: number;
+  elevation?: number;
 } {
   return {
     backgroundColor: tokens.semantic.surface.outlineCard,
-    borderColor: tokens.semantic.border.subtle,
+    borderColor:
+      tokens.mode === 'titanium' && CARD_SURFACE_VARIANT === 'raised'
+        ? TITANIUM_EXPERIMENT.cardBorder
+        : tokens.semantic.border.subtle,
+    ...titaniumRaisedShadow(tokens),
   };
+}
+
+/** Titanium raised micro-elevation only. Empty on Nebula and outline mode. */
+export function titaniumRaisedShadow(tokens: ThemeTokens): {
+  shadowColor?: string;
+  shadowOffset?: { width: number; height: number };
+  shadowOpacity?: number;
+  shadowRadius?: number;
+  elevation?: number;
+} {
+  if (CARD_SURFACE_VARIANT !== 'raised') return {};
+  // 2. In dark mode, bump shadowOpacity slightly so the offset shadow is visible against dark surfaces
+  if (tokens.mode === 'nebula') {
+    return {
+      shadowColor: 'transparent',
+      shadowOpacity: 0,
+      elevation: 0,
+    };
+  }
+  return TITANIUM_EXPERIMENT.cardShadow;
 }
 
 /** Scrim ramp for text/controls resting on media (LinearGradient bottom-up). */

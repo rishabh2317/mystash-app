@@ -7,7 +7,11 @@ import { InMemoryUserImportRepository } from '../../user-import/InMemoryUserImpo
 import type { ContentSourceRecord, VideoExtractionPortResult, WebEnrichmentPortResult } from '../domain/types';
 import type { UserImportLookupPort, VideoExtractionPort, WebEnrichmentPort, ContentSourceResolutionPort } from '../ports';
 import { ContentSourceTerminalError } from './errors';
-import { ContentSourceProcessor } from './ContentSourceProcessor';
+import { ContentSourceProcessor, type ContentSourcePlaceResolutionPort } from './ContentSourceProcessor';
+import type { PlaceSearchAttempt } from '../../place/decidePlaceMention';
+import { InMemoryPlaceRepository } from '../../place/InMemoryPlaceRepository';
+import { PlaceResolver } from '../../place/PlaceResolver';
+import type { PlaceSearchProvider } from '../../place/PlaceSearchProvider';
 
 const USER_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -28,6 +32,7 @@ function videoResult(
     empty: partial.empty ?? products.length === 0,
     finalStage: partial.finalStage ?? 'stage1',
     extractionMethod: partial.extractionMethod ?? (partial.cacheHit ? 'cache' : 'ai_extract'),
+    places: partial.places,
   };
 }
 
@@ -69,6 +74,8 @@ function createHarness(
     video?: VideoFn;
     web?: WebFn;
     resolution?: ContentSourceResolutionPort;
+    places?: InMemoryPlaceRepository;
+    placeResolver?: ContentSourcePlaceResolutionPort;
   } = {},
 ) {
   const sources = new InMemoryContentSourceRepository();
@@ -106,6 +113,8 @@ function createHarness(
     web,
     processorVersion: 'test-processor',
     resolution: options.resolution ?? null,
+    places: options.places ?? null,
+    placeResolver: options.placeResolver ?? null,
   });
 
   return {
@@ -161,7 +170,7 @@ describe('ContentSourceProcessor video', () => {
     const stored = await harness.sources.findById(source.id);
     const products = await harness.sources.listProducts(source.id);
     assert.equal(stored?.processingStatus, 'READY');
-    assert.equal(stored?.candidateCount, 2);
+    assert.equal(stored?.candidateCount, 0);
     assert.equal(products.length, 2);
     assert.equal(products[0]?.extractionMethod, 'cache');
     assert.equal(products[0]?.name, 'Sony WH-1000XM5');
@@ -468,6 +477,7 @@ describe('ContentSourceProcessor idempotency and state', () => {
       resolution: {
         resolveAndFanOut: async (id) => {
           resolved.push(id);
+          return 2;
         },
       },
     });
@@ -480,6 +490,462 @@ describe('ContentSourceProcessor idempotency and state', () => {
     assert.deepEqual(resolved, [source.id]);
     assert.equal((await harness.sources.findById(source.id))?.processingStatus, 'READY');
     assert.equal((await harness.sources.listProducts(source.id)).length, 2);
+  });
+
+  it('marks ready with the attached count, including zero when nothing validates', async () => {
+    const harness = createHarness({
+      video: async () => videoResult({ products: TWO_PRODUCTS }),
+      resolution: {
+        resolveAndFanOut: async () => 0,
+      },
+    });
+    const source = await insertQueued(harness.sources, 'VIDEO');
+    await harness.processor.process({
+      contentSourceId: source.id,
+      userImportId: IMPORT_A,
+      traceId: TRACE,
+    });
+    const stored = await harness.sources.findById(source.id);
+    assert.equal(stored?.processingStatus, 'READY');
+    assert.equal(stored?.candidateCount, 0);
+    assert.equal((await harness.sources.listProducts(source.id)).length, 2);
+  });
+});
+
+describe('ContentSourceProcessor place leads', () => {
+  it('saves a specific place as an unresolved lead and drops a generic name', async () => {
+    const places = new InMemoryPlaceRepository();
+    const harness = createHarness({
+      places,
+      video: async () =>
+        videoResult({
+          products: [TWO_PRODUCTS[0]!],
+          places: [
+            {
+              name: 'Cafe',
+              category: 'cafe',
+              locality: 'Seminyak',
+              city: null,
+              region: null,
+              country: null,
+              mentionedAddress: null,
+              confidence: 0.9,
+              evidence: {},
+              sources: ['TRANSCRIPT'],
+            },
+            {
+              name: 'Cafe de Flore',
+              category: 'cafe',
+              locality: null,
+              city: 'Paris',
+              region: null,
+              country: null,
+              mentionedAddress: null,
+              confidence: 0.8,
+              evidence: { summary: 'named in the title' },
+              sources: ['METADATA'],
+            },
+          ],
+        }),
+    });
+    const source = await insertQueued(harness.sources, 'VIDEO');
+    await addImport(harness.imports, {
+      userId: USER_A,
+      contentSourceId: source.id,
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    });
+
+    await harness.processor.process({
+      contentSourceId: source.id,
+      userImportId: IMPORT_A,
+      traceId: TRACE,
+    });
+
+    assert.equal(places.places.size, 0);
+    const hypotheses = await places.listHypotheses(source.id);
+    assert.equal(hypotheses.length, 1);
+    assert.equal(hypotheses[0]?.extractedName, 'Cafe de Flore');
+    assert.equal(hypotheses[0]?.resolutionState, 'unresolved');
+    assert.equal(hypotheses[0]?.unresolvedReason, 'pending_resolution');
+    assert.equal(hypotheses[0]?.placeId, null);
+    assert.equal(hypotheses[0]?.city, 'Paris');
+    const saves = await places.listSavesByUser(USER_A);
+    assert.equal(saves.length, 1);
+    assert.equal(saves[0]?.placeId, null);
+    assert.equal((await harness.sources.listProducts(source.id)).length, 1);
+  });
+
+  it('does not persist a venue product that is also a kept place, and keeps merchandise', async () => {
+    const places = new InMemoryPlaceRepository();
+    const harness = createHarness({
+      places,
+      video: async () =>
+        videoResult({
+          products: [
+            {
+              name: 'Fairfield by Marriott Airport Hotel Mumbai',
+              category: 'travel',
+              brand: 'Marriott',
+              confidence: 0.95,
+              sources: ['METADATA'],
+              sortOrder: 1,
+            },
+            {
+              name: 'Potato Head T-shirt',
+              category: 'fashion',
+              brand: null,
+              confidence: 0.9,
+              sources: ['TRANSCRIPT'],
+              sortOrder: 2,
+            },
+          ],
+          places: [
+            {
+              name: 'Fairfield by Marriott Airport Hotel Mumbai',
+              category: 'hotel',
+              locality: null,
+              city: 'Mumbai',
+              region: null,
+              country: null,
+              mentionedAddress: null,
+              confidence: 0.9,
+              evidence: {},
+              sources: ['METADATA'],
+            },
+            {
+              name: 'Potato Head',
+              category: 'beach',
+              locality: 'Seminyak',
+              city: null,
+              region: null,
+              country: null,
+              mentionedAddress: null,
+              confidence: 0.8,
+              evidence: {},
+              sources: ['TRANSCRIPT'],
+            },
+          ],
+        }),
+    });
+    const source = await insertQueued(harness.sources, 'VIDEO');
+    await addImport(harness.imports, {
+      userId: USER_A,
+      contentSourceId: source.id,
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    });
+    await harness.processor.process({
+      contentSourceId: source.id,
+      userImportId: IMPORT_A,
+      traceId: TRACE,
+    });
+    const products = await harness.sources.listProducts(source.id);
+    assert.equal(products.length, 1);
+    assert.equal(products[0]?.name, 'Potato Head T-shirt');
+    const hypotheses = await places.listHypotheses(source.id);
+    assert.ok(hypotheses.some((row) => row.extractedName === 'Fairfield by Marriott Airport Hotel Mumbai'));
+    assert.ok(hypotheses.some((row) => row.extractedName === 'Potato Head'));
+  });
+
+  it('does not create place rows from a web page', async () => {
+    const places = new InMemoryPlaceRepository();
+    const harness = createHarness({
+      places,
+      web: async () => ({
+        candidate: {
+          name: 'Cafe Mug',
+          brand: null,
+          category: null,
+          price: null,
+          currency: null,
+          image: null,
+          merchantUrl: 'https://shop.example.com/p/mug',
+          evidence: {},
+        },
+        empty: false,
+      }),
+    });
+    const source = await insertQueued(harness.sources, 'WEB_PAGE');
+    await harness.processor.process({
+      contentSourceId: source.id,
+      userImportId: IMPORT_A,
+      traceId: TRACE,
+    });
+    assert.equal((await places.listHypotheses(source.id)).length, 0);
+    assert.equal(places.places.size, 0);
+  });
+
+  it('keeps an unresolved lead when place search times out and still attaches products', async () => {
+    const places = new InMemoryPlaceRepository();
+    const queries: string[] = [];
+    const search: PlaceSearchProvider = {
+      name: 'google',
+      search: (query, signal) => {
+        queries.push(query);
+        return new Promise<PlaceSearchAttempt>((_resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('late')), 1000);
+          signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new Error('aborted'));
+          });
+        });
+      },
+    };
+    let productResolveCalls = 0;
+    const harness = createHarness({
+      places,
+      placeResolver: new PlaceResolver(places, search, 30),
+      resolution: {
+        resolveAndFanOut: async () => {
+          productResolveCalls += 1;
+          return 1;
+        },
+      },
+      video: async () =>
+        videoResult({
+          products: [TWO_PRODUCTS[0]!],
+          places: [
+            {
+              name: 'Tanah Lot',
+              category: 'temple',
+              locality: null,
+              city: null,
+              region: null,
+              country: null,
+              mentionedAddress: null,
+              confidence: 0.9,
+              evidence: {},
+              sources: ['TRANSCRIPT'],
+            },
+          ],
+        }),
+    });
+    const source = await insertQueued(harness.sources, 'VIDEO');
+    await addImport(harness.imports, {
+      userId: USER_A,
+      contentSourceId: source.id,
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    });
+    await harness.processor.process({
+      contentSourceId: source.id,
+      userImportId: IMPORT_A,
+      traceId: TRACE,
+    });
+    const stored = await harness.sources.findById(source.id);
+    assert.equal(stored?.processingStatus, 'READY');
+    assert.equal(stored?.candidateCount, 1);
+    assert.equal(productResolveCalls, 1);
+    assert.deepEqual(queries, ['Tanah Lot']);
+    assert.equal(places.places.size, 0);
+    const hypotheses = await places.listHypotheses(source.id);
+    assert.equal(hypotheses.length, 1);
+    assert.equal(hypotheses[0]?.resolutionState, 'unresolved');
+    assert.equal(hypotheses[0]?.unresolvedReason, 'provider_failed');
+    assert.equal(hypotheses[0]?.placeId, null);
+    const saves = await places.listSavesByUser(USER_A);
+    assert.equal(saves.length, 1);
+    assert.equal(saves[0]?.placeId, null);
+  });
+
+  it('resolves places and products in parallel and marks ready only after both settle', async () => {
+    const places = new InMemoryPlaceRepository();
+    const events: string[] = [];
+    const search: PlaceSearchProvider = {
+      name: 'google',
+      search: async () => {
+        events.push('place-start');
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        events.push('place-end');
+        return {
+          ok: true,
+          candidates: [
+            { providerPlaceId: 'ChIJ-potato', name: 'Potato Head', locality: 'Seminyak' },
+          ],
+        };
+      },
+    };
+    const harness = createHarness({
+      places,
+      placeResolver: new PlaceResolver(places, search, 1000),
+      resolution: {
+        resolveAndFanOut: async () => {
+          events.push('product-start');
+          await new Promise((resolve) => setTimeout(resolve, 40));
+          events.push('product-end');
+          return 1;
+        },
+      },
+      video: async () =>
+        videoResult({
+          products: [TWO_PRODUCTS[0]!],
+          places: [
+            {
+              name: 'Potato Head',
+              category: 'beach',
+              locality: 'Seminyak',
+              city: null,
+              region: null,
+              country: null,
+              mentionedAddress: null,
+              confidence: 0.9,
+              evidence: {},
+              sources: ['TRANSCRIPT'],
+            },
+          ],
+        }),
+    });
+    const originalMarkReady = harness.sources.markReady.bind(harness.sources);
+    harness.sources.markReady = async (id, params) => {
+      events.push('mark-ready');
+      return originalMarkReady(id, params);
+    };
+    const source = await insertQueued(harness.sources, 'VIDEO');
+    await addImport(harness.imports, {
+      userId: USER_A,
+      contentSourceId: source.id,
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    });
+    await harness.processor.process({
+      contentSourceId: source.id,
+      userImportId: IMPORT_A,
+      traceId: TRACE,
+    });
+    assert.ok(events.indexOf('product-start') < events.indexOf('place-end'));
+    assert.ok(events.indexOf('place-start') < events.indexOf('product-end'));
+    assert.ok(events.indexOf('mark-ready') > events.indexOf('place-end'));
+    assert.ok(events.indexOf('mark-ready') > events.indexOf('product-end'));
+    const stored = await harness.sources.findById(source.id);
+    assert.equal(stored?.processingStatus, 'READY');
+    assert.equal(stored?.candidateCount, 1);
+    assert.equal(places.places.size, 1);
+    const saves = await places.listSavesByUser(USER_A);
+    assert.equal(saves.length, 1);
+    assert.equal(saves[0]?.placeId, [...places.places.values()][0]?.id);
+  });
+
+  it('saves unresolved leads when place resolution throws and still attaches products', async () => {
+    const places = new InMemoryPlaceRepository();
+    const harness = createHarness({
+      places,
+      placeResolver: {
+        resolveMentions: async () => {
+          throw new Error('place exploded');
+        },
+      },
+      resolution: {
+        resolveAndFanOut: async () => 1,
+      },
+      video: async () =>
+        videoResult({
+          products: [TWO_PRODUCTS[0]!],
+          places: [
+            {
+              name: 'Cafe',
+              category: 'cafe',
+              locality: 'Seminyak',
+              city: null,
+              region: null,
+              country: null,
+              mentionedAddress: null,
+              confidence: 0.9,
+              evidence: {},
+              sources: ['TRANSCRIPT'],
+            },
+            {
+              name: 'Cafe de Flore',
+              category: 'cafe',
+              locality: null,
+              city: 'Paris',
+              region: null,
+              country: null,
+              mentionedAddress: null,
+              confidence: 0.8,
+              evidence: {},
+              sources: ['METADATA'],
+            },
+          ],
+        }),
+    });
+    const source = await insertQueued(harness.sources, 'VIDEO');
+    await addImport(harness.imports, {
+      userId: USER_A,
+      contentSourceId: source.id,
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    });
+    await harness.processor.process({
+      contentSourceId: source.id,
+      userImportId: IMPORT_A,
+      traceId: TRACE,
+    });
+    const stored = await harness.sources.findById(source.id);
+    assert.equal(stored?.processingStatus, 'READY');
+    assert.equal(stored?.candidateCount, 1);
+    assert.equal(places.places.size, 0);
+    const hypotheses = await places.listHypotheses(source.id);
+    assert.equal(hypotheses.length, 1);
+    assert.equal(hypotheses[0]?.extractedName, 'Cafe de Flore');
+    assert.equal(hypotheses[0]?.resolutionState, 'unresolved');
+    assert.equal(hypotheses[0]?.placeId, null);
+    assert.equal((await places.listSavesByUser(USER_A)).length, 1);
+  });
+
+  it('still writes place leads when product resolution fails and does not mark ready', async () => {
+    const places = new InMemoryPlaceRepository();
+    const harness = createHarness({
+      places,
+      placeResolver: new PlaceResolver(places, {
+        name: 'google',
+        search: async () => {
+          throw new Error('search must not be called');
+        },
+      }),
+      resolution: {
+        resolveAndFanOut: async () => {
+          throw new Error('product exploded');
+        },
+      },
+      video: async () =>
+        videoResult({
+          products: [TWO_PRODUCTS[0]!],
+          places: [
+            {
+              name: 'Cafe de Flore',
+              category: 'cafe',
+              locality: null,
+              city: null,
+              region: null,
+              country: null,
+              mentionedAddress: null,
+              confidence: 0.8,
+              evidence: {},
+              sources: ['METADATA'],
+            },
+          ],
+        }),
+    });
+    const source = await insertQueued(harness.sources, 'VIDEO');
+    await addImport(harness.imports, {
+      userId: USER_A,
+      contentSourceId: source.id,
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    });
+    await assert.rejects(
+      () =>
+        harness.processor.process({
+          contentSourceId: source.id,
+          userImportId: IMPORT_A,
+          traceId: TRACE,
+        }),
+      /product exploded/,
+    );
+    const stored = await harness.sources.findById(source.id);
+    assert.equal(stored?.processingStatus, 'PROCESSING');
+    assert.equal(places.places.size, 0);
+    const hypotheses = await places.listHypotheses(source.id);
+    assert.equal(hypotheses.length, 1);
+    assert.equal(hypotheses[0]?.extractedName, 'Cafe de Flore');
+    assert.equal(hypotheses[0]?.unresolvedReason, 'name_not_distinctive');
+    assert.equal(hypotheses[0]?.placeId, null);
+    assert.equal((await places.listSavesByUser(USER_A)).length, 1);
   });
 });
 

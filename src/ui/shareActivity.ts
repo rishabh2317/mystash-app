@@ -45,6 +45,8 @@ export const SHARE_ACTIVITY_COPY = {
   stateLabel: 'Status',
   retry: 'Retry',
   delete: 'Delete',
+  empty: 'No activity yet',
+  emptyHint: 'Paste a product, Reel, or Short URL from Search to get started.',
 } as const;
 
 export function shareActivityUserState(state: ImportShareState): ShareActivityUserState {

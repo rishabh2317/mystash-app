@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../logger';
-import { createSupabaseUserClient } from '../supabase';
+import { optionalVerifiedUserId } from '../auth/requireAuth';
 import { createCatalogService } from '../catalog/factory';
 import { createDiscoveredProductService } from '../discovered/factory';
 import { createEngagementService } from '../engagement/factory';
@@ -35,16 +35,7 @@ function wantsJson(req: Request): boolean {
 }
 
 async function authenticatedUserId(req: Request): Promise<string | null> {
-  const auth = req.headers.authorization;
-  if (!auth) return null;
-  try {
-    const {
-      data: { user },
-    } = await createSupabaseUserClient(auth).auth.getUser();
-    return user?.id ?? null;
-  } catch {
-    return null;
-  }
+  return optionalVerifiedUserId(req);
 }
 
 function resolveRequestCountry(req: Request): string {

@@ -4,13 +4,14 @@ import { mergeEnrichedCandidates, validPriceValue } from '../enrichment/Metadata
 import type { ProductSearchProvider } from '../interfaces/ProductSearchProvider';
 import type { SearchStrategy, SearchStrategyHints } from '../interfaces/ProductSearchProvider';
 import { ingestLog } from '../../pipeline/ingestLog';
-import { getPdpSearchHints } from './pdpSearchHints';
+import { getPdpSearchHints, identityExpectationForSearch } from './pdpSearchHints';
 import { classifyPdp } from './PdpClassifier';
 import { classifyCandidatePage } from './CandidatePageClassifier';
 import { decoratePdpCandidates, shortlistPdpCandidates, type ShortlistedCandidate } from './CandidateShortlister';
 import { scoreCandidateDecisions } from '../scoring/CandidateScoring';
 import { isStrongDirectUrlCandidate, merchantUrlsMatch } from './directUrlIdentity';
 import { isExactProductBuyingUrl } from '../../shopping/productUrlIdentity';
+import { isProductIdentityCompatible } from './productIdentityCompatibility';
 import {
   amazonPreferredSearchQuery,
   mergeSearchCandidates,
@@ -116,11 +117,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
 
     // Serper is discovery-only — never use search snippets/images as catalog metadata.
     const discoveryCandidates = toDiscoveryCandidates(discovery.candidates);
-    const identityHints = {
-      brand: pdpHints.brand,
-      name: pdpHints.name ?? query,
-      category: pdpHints.category,
-    };
+    const identityHints = identityExpectationForSearch(pdpHints, query);
     const shortlistLimit = userImportExpansion
       ? Math.max(1, hints?.maxAdditionalMerchantOffers ?? this.maxCandidates)
       : this.maxCandidates;
@@ -213,7 +210,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
 
     const preferredResults =
       preferred.length > 0
-        ? await Promise.all(preferred.map((best) => this.enrichShortlisted(best, pdpHints)))
+        ? await Promise.all(preferred.map((best) => this.enrichShortlisted(best, identityHints)))
         : [];
     const preferredEnriched = preferredResults.filter(
       (candidate): candidate is SearchCandidate => candidate !== null,
@@ -250,8 +247,8 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         lightweight: Boolean(hints?.lightweightAdditionalMerchants),
       });
       const fallbackResults = hints?.lightweightAdditionalMerchants
-        ? remaining.map((best) => this.toLightweightCommerceCandidate(best, pdpHints))
-        : await Promise.all(remaining.map((best) => this.enrichShortlisted(best, pdpHints)));
+        ? remaining.map((best) => this.toLightweightCommerceCandidate(best, identityHints))
+        : await Promise.all(remaining.map((best) => this.enrichShortlisted(best, identityHints)));
       enrichedCandidates = [
         ...preferredEnriched,
         ...fallbackResults.filter((candidate): candidate is SearchCandidate => candidate !== null),
@@ -330,6 +327,21 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
     best: ShortlistedCandidate,
     pdpHints: ReturnType<typeof getPdpSearchHints>,
   ): SearchCandidate | null {
+    if (
+      !isProductIdentityCompatible(
+        pdpHints,
+        {
+          title: best.title,
+          brand: best.brand,
+          model: best.model,
+          merchantUrl: best.merchantUrl,
+          category: best.category,
+        },
+        { requireBrandSupport: false },
+      )
+    ) {
+      return null;
+    }
     if (!best.capabilities.commerce) return null;
     if (best.pdpVerdict === 'not_pdp') {
       ingestLog('info', 'search.pdp.rejected', {
@@ -483,6 +495,22 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
           merchantUrl: best.merchantUrl.slice(0, 160),
           pdpClassifierScore: classification.score,
           reason: classification.reasons.join(','),
+        });
+        return null;
+      }
+
+      if (
+        !isProductIdentityCompatible(pdpHints, {
+          title: m.title,
+          brand: m.brand,
+          merchantUrl: m.merchantUrl,
+          category: m.category,
+        })
+      ) {
+        ingestLog('info', 'search.pdp.rejected', {
+          svc: 'product-intelligence',
+          merchantUrl: best.merchantUrl.slice(0, 160),
+          reason: 'identity_incompatible',
         });
         return null;
       }

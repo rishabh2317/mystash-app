@@ -9,6 +9,10 @@ import { ContentSourceProcessor } from './ContentSourceProcessor';
 import { ContentSourceResolutionService } from './ContentSourceResolutionService';
 import { createVideoExtractionAdapter } from './videoAdapter';
 import { createWebEnrichmentAdapter } from './webAdapter';
+import { getEnv } from '../../env';
+import { GooglePlacesTextSearchProvider } from '../../place/GooglePlacesTextSearchProvider';
+import { PlaceResolver } from '../../place/PlaceResolver';
+import { SupabasePlaceRepository } from '../../place/SupabasePlaceRepository';
 
 /**
  * Worker wiring for Phase 4: extraction (Phase 3) plus non-promoting resolve + Bag fan-out.
@@ -27,7 +31,7 @@ export function createResolvingContentSourceProcessor(
         createDiscoveredProductService(admin),
         {
           resolveForUserImport: (drafts) => pi.resolver.resolveForUserImport(drafts),
-          resolveForUserImportFast: (drafts) => pi.resolver.resolveForUserImportFast(drafts),
+          getCatalogProduct: (id) => pi.catalog.getById(id),
         },
         userImports,
         createCartService(admin),
@@ -40,11 +44,17 @@ export function createResolvingContentSourceProcessor(
       )
     : null;
 
+  const places = new SupabasePlaceRepository(admin);
   return new ContentSourceProcessor({
     sources,
     userImports,
     video: createVideoExtractionAdapter(admin),
     web: createWebEnrichmentAdapter(admin),
     resolution,
+    places,
+    placeResolver: new PlaceResolver(
+      places,
+      new GooglePlacesTextSearchProvider({ apiKey: getEnv('GOOGLE_PLACES_API_KEY') }),
+    ),
   });
 }

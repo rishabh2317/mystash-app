@@ -14,6 +14,11 @@ export default function CreateStackLayout() {
             showBack={Boolean(back)}
             showBag={false}
             onBack={() => navigation.goBack()}
+            trailing={
+              typeof options.headerRight === 'function'
+                ? options.headerRight({ canGoBack: Boolean(back) } as never)
+                : undefined
+            }
           />
         ),
       }}

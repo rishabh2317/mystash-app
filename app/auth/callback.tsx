@@ -1,19 +1,26 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { Text } from '@/components/ui/Text';
+import { useThemeMode } from '@/contexts/ThemeContext';
+import { completeAuthCallback } from '@/src/auth/authCallback';
+import { AUTH_COPY } from '@/src/auth/authErrors';
+import { writePasswordRecoveryPending } from '@/src/auth/pendingAuth';
+import { supabaseAuthCallbackDeps } from '@/src/auth/supabaseAuthCallback';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { buildProfileHrefAfterAuth } from '@/src/navigation/authIntent';
-import { supabase } from '@/src/services/supabase';
+import { typeStyle } from '@/src/theme/typography';
 
 export default function AuthCallbackScreen() {
   const router = useRouter();
+  const { tokens } = useThemeMode();
   const params = useLocalSearchParams<{
     code?: string | string[];
-    access_token?: string | string[];
-    refresh_token?: string | string[];
+    token_hash?: string | string[];
+    type?: string | string[];
     error?: string | string[];
     error_description?: string | string[];
-    /** Same route-level intent keys as Profile (OD-12), when present on redirectTo. */
     intent?: string | string[];
     catalogProductId?: string | string[];
     creatorId?: string | string[];
@@ -27,7 +34,6 @@ export default function AuthCallbackScreen() {
       Array.isArray(value) ? value[0] : value;
 
     const goToProfile = () => {
-      // Validate intent; malformed / unsupported → plain Profile (no action).
       router.replace(
         buildProfileHrefAfterAuth({
           intent: params.intent,
@@ -40,73 +46,55 @@ export default function AuthCallbackScreen() {
 
     const finalizeSession = async () => {
       try {
-        const oauthError = first(params.error_description) ?? first(params.error);
-        if (oauthError) {
-          if (active) setCallbackError(oauthError);
-          return;
-        }
-
-        // openAuthSessionAsync usually exchanges the code in AuthContext.
-        // Direct deep-link callbacks land here, so complete PKCE as a fallback.
-        let { data } = await supabase.auth.getSession();
+        const result = await completeAuthCallback(supabaseAuthCallbackDeps(), {
+          code: first(params.code),
+          token_hash: first(params.token_hash),
+          type: first(params.type),
+          error: first(params.error),
+          error_description: first(params.error_description),
+        });
         if (!active) return;
-
-        if (data.session) {
-          goToProfile();
+        if (result.status === 'error') {
+          setCallbackError(result.message ?? AUTH_COPY.invalidLink);
           return;
         }
-
-        const code = first(params.code);
-        if (code) {
-          const exchanged = await supabase.auth.exchangeCodeForSession(code);
-          if (exchanged.error) throw exchanged.error;
-          data = exchanged.data;
-        } else {
-          const accessToken = first(params.access_token);
-          const refreshToken = first(params.refresh_token);
-          if (accessToken && refreshToken) {
-            const restored = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-            if (restored.error) throw restored.error;
-            data = restored.data;
-          }
-        }
-
-        if (!active) return;
-        if (data.session) {
-          goToProfile();
+        if (result.status === 'password_recovery') {
+          await writePasswordRecoveryPending(AsyncStorage, true);
+          router.replace('/auth/reset-password' as Href);
           return;
         }
-        setCallbackError('Google sign in returned without a session. Please try again.');
+        goToProfile();
       } catch (error) {
         if (active) {
-          setCallbackError(error instanceof Error ? error.message : 'Could not complete Google sign in.');
+          setCallbackError(error instanceof Error ? error.message : AUTH_COPY.invalidLink);
         }
       }
     };
 
-    finalizeSession();
+    void finalizeSession();
 
     return () => {
       active = false;
     };
   }, [
-    params.access_token,
     params.catalogProductId,
     params.code,
+    params.creatorId,
     params.error,
     params.error_description,
     params.intent,
-    params.refresh_token,
+    params.token_hash,
+    params.type,
+    params.username,
     router,
   ]);
 
   return (
-    <View style={styles.container}>
-      <ActivityIndicator size="large" color="#A855F7" />
-      <Text style={styles.text}>{callbackError ?? 'Finalizing sign in...'}</Text>
+    <View style={[styles.container, { backgroundColor: tokens.color.canvas }]}>
+      <ActivityIndicator size="large" color={tokens.color.accent} />
+      <Text style={[styles.text, typeStyle(tokens, 'body')]}>
+        {callbackError ?? 'Finalizing sign in...'}
+      </Text>
     </View>
   );
 }
@@ -116,12 +104,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#020408',
     gap: 12,
   },
   text: {
-    color: '#F8FAFC',
     fontSize: 14,
-    fontWeight: '600',
+    paddingHorizontal: 24,
+    textAlign: 'center',
   },
 });

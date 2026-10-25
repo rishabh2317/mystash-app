@@ -2,8 +2,29 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InMemoryCollectionRepository } from '../collection/InMemoryCollectionRepository';
 import { InMemoryUserRepository } from './InMemoryUserRepository';
-import { UserService, UserServiceError } from './UserService';
+import { isUsersPrimaryKeyConflict, UserService, UserServiceError } from './UserService';
+import type { CreateUserInput, UserRepository } from './UserRepository';
 import { isCreator } from './domain/types';
+import type { UserNotificationPort } from './ports';
+
+function wrapRepo(
+  inner: InMemoryUserRepository,
+  overrides: Partial<UserRepository>,
+): UserRepository {
+  return {
+    insertUser: (input) => inner.insertUser(input),
+    getById: (id) => inner.getById(id),
+    getByUsername: (username) => inner.getByUsername(username),
+    updateUser: (id, patch) => inner.updateUser(id, patch),
+    isUsernameAvailable: (username, excludeUserId) =>
+      inner.isUsernameAvailable(username, excludeUserId),
+    insertUsernameReservation: (input) => inner.insertUsernameReservation(input),
+    getActiveReservation: (username) => inner.getActiveReservation(username),
+    deactivateExpiredReservations: (username) => inner.deactivateExpiredReservations(username),
+    applyCounters: (id, counters) => inner.applyCounters(id, counters),
+    ...overrides,
+  };
+}
 
 describe('UserService', () => {
   const authUser = {
@@ -13,7 +34,11 @@ describe('UserService', () => {
     app_metadata: { provider: 'email' },
   };
 
-  function setup(totalReelLikesReceived = 0) {
+  function setup(
+    totalReelLikesReceived = 0,
+    purgeUser: (id: string) => Promise<void> = async () => {},
+    creatorStatusChanged: UserNotificationPort['creatorStatusChanged'] = async () => {},
+  ) {
     const users = new InMemoryUserRepository();
     const collections = new InMemoryCollectionRepository();
     const svc = new UserService(users, {
@@ -23,9 +48,59 @@ describe('UserService', () => {
       countPublishedPublicCollections: (id) => collections.countPublishedPublicCollections(id),
     }, {
       sumPublicReelLikesReceived: async () => totalReelLikesReceived,
-    });
+    }, { purgeUser, creatorStatusChanged });
     return { users, collections, svc };
   }
+
+  it('notifies only operator-driven creator status changes', async () => {
+    const changes: Parameters<UserNotificationPort['creatorStatusChanged']>[0][] = [];
+    const { svc } = setup(0, async () => {}, async (input) => {
+      changes.push(input);
+    });
+    await svc.ensureFromAuth(authUser);
+    await svc.startCreatorOnboarding(authUser.id);
+    await svc.completeCreatorOnboarding(authUser.id);
+    assert.equal(changes.length, 0);
+
+    const suspended = await svc.suspendCreator(authUser.id);
+    await svc.reinstateCreator(authUser.id);
+    assert.deepEqual(
+      changes.map((c) => [c.from, c.to]),
+      [
+        ['ACTIVE', 'SUSPENDED'],
+        ['SUSPENDED', 'ACTIVE'],
+      ],
+    );
+    assert.equal(changes[0].changedAt, suspended.updatedAt);
+  });
+
+  it('keeps purged notifications deleted when the account is restored', async () => {
+    const purged: string[] = [];
+    const { svc } = setup(0, async (id) => {
+      purged.push(id);
+    });
+    await svc.ensureFromAuth(authUser);
+    await svc.deleteAccount(authUser.id);
+    await svc.restoreAccount(authUser.id);
+    assert.deepEqual(purged, [authUser.id]);
+  });
+
+  it('purges notifications on delete without failing the deletion', async () => {
+    const purged: string[] = [];
+    const ok = setup(0, async (id) => {
+      purged.push(id);
+    });
+    await ok.svc.ensureFromAuth(authUser);
+    await ok.svc.deleteAccount(authUser.id);
+    assert.deepEqual(purged, [authUser.id]);
+
+    const failing = setup(0, async () => {
+      throw new Error('db down');
+    });
+    await failing.svc.ensureFromAuth(authUser);
+    await failing.svc.deleteAccount(authUser.id);
+    assert.equal((await failing.svc.getById(authUser.id))?.accountStatus, 'DELETED');
+  });
 
   it('ensures user from auth with creator_status NONE', async () => {
     const { svc } = setup();
@@ -41,6 +116,78 @@ describe('UserService', () => {
     assert.equal(again.id, user.id);
   });
 
+  it('recovers concurrent ensureFromAuth races on the same auth user', async () => {
+    const { users } = setup();
+    let inserts = 0;
+    let created = 0;
+    const slow = wrapRepo(users, {
+      insertUser: async (input: CreateUserInput) => {
+        inserts += 1;
+        await new Promise((r) => setTimeout(r, 20));
+        const row = await users.insertUser(input);
+        created += 1;
+        return row;
+      },
+    });
+    const svc = new UserService(slow);
+    const [a, b] = await Promise.all([
+      svc.ensureFromAuth(authUser),
+      svc.ensureFromAuth(authUser),
+    ]);
+    assert.equal(users.users.size, 1);
+    assert.equal(a.id, authUser.id);
+    assert.equal(b.id, authUser.id);
+    assert.equal(a.creatorStatus, 'NONE');
+    assert.equal(b.creatorStatus, 'NONE');
+    assert.equal(a.username, b.username);
+    assert.equal(created, 1);
+    assert.equal(inserts, 2);
+    const third = await svc.ensureFromAuth(authUser);
+    assert.equal(third.username, a.username);
+    assert.equal(created, 1);
+  });
+
+  it('does not treat a username unique conflict as an existing-user success', async () => {
+    assert.equal(
+      isUsersPrimaryKeyConflict(
+        new Error('duplicate key value violates unique constraint "users_pkey"'),
+        authUser.id,
+      ),
+      true,
+    );
+    assert.equal(isUsersPrimaryKeyConflict(new Error('duplicate username'), authUser.id), false);
+    assert.equal(
+      isUsersPrimaryKeyConflict(
+        new Error('duplicate key value violates unique constraint "users_username_lower_uidx"'),
+        authUser.id,
+      ),
+      false,
+    );
+    const { users } = setup();
+    await users.insertUser({
+      id: '22222222-2222-2222-2222-222222222222',
+      username: 'takenname',
+      displayName: 'Other',
+    });
+    const colliding = wrapRepo(users, {
+      isUsernameAvailable: async () => true,
+      insertUser: async () => {
+        throw new Error('duplicate key value violates unique constraint "users_username_lower_uidx"');
+      },
+    });
+    const svc = new UserService(colliding);
+    await assert.rejects(
+      () =>
+        svc.ensureFromAuth({
+          id: '33333333-3333-3333-3333-333333333333',
+          email: 'other@example.com',
+          user_metadata: { preferred_username: 'takenname' },
+        }),
+      /users_username_lower_uidx/,
+    );
+    assert.equal(users.users.size, 1);
+  });
+
   it('runs creator onboarding to ACTIVE', async () => {
     const { svc } = setup();
     await svc.ensureFromAuth(authUser);
@@ -49,6 +196,25 @@ describe('UserService', () => {
     assert.equal(active.creatorStatus, 'ACTIVE');
     assert.equal(isCreator(active), true);
     await svc.assertCanCreateCollections(authUser.id);
+  });
+
+  it('rejects illegal self-service creator transitions', async () => {
+    const { svc } = setup();
+    await svc.ensureFromAuth(authUser);
+    await assert.rejects(
+      () => svc.completeCreatorOnboarding(authUser.id),
+      /Invalid creator_status transition: NONE → ACTIVE/,
+    );
+    await svc.startCreatorOnboarding(authUser.id);
+    await svc.completeCreatorOnboarding(authUser.id);
+    await assert.rejects(
+      () => svc.startCreatorOnboarding(authUser.id),
+      /Invalid creator_status transition: ACTIVE → ONBOARDING/,
+    );
+    await assert.rejects(
+      () => svc.abandonCreatorOnboarding(authUser.id),
+      /Invalid creator_status transition: ACTIVE → NONE/,
+    );
   });
 
   it('blocks collection create when not ACTIVE creator', async () => {

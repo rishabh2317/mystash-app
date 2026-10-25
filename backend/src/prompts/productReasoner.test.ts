@@ -80,8 +80,18 @@ describe('product reasoner text payload', () => {
     const orchestrator = readFileSync(join(root, 'stages/orchestrator.ts'), 'utf8');
     const progressive = readFileSync(join(root, 'stages/progressiveExtract.ts'), 'utf8');
     assert.match(provider, /buildReasonerUserPayload\(input\.context\)/);
+    assert.match(provider, /USER_IMPORT_REASONER_SYSTEM/);
+    assert.doesNotMatch(orchestrator, /USER_IMPORT_REASONER_SYSTEM/);
     assert.match(orchestrator, /reasonValidateRank\([\s\S]*'s1'\)/);
-    assert.match(progressive, /reasonValidateRank\([\s\S]*'s1'\)/);
+    assert.match(progressive, /reasonValidateRank\([\s\S]*'s1', includePlaces\)/);
+    assert.match(progressive, /USER_IMPORT_EXTRACTION_CACHE_SCOPE/);
+    const prompt = readFileSync(join(root, 'prompts/productReasoner.ts'), 'utf8');
+    assert.match(prompt, /Named hotels, restaurants, cafes, attractions/);
+    assert.match(prompt, /PRODUCT_REASONER_SYSTEM = `/);
+    assert.doesNotMatch(
+      prompt.slice(prompt.indexOf('export const PRODUCT_REASONER_SYSTEM'), prompt.indexOf('export const USER_IMPORT_REASONER_SYSTEM')),
+      /Named hotels, restaurants, cafes, attractions/,
+    );
     assert.match(orchestrator, /gatherYoutubeContext/);
     assert.match(progressive, /gatherYoutubeContext/);
   });

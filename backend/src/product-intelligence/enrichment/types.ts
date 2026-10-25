@@ -23,6 +23,8 @@ export type MerchantProductMetadata = {
   provider: string;
   /** 0–100 completeness score. */
   metadataCompleteness: number;
+  /** Page identity provenance. GPT-only pages are not User attach evidence. */
+  identitySource?: 'merchant_html' | 'tavily_gpt' | 'canonical_cache' | null;
 };
 
 export type MerchantEnrichmentInput = {

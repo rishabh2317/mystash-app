@@ -159,6 +159,7 @@ export function startProductResolveWorker(admin: SupabaseClient): Worker<Product
         {
           brand: (draft.brand as string) ?? null,
           name: String(draft.name),
+          model: (draft.model as string) ?? null,
           category: (draft.category as string) ?? null,
         },
         () =>

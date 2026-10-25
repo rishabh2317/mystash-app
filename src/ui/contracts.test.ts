@@ -31,6 +31,8 @@ describe('control state contract', () => {
     assert.equal(BAG_COPY.continueDiscovering, 'Continue discovering');
     assert.equal(BAG_COPY.keepInBag, 'Keep in Stash?');
     assert.equal(BAG_COPY.buy, 'View Product');
+    assert.equal(BAG_COPY.signInTitle, 'Sign in to view your Stash');
+    assert.equal(BAG_COPY.signInBody, 'Sign in to stash products you discover.');
     assert.match(CONTROL_OWNERSHIP.addToBag, /Cart API \(internal\)/);
     assert.match(CONTROL_OWNERSHIP.bag, /bottom-nav Stash/);
     assert.ok(STATUS_OWNERSHIP.error.includes('Retry'));

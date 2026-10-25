@@ -31,6 +31,12 @@ export function resolveYoutubeParentOrigin(): string {
   }
 }
 
+/** Update crop without changing the iframe src, which would reload the player. */
+export function youtubeCropScript(scale: number): string {
+  const next = Number.isFinite(scale) && scale > 0 ? scale : 1.16;
+  return `(function(){var iframe=document.getElementById('videoPlayer');if(iframe){iframe.style.transform='scale(${next})';iframe.style.transformOrigin='center center';}true;})();`;
+}
+
 export type YoutubeWebHtmlOptions = {
   /**
    * Replay the video instead of letting it end. YouTube's end screen shows the
@@ -112,13 +118,28 @@ export function buildYoutubeWebHtml(
           else ytCmd('pauseVideo');
         } catch (e) {}
       };
+      window.__mystashPostedFrame = false;
+      window.addEventListener('message', function(event) {
+        var origin = event.origin || '';
+        if (origin && origin.indexOf('youtube.com') === -1 && origin !== 'null') return;
+        var data = event.data;
+        if (typeof data === 'string') {
+          try { data = JSON.parse(data); } catch (e) { return; }
+        }
+        if (!data || data.event !== 'onStateChange') return;
+        var state = typeof data.info === 'number' ? data.info : Number(data.info);
+        if (state === 1 && !window.__mystashPostedFrame && window.ReactNativeWebView) {
+          window.__mystashPostedFrame = true;
+          window.ReactNativeWebView.postMessage('firstFrame');
+        }
+      });
     </script>
     <iframe
       id="videoPlayer"
       src="${src}"
       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
       allowfullscreen
-      onload="(function(){try{window.__mystashSetMuted(window.__mystashPendingMuted);if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage('videoReady')}catch(e){}})()"
+      onload="(function(){try{window.__mystashSetMuted(window.__mystashPendingMuted);var iframe=document.getElementById('videoPlayer');if(iframe&&iframe.contentWindow){iframe.contentWindow.postMessage(JSON.stringify({event:'listening',id:'videoPlayer',channel:'widget'}),'*');}ytCmd('playVideo');if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage('iframeLoaded')}catch(e){}})()"
     ></iframe>
   </div>
 </body>

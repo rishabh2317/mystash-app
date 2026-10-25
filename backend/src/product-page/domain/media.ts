@@ -50,7 +50,7 @@ export function contentSourceToRelatedMedia(source: ContentSourceRecord): Produc
     label: relatedMediaLabel(kind),
     url: source.canonicalUrl,
     title: null,
-    thumbnailUrl: null,
+    thumbnailUrl: source.thumbnailUrl?.trim() || null,
     collectionId: null,
     creator: null,
     views: 0,

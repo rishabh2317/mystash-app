@@ -1,59 +1,29 @@
 import { useRouter, type Href } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { DiscoverCreatorSuggestionCard } from '@/components/creator/DiscoverCreatorSuggestionCard';
 import { ContentRail } from '@/components/ui/ContentRail';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { loadDiscoverCreatorSuggestions } from '@/src/services/discoverCreatorsLoad';
-import {
-  DISCOVER_CREATORS_COPY,
-  DISCOVER_CREATORS_PROFILE_LIMIT,
-  discoverCreatorsProfileSlice,
-  type DiscoverCreatorSuggestion,
-} from '@/src/ui/discoverCreators';
+import { DISCOVER_CREATORS_COPY, type DiscoverCreatorSuggestion } from '@/src/ui/discoverCreators';
 import { creatorProfileHref } from '@/src/ui/feedCreatorIdentity';
 
 type Props = {
-  excludeUserId?: string | null;
-  excludeUsername?: string | null;
+  items: DiscoverCreatorSuggestion[];
+  loading: boolean;
 };
 
 const CARD_WIDTH = 132;
 const CARD_GAP = 10;
 
 /**
- * Personal Profile rail: Discover Creators You'll Love + See more.
- * Inserted below the action row and above profile tabs — does not touch the header.
+ * Presentational Discover Creators rail. Load state lives on the profile screen
+ * so Collection/Saved (or Collections/Products) remounts do not refetch.
  */
-export function DiscoverCreatorsSection({ excludeUserId, excludeUsername }: Props) {
+export function DiscoverCreatorsSection({ items, loading }: Props) {
   const { tokens } = useThemeMode();
   const router = useRouter();
-  const [items, setItems] = useState<DiscoverCreatorSuggestion[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    void loadDiscoverCreatorSuggestions({
-      excludeUserId,
-      excludeUsername,
-      limit: DISCOVER_CREATORS_PROFILE_LIMIT,
-    })
-      .then((next) => {
-        if (!cancelled) setItems(discoverCreatorsProfileSlice(next));
-      })
-      .catch(() => {
-        if (!cancelled) setItems([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [excludeUserId, excludeUsername]);
 
   const onPressCreator = useCallback(
     (username: string) => {
@@ -73,6 +43,7 @@ export function DiscoverCreatorsSection({ excludeUserId, excludeUsername }: Prop
       <View style={{ paddingHorizontal: tokens.space.md }}>
         <SectionHeader
           title={DISCOVER_CREATORS_COPY.title}
+          titleRole="tileTitle"
           actionLabel={DISCOVER_CREATORS_COPY.seeMore}
           onActionPress={onSeeMore}
         />

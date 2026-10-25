@@ -2,11 +2,12 @@ import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 
 import { useAuth } from '@/contexts/AuthContext';
+import { createImportSharePoller, IMPORT_SHARE_POLL_MS } from '@/src/hooks/importSharePoll';
 import type { ImportShare } from '@/src/services/importShareMap';
 import { fetchImportShares } from '@/src/services/userImportApi';
 import { bagHasInFlightShares } from '@/src/ui/bag';
 
-export const IMPORT_SHARE_POLL_MS = 4000;
+export { IMPORT_SHARE_POLL_MS } from '@/src/hooks/importSharePoll';
 
 export function sharesBecameReady(previous: ImportShare[], next: ImportShare[]): boolean {
   const prevById = new Map(previous.map((share) => [share.importId, share.state]));
@@ -21,61 +22,79 @@ type Options = {
 
 /**
  * Polls GET /imports while focused and any share is looking.
- * Shared by Bag and Search Activity so cadence stays consistent.
+ * A refresh that discovers a new looking share arms the same timer, so a
+ * submit on an already-open Search screen keeps updating until the share ends.
  */
 export function useImportSharesPoll(options: Options = {}) {
   const { user } = useAuth();
   const enabled = options.enabled !== false;
   const onBecameReady = options.onBecameReady;
+  const onBecameReadyRef = useRef(onBecameReady);
+  onBecameReadyRef.current = onBecameReady;
   const [shares, setShares] = useState<ImportShare[]>([]);
   const [loaded, setLoaded] = useState(false);
   const sharesRef = useRef<ImportShare[]>([]);
+  const pollerRef = useRef<ReturnType<typeof createImportSharePoller> | null>(null);
+  if (!pollerRef.current) {
+    pollerRef.current = createImportSharePoller({
+      intervalMs: IMPORT_SHARE_POLL_MS,
+      schedule: (callback, ms) => setTimeout(callback, ms),
+      cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    });
+  }
+  const poller = pollerRef.current;
 
   const refresh = useCallback(async (): Promise<boolean> => {
     if (!user || !enabled) {
+      poller.blur();
       sharesRef.current = [];
       setShares([]);
       setLoaded(false);
       return false;
     }
+    const gen = poller.beginFetch();
     try {
       const next = await fetchImportShares();
+      const inFlight = bagHasInFlightShares(next);
+      if (poller.finishFetch(gen, inFlight) === 'ignore') {
+        return bagHasInFlightShares(sharesRef.current);
+      }
       if (sharesBecameReady(sharesRef.current, next)) {
-        onBecameReady?.();
+        onBecameReadyRef.current?.();
       }
       sharesRef.current = next;
       setShares(next);
       setLoaded(true);
-      return bagHasInFlightShares(next);
+      return inFlight;
     } catch {
       setLoaded(true);
-      return false;
+      const inFlight = bagHasInFlightShares(sharesRef.current);
+      if (poller.finishFetch(gen, inFlight) === 'ignore') return inFlight;
+      return inFlight;
     }
-  }, [enabled, onBecameReady, user]);
+  }, [enabled, poller, user]);
+
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  poller.setOnTick(() => {
+    void refreshRef.current();
+  });
 
   useFocusEffect(
     useCallback(() => {
       if (!user || !enabled) {
+        poller.blur();
         sharesRef.current = [];
         setShares([]);
         setLoaded(false);
         return undefined;
       }
-      let cancelled = false;
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      const poll = async () => {
-        const looking = await refresh();
-        if (cancelled || !looking) return;
-        timer = setTimeout(() => {
-          void poll();
-        }, IMPORT_SHARE_POLL_MS);
-      };
-      void poll();
+      poller.focus();
+      void refresh();
       return () => {
-        cancelled = true;
-        if (timer) clearTimeout(timer);
+        poller.blur();
       };
-    }, [enabled, refresh, user]),
+    }, [enabled, poller, refresh, user]),
   );
 
   return { shares, loaded, refresh };

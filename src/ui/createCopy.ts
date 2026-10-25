@@ -5,7 +5,7 @@
 
 export const CREATE_STACK_TITLES = {
   studio: 'Creator Studio',
-  manual: 'Add product links',
+  manual: 'Products only',
   editor: 'Edit Collection',
 } as const;
 
@@ -14,10 +14,50 @@ export const CREATE_COPY = {
   signInTitle: 'Sign in to Creator Studio',
   signInBody: 'Build shoppable Collections from your Reels and Shorts after you sign in on Profile.',
 
-  /** Studio home (ACTIVE creator) */
+  /** Studio home (ACTIVE creator) — default / shared */
   studioHeadline: 'Creator Studio',
   studioSubhead:
     'Build shoppable Collections from your Reels and Shorts. Add your video, curate products, then publish.',
+  /** Single-page studio journey (01 Video → 02 Products → 03 Publish) */
+  studioJourneySubhead: 'Choose a video, add products, then publish.',
+  stepVideo: 'Video',
+  stepProducts: 'Products',
+  stepPublish: 'Publish',
+  continueToProducts: 'Continue to Products',
+  continueToPublish: 'Continue to Publish',
+  chooseYourVideo: 'Choose your video',
+  videoStageSub: 'Choose the video you want to turn into a shoppable Collection.',
+  productsStageSub: 'Add products to your Collection',
+  publishStageSub: 'Review and publish your Collection',
+  productsNotStarted: 'Not started',
+  pasteUrlAlt: 'Or paste a URL',
+  studioDraftsTitle: 'My Drafts',
+  collectionPreviewLabel: 'Collection preview',
+  videoSelectedBadge: 'Selected',
+  changeVideo: 'Change',
+  usePastedUrl: 'Use this URL',
+  pasteUrlTitle: 'Paste Reel or Short URL',
+  addVideoFrom: 'Add video from',
+  addVideoOr: 'or',
+  libraryStepTitle: 'Synced videos',
+  libraryStepSub: 'Pick a Short or Reel you already synced. Playback stays on the platform.',
+  productsLockedHint: 'Choose a video first to unlock products.',
+  publishLockedHint: 'Add at least one product to unlock publish.',
+  productSourcesHint: 'Add one or more products. You can mix sources.',
+  productSourceAiTitle: 'Find products with AI',
+  productSourceAiBody: 'Extract products automatically from the selected video.',
+  productSourceLinkTitle: 'Add product / affiliate link',
+  productSourceLinkBody: 'Paste a product or affiliate URL. We extract details with AI.',
+  productSourceLinkPlaceholder: 'https://…',
+  productSourceLinkAction: 'Add product',
+  productSourceInventoryTitle: 'Mystash inventory',
+  productSourceInventoryBody: 'Select products from available brand and marketplace campaigns.',
+  productSourceInventorySoon: 'Coming soon',
+  productSourceAi: 'AI from video',
+  productSourceLink: 'Product link',
+  studioDescriptionLabel: 'Description / hashtags (optional)',
+  studioDescriptionPlaceholder: 'A short note or hashtags for this Collection',
+  discardCollection: 'Discard',
   contentUrlLabel: 'Reel or Short URL',
   contentUrlPlaceholder: 'https://youtube.com/shorts/… or instagram.com/reel/…',
   collectionTitleLabel: 'Collection title (optional)',
@@ -28,6 +68,45 @@ export const CREATE_COPY = {
   progressFindingProducts: 'Finding products from your video…',
   progressOpeningEditor: 'Opening Collection editor…',
   progressManualMode: 'Opening Collection editor…',
+
+  /** Phase 1 mode entry (CreateMode) — does not change review/publish copy */
+  modeChooserHint: 'What are you creating?',
+  modeMyContentHeadline: 'My content',
+  modeMyContentSubhead:
+    'Paste a Reel or Short you created, curate products, then publish a shoppable Collection.',
+  modeMyContentUrlLabel: 'Your Reel or Short URL',
+  modeCurateHeadline: 'Curate public content',
+  modeCurateSubhead:
+    'Paste a public YouTube Short or Instagram Reel URL to curate into a Mystash Collection.',
+  modeCurateUrlLabel: 'Public Reel or Short URL',
+  modeProductsHeadline: 'Products only',
+  modeProductsSubhead:
+    'Start with shop links and a source video. We skip automatic product discovery from the video.',
+  modeProductsCta: 'Add product links',
+  connectAccountsTitle: 'Connect Instagram / YouTube',
+  connectAccountsBody:
+    'Account linking is coming soon. For now, paste a Reel or Short URL from your content.',
+  connectAccountsBadge: 'Coming soon',
+  connectAccountsManage: 'Manage in Settings',
+  connectAccountsConnected: 'Connected',
+  connectAccountsNeedsReauth: 'Needs re-auth',
+  connectAccountsConnectAction: 'Connect',
+  connectAccountsPasteHint: 'You can always paste a Reel or Short URL below.',
+  libraryTitle: 'Your YouTube library',
+  librarySync: 'Sync',
+  librarySyncing: 'Syncing…',
+  libraryEmpty: 'Nothing synced yet. Sync pulls titles and links only — playback stays on YouTube.',
+  libraryUnavailable: 'Unavailable',
+  libraryProducts: 'Products',
+  libraryProductHint: 'Attach an existing catalog or discovered product. This does not publish a Collection.',
+  libraryCampaignProducts: 'Campaign products',
+  libraryProductPlaceholder: 'Product id',
+  libraryAttachCatalog: 'Attach catalog',
+  libraryAttachDiscovered: 'Attach discovered',
+  libraryRemoveProduct: 'Remove',
+  libraryAddCollection: 'Add to Collection',
+  libraryNewCollection: 'New Collection',
+  libraryPublish: 'Publish',
 
   /** Studio Home draft segments (UX-CREATE-B.4) */
   draftsHubTitle: 'Your Collections in progress',
@@ -43,10 +122,10 @@ export const CREATE_COPY = {
   processingAction: 'Open',
   attentionAction: 'Fix',
 
-  /** Manual product links screen */
-  manualHeadline: 'Add product links',
+  /** Manual / Products only screen */
+  manualHeadline: 'Products only',
   manualSubhead:
-    'Start a Collection with your Reel or Short, then add up to five shop links. We skip automatic product discovery from the video.',
+    'Add a source Reel or Short, then up to five shop links. We skip automatic product discovery from the video.',
   manualFetch: 'Add products to Collection',
   manualPreview: 'Products added',
   manualContinue: 'Edit Collection',
@@ -62,6 +141,8 @@ export const CREATE_COPY = {
   editorFailedBody: 'We could not process this Reel or Short. Nothing was published.',
   editorRetryFind: 'Find products again',
   editorAddLinks: 'Add product links',
+  editorPasteProductLink: 'Paste product link',
+  editorAddFromLibrary: 'Add from synced library',
   editorProcessing: 'Finding products from your video…',
   editorProcessingHint: 'You can leave and come back — this Collection is saved.',
   editorRefresh: 'Refresh',
@@ -90,6 +171,7 @@ export const CREATE_COPY = {
 
   /** Publish ritual (UX-CREATE-B.7) */
   publishConfirmTitle: 'Publish Collection?',
+  publishConfirmReady: 'Ready to publish',
   publishConfirmPreview:
     'Your Collection will appear in the feed and on your profile.',
   publishConfirmPrimary: 'Publish Collection',
@@ -123,6 +205,30 @@ export const CREATE_COPY = {
   editorReadinessResolvingTodo: 'product(s) still need attention',
   editorReadinessExpandHint: 'Finish the checklist to publish.',
 
+  /** Become-a-creator gate (Create tab, not Settings onboarding) */
+  onboardingEyebrow: 'Creator Studio',
+  onboardingEyebrowSetup: 'Creator onboarding',
+  onboardingHeadline: 'Become a Mystash creator',
+  onboardingHeadlineSetup: 'Activate your creator account',
+  onboardingBody:
+    'Collections can only be created by ACTIVE creators. Become a creator to open Creator Studio. This uses your existing Mystash account — no separate creator signup.',
+  onboardingBodySetup:
+    'You started creator setup. Finish activation to unlock Creator Studio and publish Collections. This uses your existing Mystash account — no separate signup.',
+  onboardingBodyOther:
+    'Collections can only be created by ACTIVE creators. This uses your existing Mystash account — no separate creator signup.',
+  onboardingDisplayName: 'Display name (optional)',
+  onboardingDisplayNamePlaceholder: 'Shown on your public profile',
+  onboardingCta: 'Become a creator',
+  onboardingCtaFinish: 'Finish creator setup',
+  onboardingRefresh: 'Refresh status',
+  onboardingLoading: 'Checking creator status…',
+  onboardingLoadErrorTitle: 'Could not load account',
+  onboardingLoadErrorBody: 'Something went wrong loading your account.',
+  onboardingTryAgain: 'Try again',
+  onboardingSuspendedTitle: 'Creator suspended',
+  onboardingSuspendedBody:
+    'Your creator privileges are suspended. You can still browse, but you cannot create Collections until reinstated.',
+
   /** Feedback (UX-CREATE-B.6) — inline / toast; Alert only for discard */
   feedbackRetry: 'Retry',
   feedbackDismiss: 'Dismiss',
@@ -154,6 +260,22 @@ export const CREATE_COPY = {
   creatorRequiredSetupBody:
     'Finish creator setup on Creator Studio, then try again.',
 } as const;
+
+/** Prefill optional display name without repeating the @username. */
+export function createOnboardingDisplayName(input: {
+  displayName: string | null | undefined;
+  username: string | null | undefined;
+  fullName: string | null | undefined;
+}): string | null {
+  const handle = input.username?.trim().replace(/^@/, '').toLowerCase() ?? '';
+  for (const raw of [input.displayName, input.fullName]) {
+    const name = raw?.trim();
+    if (!name) continue;
+    if (handle && name.replace(/^@/, '').toLowerCase() === handle) continue;
+    return name;
+  }
+  return input.displayName?.trim() || null;
+}
 
 export type DraftResumeStatus =
   | 'draft'

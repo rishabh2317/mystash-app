@@ -30,7 +30,8 @@ import { ProductRanker } from '../products/ProductRanker';
 import { ProductValidator } from '../products/ProductValidator';
 import { gatherInstagramContext } from '../pipeline/instagramContext';
 import { gatherYoutubeContext } from '../pipeline/youtubeContext';
-import { getVideoExtractionCache, setVideoExtractionCache } from '../services/extractionCache';
+import { USER_IMPORT_EXTRACTION_CACHE_SCOPE, getVideoExtractionCache, setVideoExtractionCache } from '../services/extractionCache';
+import type { ExtractedPlaceMention } from '../place/parseReasonerPayload';
 import { emitPipelineEvent } from '../services/observability';
 import { needsStage2Enrichment, stagePass } from './gate';
 
@@ -50,12 +51,15 @@ export type ProgressiveExtractInput = {
   /** Log / reasoner correlation — contentSourceId or ingestRequestId. Not a user id. */
   correlationId: string;
   traceId: string;
+  /** Separates user-import cache rows from creator ingest rows. */
+  cacheScope?: string;
 };
 
 export type ProgressiveExtractResult =
   | {
       kind: 'ok';
       products: ProductCandidate[];
+      places: ExtractedPlaceMention[];
       status: 'ready_for_review' | 'review_required' | 'cached';
       finalStage: string;
       cacheHit: boolean;
@@ -77,11 +81,17 @@ async function reasonValidateRank(
   correlationId: string,
   traceId: string,
   stageTag: 's1' | 's2' | 's3',
-): Promise<ProductCandidate[]> {
+  includePlaces: boolean,
+): Promise<{ products: ProductCandidate[]; places: ExtractedPlaceMention[] }> {
   const reasoner = new OpenAiReasonerProvider(admin);
   const validator = new ProductValidator();
   const ranker = new ProductRanker();
-  const reasoned = await reasoner.reason({ context: ctx, ingestId: correlationId, traceId });
+  const reasoned = await reasoner.reason({
+    context: ctx,
+    ingestId: correlationId,
+    traceId,
+    includePlaces,
+  });
   emitPipelineEvent('reasoning.complete', {
     ingestId: correlationId,
     traceId,
@@ -93,7 +103,7 @@ async function reasonValidateRank(
   const validated = validator.validate(reasoned.products);
   const ranked = ranker.rank(validated, ctx);
   emitPipelineEvent('rank.complete', { ingestId: correlationId, traceId, count: ranked.length });
-  return ranked;
+  return { products: ranked, places: includePlaces ? (reasoned.places ?? []) : [] };
 }
 
 function enrichEvidence(products: ProductCandidate[], frames: FrameRef[]): ProductCandidate[] {
@@ -150,13 +160,18 @@ export async function runProgressiveExtract(
   const cfg = getPipelineConfig();
   const builder = new ContextBuilder();
 
-  const hit = await getVideoExtractionCache(admin, { platform, externalVideoId });
+  const hit = await getVideoExtractionCache(admin, {
+    platform,
+    externalVideoId,
+    scope: params.cacheScope,
+  });
   if (hit) {
     emitPipelineEvent('cache.hit', { ingestId: correlationId, cacheKey: hit.cacheKey });
     const meta = hit.payload.youtubeMetadata;
     return {
       kind: 'ok',
       products: hit.payload.products,
+      places: hit.payload.places ?? [],
       status: 'cached',
       finalStage: 'cache',
       cacheHit: true,
@@ -239,7 +254,10 @@ export async function runProgressiveExtract(
     media: null,
   });
 
-  let products = await reasonValidateRank(admin, ctx, correlationId, traceId, 's1');
+  const includePlaces = params.cacheScope === USER_IMPORT_EXTRACTION_CACHE_SCOPE;
+  let reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's1', includePlaces);
+  let products = reasoned.products;
+  let places = reasoned.places;
   let gate = stagePass(products);
   emitPipelineEvent('stage.gate', { ingestId: correlationId, stage: 1, ...gate });
 
@@ -292,7 +310,9 @@ export async function runProgressiveExtract(
         transcriptText: transcript,
         media,
       });
-      products = await reasonValidateRank(admin, ctx, correlationId, traceId, 's2');
+      reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's2', includePlaces);
+      products = reasoned.products;
+      places = reasoned.places;
       gate = stagePass(products);
       finalStage = 'stage2';
       emitPipelineEvent('stage.gate', { ingestId: correlationId, stage: 2, ...gate });
@@ -345,7 +365,9 @@ export async function runProgressiveExtract(
         transcriptText: transcript,
         media,
       });
-      products = await reasonValidateRank(admin, ctx, correlationId, traceId, 's3');
+      reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's3', includePlaces);
+      products = reasoned.products;
+      places = reasoned.places;
       gate = stagePass(products);
       finalStage = 'stage3';
       emitPipelineEvent('stage.gate', { ingestId: correlationId, stage: 3, ...gate });
@@ -371,14 +393,17 @@ export async function runProgressiveExtract(
     platform,
     externalVideoId,
     products,
+    places: includePlaces ? places : [],
     finalStage,
     status,
     youtubeMetadata: { title, description, descriptionSource, creator, thumbnailUrl },
+    scope: params.cacheScope,
   });
 
   return {
     kind: 'ok',
     products,
+    places: includePlaces ? places : [],
     status,
     finalStage,
     cacheHit: false,

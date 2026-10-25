@@ -19,6 +19,9 @@ describe('user lifecycle', () => {
 
   it('rejects illegal creator jumps', () => {
     assert.equal(canTransitionCreator('NONE', 'ACTIVE'), false);
+    assert.equal(canTransitionCreator('ACTIVE', 'ONBOARDING'), false);
+    assert.equal(canTransitionCreator('NONE', 'SUSPENDED'), false);
+    assert.equal(canTransitionCreator('ONBOARDING', 'SUSPENDED'), false);
     assert.throws(() => assertCreatorTransition('NONE', 'ACTIVE'));
   });
 

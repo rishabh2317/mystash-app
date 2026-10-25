@@ -174,6 +174,15 @@ export function buildInstagramEmbedHtml(
             });
           }
 
+          var mystashPostedFrame = false;
+          function mystashPostFrame() {
+            if (mystashPostedFrame) return;
+            mystashPostedFrame = true;
+            if (kickTimer) clearInterval(kickTimer);
+            if (observer) observer.disconnect();
+            if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage('firstFrame');
+          }
+
           function mystashPrimeVideo(v) {
             try {
               v.muted = window.__mystashPendingMuted !== false;
@@ -183,6 +192,10 @@ export function buildInstagramEmbedHtml(
               v.setAttribute('webkit-playsinline', '');
               v.autoplay = true;
               v.loop = true;
+              if (!v.__mystashHooked) {
+                v.__mystashHooked = true;
+                v.addEventListener('playing', mystashPostFrame);
+              }
               v.play().catch(function() {});
             } catch (e) {}
           }
@@ -253,32 +266,51 @@ export function buildInstagramEmbedHtml(
             });
           };
 
+          function mystashWatchFrames() {
+            document.querySelectorAll('iframe').forEach(function(frame) {
+              if (frame.__mystashLoad) return;
+              frame.__mystashLoad = true;
+              frame.addEventListener('load', function() {
+                if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage('playerVisible');
+                window.__mystashKickPlayback();
+              });
+            });
+          }
+
           window.addEventListener('load', function() {
             mystashApplyCover();
+            mystashWatchFrames();
             window.__mystashKickPlayback();
-            setTimeout(function() {
-              window.__mystashSetMuted(window.__mystashPendingMuted);
-              window.__mystashKickPlayback();
-              if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage('videoReady');
-            }, 600);
           });
 
           window.addEventListener('resize', function() {
             mystashApplyCover();
           });
 
+          var mystashObserveQueued = false;
           var observer = new MutationObserver(function() {
-            mystashApplyCover();
-            window.__mystashKickPlayback();
+            if (mystashPostedFrame || mystashObserveQueued) return;
+            mystashObserveQueued = true;
+            setTimeout(function() {
+              mystashObserveQueued = false;
+              if (mystashPostedFrame) return;
+              mystashWatchFrames();
+              mystashApplyCover();
+              window.__mystashKickPlayback();
+            }, 250);
           });
           observer.observe(document.documentElement, { childList: true, subtree: true });
 
-          var kickUntil = Date.now() + 12000;
+          var kickUntil = Date.now() + 8000;
           var kickTimer = setInterval(function() {
-            mystashApplyCover();
+            if (mystashPostedFrame) {
+              clearInterval(kickTimer);
+              return;
+            }
+            mystashWatchFrames();
             window.__mystashKickPlayback();
             if (Date.now() > kickUntil) clearInterval(kickTimer);
-          }, 350);
+          }, 700);
         </script>
       </body>
       </html>

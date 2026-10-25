@@ -46,6 +46,7 @@ describe('createVideoExtractionAdapter', () => {
       return {
         kind: 'ok',
         products,
+        places: [],
         status: 'cached',
         finalStage: 'cache',
         cacheHit: true,
@@ -98,6 +99,7 @@ describe('createVideoExtractionAdapter', () => {
           sources: ['TRANSCRIPT'],
         },
       ],
+      places: [],
       status: 'ready_for_review',
       finalStage: 'stage1',
       cacheHit: false,
@@ -122,6 +124,7 @@ describe('createVideoExtractionAdapter', () => {
     const adapter = createVideoExtractionAdapter({} as SupabaseClient, async () => ({
       kind: 'ok',
       products: [],
+      places: [],
       status: 'review_required',
       finalStage: 'stage1',
       cacheHit: false,

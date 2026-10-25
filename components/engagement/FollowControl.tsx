@@ -28,6 +28,8 @@ type Props = {
   fullWidth?: boolean;
   /** Shorter profile CTA height (LTK-style stretched row). */
   slim?: boolean;
+  /** Override corner radius for default-size controls. Full-width defaults to pill. */
+  radius?: 'md' | 'pill';
   /** White-on-dark styling for controls resting on media (reel overlays). */
   immersive?: boolean;
   /** @deprecated Colors come from ThemeMode tokens. */
@@ -44,6 +46,7 @@ export function FollowControl({
   emphasis = 'default',
   fullWidth = false,
   slim = false,
+  radius,
   immersive = false,
   labelOverride,
   onPress,
@@ -98,9 +101,11 @@ export function FollowControl({
         {
           borderRadius: micro || compact
             ? tokens.radius.sm
-            : fullWidth
-              ? tokens.radius.pill
-              : tokens.radius.md,
+            : radius === 'md'
+              ? tokens.radius.md
+              : fullWidth
+                ? tokens.radius.pill
+                : tokens.radius.md,
           borderWidth: tokens.stroke.hairline,
           backgroundColor: onAccent ? accentFill : surface,
           borderColor: onAccent ? 'transparent' : surfaceBorder,

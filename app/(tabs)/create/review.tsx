@@ -4,8 +4,16 @@ import {
   ReviewProductCard,
   type ProductDetailsActionConfig,
 } from '@/components/commerce';
+import { ActionButton } from '@/components/ui/ActionButton';
+import { ActionChoiceRow } from '@/components/ui/ActionChoiceRow';
+import { SectionHeader } from '@/components/ui/SectionHeader';
+import { Text } from '@/components/ui/Text';
 import { CreateInlineNotice } from '@/components/create/CreateInlineNotice';
 import { CreateScreenShell } from '@/components/create/CreateScreenShell';
+import {
+  CreateStudioLibraryPicker,
+  type StudioLibrarySelection,
+} from '@/components/create/CreateStudioLibraryPicker';
 import { StagedProgressIndicator } from '@/components/create/StagedProgressIndicator';
 import { PublishConfirmSheet } from '@/components/create/PublishConfirmSheet';
 import { PublishSuccessScreen } from '@/components/create/PublishSuccessScreen';
@@ -24,6 +32,7 @@ import {
   updateIngestVideoTitle,
 } from '@/src/services/curation';
 import { draftProductToViewModel } from '@/src/services/catalogProductMapper';
+import { listLibraryItemProducts } from '@/src/services/creatorLibraryApi';
 import {
   ingestDraftNeedsHydration,
   ingestDraftNeedsProductRetry,
@@ -32,17 +41,13 @@ import {
 } from '@/src/services/reviewResolution';
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
 import { CREATE_COPY } from '@/src/ui/createCopy';
-import {
-  createFieldColors,
-  createPrimaryButtonStyle,
-  createSecondaryButtonStyle,
-  createSurfaceStyle,
-} from '@/src/ui/createChrome';
+import { createFieldColors } from '@/src/ui/createChrome';
+import { outlineCardChrome } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 import {
   buildEditorReadiness,
   contentPlatformLabel,
   productsSectionMetaLabel,
-  type EditorReadinessItem,
 } from '@/src/ui/createEditorReadiness';
 import { createPartialProductLinksMessage } from '@/src/ui/createFeedback';
 import { ingestAllowsManualProducts, ingestEditorShowsProcessing } from '@/src/ui/createHandoff';
@@ -64,6 +69,7 @@ import {
 } from '@/src/state/createFlowSession';
 import { requestFeedReload } from '@/src/services/feedRefresh';
 import { useProductBuyHandler } from '@/src/services/productActionOrchestration';
+import { maybePromptForPush } from '@/src/notifications/permissionPrompt';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { DraftProduct, IngestDraftPayload } from '@/src/types/curation';
 import { buildInstagramEmbedHtml } from '@/src/utils/instagramWebViewEmbed';
@@ -73,33 +79,21 @@ import {
   resolveYoutubeParentOrigin,
 } from '@/src/utils/youtubeWebViewEmbed';
 import { transformToReviewEmbedUrl } from '@/src/utils/videoUtils';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
+  Pressable,
   StyleSheet,
-  Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 const MAX_MANUAL_LINKS = 5;
-
-function readinessItemLabel(item: EditorReadinessItem): string {
-  if (item.id === 'content') {
-    return item.done ? CREATE_COPY.editorReadinessContentDone : CREATE_COPY.editorReadinessContentTodo;
-  }
-  if (item.id === 'products') {
-    return item.done ? CREATE_COPY.editorReadinessProductsDone : CREATE_COPY.editorReadinessProductsTodo;
-  }
-  if (item.done) return CREATE_COPY.editorReadinessResolvingDone;
-  const n = item.count ?? 0;
-  return `${n} ${CREATE_COPY.editorReadinessResolvingTodo}`;
-}
 
 function normalizeHttpUrl(value: string): string | null {
   const t = value.trim();
@@ -130,13 +124,13 @@ export default function CreateReviewScreen() {
         : undefined;
   const openManualOnLoad = modeParam === 'manual';
   const router = useRouter();
+  const navigation = useNavigation();
   const { user, loading: authLoading } = useAuth();
   const handleBuy = useProductBuyHandler();
   const tokens = useThemeTokens();
   const { showToast } = useAppToast();
   const field = createFieldColors(tokens);
-  const surface = createSurfaceStyle(tokens);
-  const secondaryChrome = createSecondaryButtonStyle(tokens);
+  const objectChrome = outlineCardChrome(tokens);
 
   const memoryDraft = ingestIdParam ? getCurationDraft(ingestIdParam) : undefined;
   const [draft, setDraft] = useState<IngestDraftPayload | undefined>(memoryDraft);
@@ -161,6 +155,10 @@ export default function CreateReviewScreen() {
   const [publishedCollectionId, setPublishedCollectionId] = useState<string | null>(null);
   const [publishedTitle, setPublishedTitle] = useState('');
   const [publishedProductCount, setPublishedProductCount] = useState(0);
+  const [publishedCoverUrl, setPublishedCoverUrl] = useState<string | null>(null);
+  const [storyOpen, setStoryOpen] = useState(false);
+  const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
+  const [librarySelectedUrl, setLibrarySelectedUrl] = useState<string | null>(null);
   const youtubeParentOrigin = useMemo(() => resolveYoutubeParentOrigin(), []);
 
   const reviewVideoWebSource = useMemo(() => {
@@ -315,6 +313,63 @@ export default function CreateReviewScreen() {
     return out;
   }, [manualRows]);
 
+  const selectedIds = useMemo(
+    () => (draft?.products ?? []).filter((p) => p.id && selected[p.id]).map((p) => p.id),
+    [draft?.products, selected],
+  );
+  const canPublish = draft ? selectedProductsCanPublish(draft.products, selected) : false;
+  const readiness = draft
+    ? buildEditorReadiness({
+        hasContent: Boolean(draft.sourceUrl?.trim()),
+        products: draft.products,
+        selected,
+      })
+    : { items: [], ready: false, includedCount: 0, attentionCount: 0 };
+
+  const openPublishConfirm = useCallback(() => {
+    if (!readiness.ready || !canPublish) return;
+    if (selectedIds.length < 1) {
+      setPublishError(CREATE_COPY.editorPublishSelectBody);
+      return;
+    }
+    setPublishError(null);
+    setPublishPhase('confirm');
+  }, [readiness.ready, canPublish, selectedIds.length]);
+
+  const showEditorPublish = Boolean(
+    user &&
+      ingestIdParam &&
+      !authLoading &&
+      !hydrating &&
+      !hydrateError &&
+      draft &&
+      !(draft.status === 'failed' && !manualComposerOpen) &&
+      !ingestEditorShowsProcessing(draft),
+  );
+
+  const publishHeaderDisabled =
+    !showEditorPublish || !readiness.ready || !canPublish || busy || publishPhase !== 'idle';
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: showEditorPublish
+        ? () => (
+            <Pressable
+              onPress={openPublishConfirm}
+              disabled={publishHeaderDisabled}
+              accessibilityRole="button"
+              accessibilityLabel={CREATE_COPY.editorPublish}
+              style={{ opacity: publishHeaderDisabled ? 0.4 : 1, paddingVertical: 6, paddingHorizontal: 4 }}
+            >
+              <Text style={typeStyle(tokens, 'link')} numberOfLines={1}>
+                {CREATE_COPY.editorPublish}
+              </Text>
+            </Pressable>
+          )
+        : undefined,
+    });
+  }, [navigation, showEditorPublish, publishHeaderDisabled, openPublishConfirm, tokens]);
+
   const addManualRow = () => {
     setManualRows((prev) => (prev.length < MAX_MANUAL_LINKS ? [...prev, ''] : prev));
   };
@@ -378,33 +433,18 @@ export default function CreateReviewScreen() {
   if (hydrateError) {
     return (
       <CreateScreenShell>
-        <View style={[styles.center, { paddingHorizontal: tokens.space.lg }]}>
+        <View style={[styles.center, { paddingHorizontal: tokens.space.lg, gap: tokens.space.md }]}>
           <StatusBlock
             kind="error"
             message={hydrateError}
             actionLabel="Retry"
             onAction={retryLoadDraft}
           />
-          <TouchableOpacity
-            style={[
-              styles.secondaryBtn,
-              {
-                backgroundColor: tokens.color.borderStrong,
-                borderRadius: tokens.radius.sm + 2,
-                marginTop: tokens.space.sm,
-              },
-            ]}
+          <ActionButton
+            label={CREATE_COPY.editorBackToStudio}
+            variant="quiet"
             onPress={() => router.replace('/(tabs)/create')}
-          >
-            <Text
-              style={{
-                color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
-                fontWeight: tokens.fontWeight.bold,
-              }}
-            >
-              {CREATE_COPY.editorBackToStudio}
-            </Text>
-          </TouchableOpacity>
+          />
         </View>
       </CreateScreenShell>
     );
@@ -430,37 +470,17 @@ export default function CreateReviewScreen() {
     );
     return (
       <CreateScreenShell>
-        <View style={[styles.center, { paddingHorizontal: tokens.space.lg }]}>
-          <Text
-            style={{
-              color: tokens.color.text,
-              fontWeight: tokens.fontWeight.extraBold,
-              fontSize: tokens.fontSize.title + 1,
-              textAlign: 'center',
-            }}
-          >
+        <View style={[styles.center, { paddingHorizontal: tokens.space.lg, gap: tokens.space.md }]}>
+          <Text style={[typeStyle(tokens, 'sectionTitle'), { textAlign: 'center' }]}>
             {CREATE_COPY.editorFailedTitle}
           </Text>
-          <Text
-            style={{
-              color: tokens.color.textMuted,
-              textAlign: 'center',
-              marginTop: tokens.space.xs,
-              lineHeight: 20,
-            }}
-          >
+          <Text style={[typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' }]}>
             {draft.extractionError?.message ?? CREATE_COPY.editorFailedBody}
           </Text>
-          <TouchableOpacity
-            style={[
-              styles.secondaryBtn,
-              {
-                marginTop: tokens.space.lg - 4,
-                opacity: busy ? 0.6 : 1,
-                backgroundColor: tokens.color.borderStrong,
-                borderRadius: tokens.radius.sm + 2,
-              },
-            ]}
+          <ActionButton
+            label={CREATE_COPY.editorRetryFind}
+            variant="filled"
+            pending={busy}
             disabled={busy}
             onPress={() => {
               setBusy(true);
@@ -477,72 +497,27 @@ export default function CreateReviewScreen() {
                 .catch((e) => setRetryError(normalizeIngestError(e) || CREATE_COPY.retryFailedInline))
                 .finally(() => setBusy(false));
             }}
-          >
-            {busy ? (
-              <ActivityIndicator color={tokens.color.text} />
-            ) : (
-              <Text
-                style={{
-                  color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
-                  fontWeight: tokens.fontWeight.bold,
-                }}
-              >
-                {CREATE_COPY.editorRetryFind}
-              </Text>
-            )}
-          </TouchableOpacity>
+          />
           {retryError ? (
-            <View style={{ marginTop: tokens.space.sm, width: '100%' }}>
-              <CreateInlineNotice
-                tone="error"
-                body={retryError}
-                actionLabel={CREATE_COPY.feedbackDismiss}
-                onAction={() => setRetryError(null)}
-              />
-            </View>
+            <CreateInlineNotice
+              tone="error"
+              body={retryError}
+              actionLabel={CREATE_COPY.feedbackDismiss}
+              onAction={() => setRetryError(null)}
+            />
           ) : null}
           {!sourceBlocked ? (
-            <TouchableOpacity
-              style={[
-                styles.secondaryBtn,
-                {
-                  marginTop: tokens.space.sm - 2,
-                  backgroundColor: tokens.color.borderStrong,
-                  borderRadius: tokens.radius.sm + 2,
-                },
-              ]}
+            <ActionButton
+              label={CREATE_COPY.editorAddLinks}
+              variant="outlinePrimary"
               onPress={() => setManualComposerOpen(true)}
-            >
-              <Text
-                style={{
-                  color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
-                  fontWeight: tokens.fontWeight.bold,
-                }}
-              >
-                {CREATE_COPY.editorAddLinks}
-              </Text>
-            </TouchableOpacity>
+            />
           ) : null}
-          <TouchableOpacity
-            style={[
-              styles.secondaryBtn,
-              {
-                marginTop: tokens.space.sm - 2,
-                backgroundColor: tokens.color.borderStrong,
-                borderRadius: tokens.radius.sm + 2,
-              },
-            ]}
+          <ActionButton
+            label={CREATE_COPY.editorBackToStudio}
+            variant="quiet"
             onPress={() => router.replace('/(tabs)/create')}
-          >
-            <Text
-              style={{
-                color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
-                fontWeight: tokens.fontWeight.bold,
-              }}
-            >
-              {CREATE_COPY.editorBackToStudio}
-            </Text>
-          </TouchableOpacity>
+          />
         </View>
       </CreateScreenShell>
     );
@@ -551,21 +526,15 @@ export default function CreateReviewScreen() {
   if (ingestEditorShowsProcessing(draft)) {
     return (
       <CreateScreenShell>
-        <View style={styles.center}>
+        <View style={[styles.center, { paddingHorizontal: tokens.space.lg, gap: tokens.space.md }]}>
           <StagedProgressIndicator
             stages={mapVideoExtractionStages(draft)}
             hint={CREATE_COPY.editorProcessingHint}
           />
-          <TouchableOpacity
-            style={[
-              styles.secondaryBtn,
-              {
-                marginTop: tokens.space.lg - 4,
-                opacity: pollingBusy ? 0.6 : 1,
-                backgroundColor: tokens.color.borderStrong,
-                borderRadius: tokens.radius.sm + 2,
-              },
-            ]}
+          <ActionButton
+            label={pollingBusy ? CREATE_COPY.editorLoading : CREATE_COPY.editorRefresh}
+            variant="outlinePrimary"
+            pending={pollingBusy}
             disabled={pollingBusy}
             onPress={() => {
               setPollingBusy(true);
@@ -576,16 +545,7 @@ export default function CreateReviewScreen() {
                 .catch((e) => setHydrateError(normalizeIngestError(e)))
                 .finally(() => setPollingBusy(false));
             }}
-          >
-            <Text
-              style={{
-                color: tokens.mode === 'titanium' ? tokens.color.textOnAccent : tokens.color.canvas,
-                fontWeight: tokens.fontWeight.bold,
-              }}
-            >
-              {pollingBusy ? CREATE_COPY.editorLoading : CREATE_COPY.editorRefresh}
-            </Text>
-          </TouchableOpacity>
+          />
         </View>
       </CreateScreenShell>
     );
@@ -622,20 +582,20 @@ export default function CreateReviewScreen() {
     }
   };
 
-  const addManualLinksToCollection = async () => {
+  const appendProductUrlsToCollection = async (urls: string[], options?: { closeComposer?: boolean }) => {
     if (!draft) return;
     if (!ingestAllowsManualProducts(draft)) {
       setManualError('Manual products are unavailable while automatic extraction is running.');
       return;
     }
-    if (uniqueManualUrls.length < 1 || uniqueManualUrls.length > MAX_MANUAL_LINKS) {
+    if (urls.length < 1 || urls.length > MAX_MANUAL_LINKS) {
       setManualError(`Add 1-${MAX_MANUAL_LINKS} valid product URLs.`);
       return;
     }
     setManualBusy(true);
     setManualError(null);
     try {
-      const res = await appendManualProductsToIngest(draft.ingestId, uniqueManualUrls);
+      const res = await appendManualProductsToIngest(draft.ingestId, urls);
       if (!res.ingestId || !res.draft) {
         setManualError(CREATE_COPY.manualSaveFailedInline);
         return;
@@ -652,7 +612,7 @@ export default function CreateReviewScreen() {
         extractionError: res.draft.extractionError ?? draft.extractionError,
         pipelineMeta: res.draft.pipelineMeta ?? draft.pipelineMeta,
       });
-      if (!res.noop) {
+      if (!res.noop && options?.closeComposer) {
         setManualRows(['']);
         setManualComposerOpen(false);
       }
@@ -666,6 +626,38 @@ export default function CreateReviewScreen() {
       setManualError(normalizeIngestError(e));
     } finally {
       setManualBusy(false);
+    }
+  };
+
+  const addManualLinksToCollection = async () => {
+    await appendProductUrlsToCollection(uniqueManualUrls, { closeComposer: true });
+  };
+
+  const addFromSyncedLibrary = async (sel: StudioLibrarySelection) => {
+    setLibrarySelectedUrl(sel.sourceUrl);
+    if (!sel.contentSourceId) {
+      setManualError(CREATE_COPY.libraryUnavailable);
+      return;
+    }
+    try {
+      const { products } = await listLibraryItemProducts(sel.contentSourceId);
+      const seen = new Set<string>();
+      const urls: string[] = [];
+      for (const product of products) {
+        const normalized = normalizeHttpUrl(product.merchantUrl ?? '');
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        urls.push(normalized);
+        if (urls.length >= MAX_MANUAL_LINKS) break;
+      }
+      if (urls.length < 1) {
+        setManualError(CREATE_COPY.editorNoProductsBody);
+        return;
+      }
+      await appendProductUrlsToCollection(urls);
+      setLibraryPickerOpen(false);
+    } catch (e) {
+      setManualError(normalizeIngestError(e));
     }
   };
 
@@ -691,13 +683,6 @@ export default function CreateReviewScreen() {
     },
   };
 
-  const selectedIds = draft.products.filter((p) => p.id && selected[p.id]).map((p) => p.id);
-  const canPublish = selectedProductsCanPublish(draft.products, selected);
-  const readiness = buildEditorReadiness({
-    hasContent: Boolean(draft.sourceUrl?.trim()),
-    products: draft.products,
-    selected,
-  });
   const productsMeta = productsSectionMetaLabel(readiness.includedCount, readiness.attentionCount);
 
   const persistStoryTitle = async () => {
@@ -719,18 +704,6 @@ export default function CreateReviewScreen() {
     thumbnailUrl: draft.thumbnail,
     previewLine: CREATE_COPY.publishConfirmPreview,
   });
-
-  const openPublishConfirm = () => {
-    if (!readiness.ready || !canPublish) {
-      return;
-    }
-    if (selectedIds.length < 1) {
-      setPublishError(CREATE_COPY.editorPublishSelectBody);
-      return;
-    }
-    setPublishError(null);
-    setPublishPhase('confirm');
-  };
 
   const closePublishConfirm = () => {
     if (publishPhase === 'publishing') return;
@@ -760,7 +733,9 @@ export default function CreateReviewScreen() {
       setPublishedCollectionId(collectionId);
       setPublishedTitle(publishSummary.title);
       setPublishedProductCount(selectedIds.length);
+      setPublishedCoverUrl(draft.thumbnail ?? null);
       setPublishPhase('success');
+      void maybePromptForPush('first_publish');
     } finally {
       setBusy(false);
     }
@@ -809,35 +784,24 @@ export default function CreateReviewScreen() {
     draft.status === 'review_required' ||
     (draft.products.length === 0 && draft.status !== 'processing');
 
-  const sectionTitleColor = tokens.color.text;
-  const sectionMetaColor = tokens.color.textMuted;
-  const mutedColor = tokens.color.textMuted;
-  const publishBtn = createPrimaryButtonStyle(tokens, {
-    disabled: !readiness.ready || !canPublish || busy || publishPhase !== 'idle',
-    pending: busy,
-  });
+  const collectionTitle =
+    storyTitle.trim() || draft.videoTitle?.trim() || CREATE_COPY.editorStoryTitlePlaceholder;
+  const collectionMeta = [contentPlatformLabel(draft.platform), productsMeta].filter(Boolean).join(' · ');
+  const readinessLine = readiness.ready
+    ? CREATE_COPY.editorReadinessResolvingDone
+    : CREATE_COPY.editorReadinessExpandHint;
 
   const headerNote = (
-    <View style={{ marginBottom: 10, gap: 16 }}>
-      {/* CONTENT */}
-      <View style={styles.editorSection}>
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
-            {CREATE_COPY.editorSectionContent}
-          </Text>
-          <Text style={[styles.sectionMeta, { color: sectionMetaColor }]}>
-            {contentPlatformLabel(draft.platform)}
-          </Text>
-        </View>
+    <View style={{ gap: tokens.space.lg, marginBottom: tokens.space.md }}>
+      <View style={{ gap: tokens.space.sm }}>
+        <Text style={typeStyle(tokens, 'sectionTitle')}>{collectionTitle}</Text>
+        <Text style={typeStyle(tokens, 'tileMeta')}>{collectionMeta}</Text>
         {reviewVideoWebSource ? (
           <View
             style={[
               styles.embedWrap,
-              {
-                borderColor: tokens.color.border,
-                backgroundColor: '#000',
-                borderRadius: tokens.radius.lg,
-              },
+              objectChrome,
+              { borderRadius: tokens.radius.lg, overflow: 'hidden' },
             ]}
           >
             <WebView
@@ -863,21 +827,19 @@ export default function CreateReviewScreen() {
               }}
             />
           </View>
+        ) : draft.thumbnail ? (
+          <View style={[styles.coverWrap, objectChrome, { borderRadius: tokens.radius.lg, overflow: 'hidden' }]}>
+            <Image source={{ uri: draft.thumbnail }} style={styles.coverImage} contentFit="cover" />
+          </View>
         ) : (
-          <Text style={[styles.headerNote, { color: mutedColor }]}>
+          <Text style={typeStyle(tokens, 'bodyMuted')}>
             {draft.sourceUrl || CREATE_COPY.editorReadinessContentTodo}
           </Text>
         )}
       </View>
 
-      {/* PRODUCTS */}
-      <View style={styles.editorSection}>
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
-            {CREATE_COPY.editorSectionProducts}
-          </Text>
-          <Text style={[styles.sectionMeta, { color: sectionMetaColor }]}>{productsMeta}</Text>
-        </View>
+      <View style={{ gap: tokens.space.sm }}>
+        <SectionHeader title={CREATE_COPY.editorSectionProducts} subtitle={productsMeta} />
 
         {editorNotice ? (
           <CreateInlineNotice
@@ -889,188 +851,147 @@ export default function CreateReviewScreen() {
         ) : null}
 
         {showExtractionError ? (
-          <View
-            style={[
-              styles.errorBanner,
-              {
-                borderColor: tokens.color.warning,
-                backgroundColor:
-                  tokens.mode === 'titanium' ? 'rgba(180,83,9,0.12)' : 'rgba(251,191,36,0.18)',
-                borderRadius: tokens.radius.md,
-              },
-            ]}
-          >
-            <Text style={[styles.errorBannerTitle, { color: tokens.color.warning }]}>
-              {CREATE_COPY.editorExtractionNotice}
-            </Text>
-            <Text style={[styles.errorBannerBody, { color: tokens.color.text }]}>
-              {draft.extractionError?.message ?? 'These rows are previews only. Fix the issue and try again.'}
-            </Text>
-            {draft.extractionError?.detail ? (
-              <Text style={[styles.errorBannerDetail, { color: tokens.color.textMuted }]} selectable>
-                {draft.extractionError.detail}
-              </Text>
-            ) : null}
-          </View>
+          <CreateInlineNotice
+            tone="warning"
+            title={CREATE_COPY.editorExtractionNotice}
+            body={[
+              draft.extractionError?.message ?? 'These rows are previews only. Fix the issue and try again.',
+              draft.extractionError?.detail,
+            ]
+              .filter(Boolean)
+              .join('\n')}
+          />
         ) : null}
         {needsManualProducts ? (
-          <View
-            style={[
-              styles.errorBanner,
-              {
-                borderColor: tokens.color.accent,
-                backgroundColor:
-                  tokens.mode === 'titanium' ? 'rgba(0,175,192,0.12)' : 'rgba(168,85,247,0.18)',
-                borderRadius: tokens.radius.md,
-              },
-            ]}
-          >
-            <Text style={[styles.errorBannerTitle, { color: tokens.color.accent }]}>
-              {CREATE_COPY.editorNoProductsTitle}
-            </Text>
-            <Text style={[styles.errorBannerBody, { color: tokens.color.text }]}>
-              {draft.extractionError?.message ?? CREATE_COPY.editorNoProductsBody}
-            </Text>
-            <TouchableOpacity
-              style={{ marginTop: tokens.space.xs }}
-              onPress={() => setManualComposerOpen(true)}
-            >
-              <Text style={{ color: tokens.color.accent, fontWeight: tokens.fontWeight.extraBold }}>
-                {CREATE_COPY.editorAddLinksAction}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <CreateInlineNotice
+            tone="info"
+            title={CREATE_COPY.editorNoProductsTitle}
+            body={draft.extractionError?.message ?? CREATE_COPY.editorNoProductsBody}
+            actionLabel={CREATE_COPY.editorAddLinksAction}
+            onAction={() => setManualComposerOpen(true)}
+          />
         ) : null}
+
         {ingestAllowsManualProducts(draft) && manualComposerOpen ? (
           <View
             style={[
-              styles.manualComposer,
+              objectChrome,
               {
-                borderColor: tokens.color.border,
-                backgroundColor: surface.backgroundColor,
+                borderWidth: StyleSheet.hairlineWidth,
                 borderRadius: tokens.radius.md,
-                padding: tokens.space.sm,
-                gap: tokens.space.xs,
+                padding: tokens.space.md,
+                gap: tokens.space.sm,
               },
             ]}
           >
-            <Text
-              style={{
-                color: tokens.color.text,
-                fontSize: tokens.fontSize.body,
-                fontWeight: tokens.fontWeight.extraBold,
-              }}
-            >
-              {CREATE_COPY.editorAddLinks}
-            </Text>
-            <Text
-              style={{
-                color: tokens.color.textMuted,
-                fontSize: 13,
-                lineHeight: 18,
-              }}
-            >
+            <Text style={typeStyle(tokens, 'tileTitle')}>{CREATE_COPY.editorPasteProductLink}</Text>
+            <Text style={[typeStyle(tokens, 'bodyMuted'), { fontSize: tokens.fontSize.caption }]}>
               Add up to {MAX_MANUAL_LINKS} product URLs for this Collection.
             </Text>
             {manualRows.map((row, idx) => (
               <View key={`manual-row-${idx}`} style={styles.manualRowWrap}>
-                <TextInput
-                  value={row}
-                  onChangeText={(value) => updateManualRow(idx, value)}
-                  placeholder={`Product URL ${idx + 1}`}
-                  placeholderTextColor={field.placeholderTextColor}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
+                <View
                   style={[
-                    styles.manualInput,
+                    styles.fieldRow,
                     {
-                      color: field.color,
-                      borderColor: field.borderColor,
+                      flex: 1,
                       backgroundColor: field.backgroundColor,
-                      borderRadius: tokens.radius.sm + 2,
+                      borderColor: field.borderColor,
+                      borderRadius: tokens.radius.lg,
                     },
                   ]}
-                />
-                {manualRows.length > 1 ? (
-                  <TouchableOpacity
-                    onPress={() => removeManualRow(idx)}
+                >
+                  <TextInput
+                    value={row}
+                    onChangeText={(value) => updateManualRow(idx, value)}
+                    placeholder={`Product URL ${idx + 1}`}
+                    placeholderTextColor={field.placeholderTextColor}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
                     style={[
-                      styles.manualRemoveBtn,
+                      styles.fieldInput,
                       {
-                        backgroundColor:
-                          tokens.mode === 'titanium' ? 'rgba(185,28,28,0.14)' : 'rgba(252,165,165,0.2)',
-                        borderRadius: tokens.radius.sm + 2,
+                        color: field.color,
+                        fontFamily: tokens.fontFamily.regular,
+                        fontSize: tokens.fontSize.body,
                       },
                     ]}
+                  />
+                </View>
+                {manualRows.length > 1 ? (
+                  <Pressable
+                    onPress={() => removeManualRow(idx)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove link"
+                    style={({ pressed }) => ({ opacity: pressed ? tokens.motion.pressOpacity : 1 })}
                   >
-                    <Text style={{ color: tokens.color.danger, fontSize: 16, fontWeight: tokens.fontWeight.bold }}>
-                      ✕
-                    </Text>
-                  </TouchableOpacity>
+                    <Ionicons name="close-outline" size={22} color={tokens.color.danger} />
+                  </Pressable>
                 ) : null}
               </View>
             ))}
             {manualRows.length < MAX_MANUAL_LINKS ? (
-              <TouchableOpacity onPress={addManualRow} style={styles.manualAddRowBtn}>
-                <Text style={{ color: tokens.color.accent, fontWeight: tokens.fontWeight.bold }}>
-                  + Add another link
-                </Text>
-              </TouchableOpacity>
+              <ActionButton label="+ Add another link" variant="quiet" size="compact" onPress={addManualRow} />
             ) : null}
             {manualError ? (
-              <Text style={{ color: tokens.color.danger, fontSize: tokens.fontSize.caption }}>
-                {manualError}
-              </Text>
+              <Text style={[typeStyle(tokens, 'tileMeta'), { color: tokens.color.danger }]}>{manualError}</Text>
             ) : null}
-            <View style={styles.manualActions}>
-              <TouchableOpacity
-                style={[
-                  styles.manualCancelBtn,
-                  secondaryChrome,
-                  { borderWidth: tokens.stroke.thin },
-                ]}
-                onPress={() => {
-                  setManualComposerOpen(false);
-                  setManualError(null);
-                  setManualRows(['']);
-                }}
-                disabled={manualBusy}
-              >
-                <Text style={{ color: tokens.color.text, fontWeight: tokens.fontWeight.bold }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.manualSaveBtn,
-                  {
-                    backgroundColor: tokens.color.cta,
-                    borderRadius: tokens.radius.sm + 2,
-                    opacity: manualBusy ? 0.7 : 1,
-                  },
-                ]}
-                onPress={() => void addManualLinksToCollection()}
-                disabled={manualBusy}
-              >
-                <Text style={{ color: tokens.color.successOn, fontWeight: tokens.fontWeight.extraBold }}>
-                  Add products
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {manualBusy ? (
-              <StagedProgressIndicator stages={mapManualProductLinkStages(0)} />
-            ) : null}
+            <ActionButton
+              label="Add products"
+              variant="outlinePrimary"
+              size="compact"
+              pending={manualBusy}
+              disabled={manualBusy}
+              onPress={() => void addManualLinksToCollection()}
+            />
+            <ActionButton
+              label="Cancel"
+              variant="quiet"
+              size="compact"
+              disabled={manualBusy}
+              onPress={() => {
+                setManualComposerOpen(false);
+                setManualError(null);
+                setManualRows(['']);
+              }}
+            />
+            {manualBusy ? <StagedProgressIndicator stages={mapManualProductLinkStages(0)} /> : null}
           </View>
         ) : ingestAllowsManualProducts(draft) ? (
-          <TouchableOpacity
-            style={styles.manualOpenBtn}
-            onPress={() => setManualComposerOpen(true)}
-          >
-            <Text style={{ color: tokens.color.accent, fontWeight: tokens.fontWeight.extraBold }}>
-              {CREATE_COPY.editorAddLinks}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ gap: tokens.space.sm }}>
+            <ActionChoiceRow
+              icon="link-outline"
+              title={CREATE_COPY.editorPasteProductLink}
+              body={CREATE_COPY.productSourceLinkBody}
+              onPress={() => {
+                setLibraryPickerOpen(false);
+                setManualComposerOpen(true);
+              }}
+            />
+            <ActionChoiceRow
+              icon="albums-outline"
+              title={CREATE_COPY.editorAddFromLibrary}
+              body={CREATE_COPY.libraryStepSub}
+              selected={libraryPickerOpen}
+              pending={manualBusy && libraryPickerOpen}
+              onPress={() => {
+                setManualComposerOpen(false);
+                setLibraryPickerOpen((open) => !open);
+              }}
+            />
+            {libraryPickerOpen ? (
+              <CreateStudioLibraryPicker
+                selectedUrl={librarySelectedUrl}
+                onSelect={(sel) => void addFromSyncedLibrary(sel)}
+              />
+            ) : null}
+            {manualError && !manualComposerOpen ? (
+              <Text style={[typeStyle(tokens, 'tileMeta'), { color: tokens.color.danger }]}>{manualError}</Text>
+            ) : null}
+          </View>
         ) : null}
-        <Text style={[styles.headerNote, { color: mutedColor }]}>
+        <Text style={[typeStyle(tokens, 'bodyMuted'), { fontSize: tokens.fontSize.caption }]}>
           {needsManualProducts
             ? CREATE_COPY.editorNoteManual
             : draft.extractionStatus === 'ok'
@@ -1082,63 +1003,126 @@ export default function CreateReviewScreen() {
   );
 
   const storyFooter = (
-    <View style={[styles.editorSection, { marginTop: tokens.space.xs, marginBottom: tokens.space.lg }]}>
-      <View style={styles.sectionHeaderRow}>
-        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
-          {CREATE_COPY.editorSectionStory}
-        </Text>
-        <Text style={[styles.sectionMeta, { color: sectionMetaColor }]}>
-          {CREATE_COPY.editorSectionStoryOptional}
-        </Text>
+    <View style={{ gap: tokens.space.lg, marginTop: tokens.space.md, paddingBottom: tokens.space.md }}>
+      <View style={{ gap: tokens.space.sm }}>
+        <Pressable
+          onPress={() => setStoryOpen((open) => !open)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: storyOpen }}
+          accessibilityLabel={CREATE_COPY.editorSectionStory}
+          style={({ pressed }) => [
+            styles.discloseRow,
+            { opacity: pressed ? tokens.motion.pressOpacity : 1 },
+          ]}
+        >
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={typeStyle(tokens, 'sectionTitle')}>{CREATE_COPY.editorSectionStory}</Text>
+            <Text style={typeStyle(tokens, 'tileMeta')} numberOfLines={1}>
+              {storyOpen
+                ? CREATE_COPY.editorSectionStoryOptional
+                : storyTitle.trim() || CREATE_COPY.editorStoryTitlePlaceholder}
+            </Text>
+          </View>
+          <Ionicons
+            name={storyOpen ? 'chevron-down-outline' : 'chevron-forward-outline'}
+            size={16}
+            color={tokens.color.textMuted}
+          />
+        </Pressable>
+        {storyOpen ? (
+          <View style={{ gap: tokens.space.sm }}>
+            <Text style={typeStyle(tokens, 'tileTitle')}>{CREATE_COPY.editorStoryTitleLabel}</Text>
+            <View
+              style={[
+                styles.fieldRow,
+                {
+                  backgroundColor: field.backgroundColor,
+                  borderColor: field.borderColor,
+                  borderRadius: tokens.radius.lg,
+                },
+              ]}
+            >
+              <TextInput
+                value={storyTitle}
+                onChangeText={setStoryTitle}
+                onEndEditing={() => void persistStoryTitle()}
+                placeholder={CREATE_COPY.editorStoryTitlePlaceholder}
+                placeholderTextColor={field.placeholderTextColor}
+                style={[
+                  styles.fieldInput,
+                  {
+                    color: field.color,
+                    fontFamily: tokens.fontFamily.regular,
+                    fontSize: tokens.fontSize.body,
+                  },
+                ]}
+              />
+            </View>
+            {storyTitleError ? (
+              <CreateInlineNotice
+                tone="error"
+                body={storyTitleError}
+                actionLabel={CREATE_COPY.feedbackDismiss}
+                onAction={() => setStoryTitleError(null)}
+              />
+            ) : null}
+            <Text style={typeStyle(tokens, 'tileTitle')}>{CREATE_COPY.editorStoryCaptionLabel}</Text>
+            <View
+              style={[
+                styles.fieldRow,
+                styles.fieldRowMultiline,
+                {
+                  backgroundColor: field.backgroundColor,
+                  borderColor: field.borderColor,
+                  borderRadius: tokens.radius.lg,
+                },
+              ]}
+            >
+              <TextInput
+                value={storyCaption}
+                onChangeText={setStoryCaption}
+                placeholder={CREATE_COPY.editorStoryCaptionPlaceholder}
+                placeholderTextColor={field.placeholderTextColor}
+                multiline
+                style={[
+                  styles.fieldInput,
+                  {
+                    color: field.color,
+                    fontFamily: tokens.fontFamily.regular,
+                    fontSize: tokens.fontSize.body,
+                    minHeight: 72,
+                    textAlignVertical: 'top',
+                  },
+                ]}
+              />
+            </View>
+            <Text style={[typeStyle(tokens, 'tileMeta')]}>{CREATE_COPY.editorStoryCaptionHint}</Text>
+          </View>
+        ) : null}
       </View>
-      <Text style={[styles.fieldLabel, { color: mutedColor }]}>{CREATE_COPY.editorStoryTitleLabel}</Text>
-      <TextInput
-        value={storyTitle}
-        onChangeText={setStoryTitle}
-        onEndEditing={() => void persistStoryTitle()}
-        placeholder={CREATE_COPY.editorStoryTitlePlaceholder}
-        placeholderTextColor={field.placeholderTextColor}
-        style={[
-          styles.storyInput,
-          {
-            color: field.color,
-            borderColor: field.borderColor,
-            backgroundColor: field.backgroundColor,
-            borderRadius: tokens.radius.sm + 2,
-          },
-        ]}
-      />
-      {storyTitleError ? (
-        <CreateInlineNotice
-          tone="error"
-          body={storyTitleError}
-          actionLabel={CREATE_COPY.feedbackDismiss}
-          onAction={() => setStoryTitleError(null)}
+      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: tokens.color.divider }} />
+      <View style={{ gap: tokens.space.sm }}>
+        <Text style={typeStyle(tokens, 'tileMeta')} numberOfLines={2}>
+          {readinessLine}
+        </Text>
+        {publishError ? (
+          <CreateInlineNotice
+            tone="error"
+            body={publishError}
+            actionLabel={CREATE_COPY.feedbackRetry}
+            onAction={() => {
+              setPublishError(null);
+              openPublishConfirm();
+            }}
+          />
+        ) : null}
+        <ActionButton
+          label={CREATE_COPY.editorDiscard}
+          variant="quiet"
+          disabled={busy || publishPhase !== 'idle'}
+          onPress={() => void onRejectAll()}
         />
-      ) : null}
-      <Text style={[styles.fieldLabel, { color: mutedColor, marginTop: tokens.space.xs }]}>
-        {CREATE_COPY.editorStoryCaptionLabel}
-      </Text>
-      <TextInput
-        value={storyCaption}
-        onChangeText={setStoryCaption}
-        placeholder={CREATE_COPY.editorStoryCaptionPlaceholder}
-        placeholderTextColor={field.placeholderTextColor}
-        multiline
-        style={[
-          styles.storyInput,
-          styles.storyCaptionInput,
-          {
-            color: field.color,
-            borderColor: field.borderColor,
-            backgroundColor: field.backgroundColor,
-            borderRadius: tokens.radius.sm + 2,
-          },
-        ]}
-      />
-      <Text style={[styles.captionHint, { color: sectionMetaColor }]}>
-        {CREATE_COPY.editorStoryCaptionHint}
-      </Text>
+      </View>
     </View>
   );
 
@@ -1152,87 +1136,6 @@ export default function CreateReviewScreen() {
         ListHeaderComponent={headerNote}
         ListFooterComponent={storyFooter}
       />
-      <View
-        style={[
-          styles.footer,
-          {
-            borderTopColor: tokens.color.border,
-            backgroundColor: tokens.color.surface,
-            gap: tokens.space.sm - 2,
-            padding: tokens.space.md,
-            paddingBottom: tokens.space.lg + 4,
-          },
-        ]}
-      >
-        <View style={styles.readinessBlock}>
-          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
-            {CREATE_COPY.editorSectionReadiness}
-          </Text>
-          {readiness.items.map((item) => (
-            <View key={item.id} style={styles.readinessRow}>
-              <Text
-                style={{
-                  color: item.done ? tokens.color.success : mutedColor,
-                  fontSize: 13,
-                }}
-              >
-                {item.done ? '✓' : '○'} {readinessItemLabel(item)}
-              </Text>
-            </View>
-          ))}
-          {!readiness.ready ? (
-            <Text style={[styles.captionHint, { color: sectionMetaColor, marginTop: 4 }]}>
-              {CREATE_COPY.editorReadinessExpandHint}
-            </Text>
-          ) : null}
-          {publishError ? (
-            <CreateInlineNotice
-              tone="error"
-              body={publishError}
-              actionLabel={CREATE_COPY.feedbackRetry}
-              onAction={() => {
-                setPublishError(null);
-                openPublishConfirm();
-              }}
-            />
-          ) : null}
-        </View>
-        <View style={[styles.footerActions, { gap: tokens.space.sm - 2 }]}>
-          <TouchableOpacity
-            style={[
-              styles.rejectBtn,
-              {
-                borderColor: tokens.color.danger,
-                borderRadius: tokens.radius.md,
-              },
-            ]}
-            onPress={onRejectAll}
-            disabled={busy || publishPhase !== 'idle'}
-          >
-            <Text style={{ color: tokens.color.danger, fontWeight: tokens.fontWeight.bold }}>
-              {CREATE_COPY.editorDiscard}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.publishBtn, publishBtn, { paddingVertical: 14 }]}
-            onPress={openPublishConfirm}
-            disabled={!readiness.ready || !canPublish || busy || publishPhase !== 'idle'}
-          >
-            {busy ? (
-              <ActivityIndicator color={tokens.color.successOn} />
-            ) : (
-              <Text
-                style={{
-                  color: tokens.color.successOn,
-                  fontWeight: tokens.fontWeight.extraBold,
-                }}
-              >
-                {CREATE_COPY.editorPublish}
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
       <PublishConfirmSheet
         visible={publishPhase === 'confirm' || publishPhase === 'publishing'}
         summary={publishSummary}
@@ -1242,6 +1145,8 @@ export default function CreateReviewScreen() {
       />
       <PublishSuccessScreen
         visible={publishPhase === 'success'}
+        layout="editor"
+        coverUrl={publishedCoverUrl}
         title={publishedTitle || publishSummary.title}
         productCountLabel={publishProductCountLabel(publishedProductCount || selectedIds.length)}
         canViewCollection={Boolean(publishedCollectionId)}
@@ -1267,116 +1172,45 @@ export default function CreateReviewScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 16 },
-  list: { padding: 16, paddingBottom: 220, gap: 12 },
-  editorSection: { gap: 8 },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  sectionTitle: { fontSize: 15, fontWeight: '800' },
-  sectionMeta: { fontSize: 12, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
-  fieldLabel: { fontSize: 12, fontWeight: '700' },
-  storyInput: {
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-  },
-  storyCaptionInput: {
-    minHeight: 72,
-    textAlignVertical: 'top',
-  },
-  captionHint: { fontSize: 12, lineHeight: 16 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  list: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 40, gap: 12 },
   embedWrap: {
     width: '100%',
     height: 220,
-    borderWidth: 1,
-    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   embedWeb: { flex: 1, backgroundColor: '#000' },
-  headerNote: { fontSize: 14, lineHeight: 20 },
-  errorBanner: {
-    borderWidth: 1,
-    padding: 12,
-    gap: 6,
+  coverWrap: {
+    width: '100%',
+    height: 180,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  errorBannerTitle: { fontSize: 14, fontWeight: '800' },
-  errorBannerBody: { fontSize: 13, lineHeight: 18 },
-  errorBannerDetail: { fontSize: 11, lineHeight: 16, marginTop: 2 },
-  manualOpenBtn: {
-    alignSelf: 'flex-start',
+  coverImage: { width: '100%', height: '100%' },
+  discloseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     paddingVertical: 4,
   },
-  manualComposer: {
-    borderWidth: 1,
+  fieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    minHeight: 44,
+  },
+  fieldRowMultiline: {
+    alignItems: 'flex-start',
+    minHeight: 80,
+    paddingVertical: 8,
+  },
+  fieldInput: {
+    flex: 1,
+    paddingVertical: 10,
   },
   manualRowWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  manualInput: {
-    flex: 1,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-  },
-  manualRemoveBtn: {
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  manualAddRowBtn: {
-    alignSelf: 'flex-start',
-    paddingVertical: 4,
-  },
-  manualActions: {
-    marginTop: 4,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  manualCancelBtn: {
-    flex: 1,
-    minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  manualSaveBtn: {
-    flex: 1,
-    minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    borderTopWidth: 1,
-  },
-  readinessBlock: { gap: 4 },
-  readinessRow: { paddingVertical: 1 },
-  footerActions: {
-    flexDirection: 'row',
-  },
-  rejectBtn: {
-    flex: 1,
-    borderWidth: 1,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  publishBtn: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  secondaryBtn: {
-    marginTop: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
   },
 });

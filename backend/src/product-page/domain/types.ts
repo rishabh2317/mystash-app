@@ -22,6 +22,7 @@ export type ProductPageSource = {
   title: string | null;
   /** Published collection for in-app reel playback when the source URL is tagged. */
   collectionId: string | null;
+  thumbnailUrl?: string | null;
 };
 
 export type ProductPageRelatedMediaCreator = {

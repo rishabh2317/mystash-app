@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseCollectionRepository } from '../collection/SupabaseCollectionRepository';
 import type { CollectionDiscoveryPort } from './ports';
 import { sumCreatorPublicReelLikes } from '../engagement/reelEligibility';
+import { createNotificationService } from '../notifications/factory';
+import { creatorStatusEvent, getNotificationEmitter } from '../notifications/producers';
 import { SupabaseUserRepository } from './SupabaseUserRepository';
 import { UserService } from './UserService';
 
@@ -27,6 +29,14 @@ export function createUserService(admin: SupabaseClient): UserService {
       sumPublicReelLikesReceived: (creatorId) =>
         sumCreatorPublicReelLikes(admin, creatorId),
     },
+    {
+      purgeUser: async (userId) => {
+        await createNotificationService(admin).purgeUser(userId);
+      },
+      creatorStatusChanged: async (input) => {
+        await getNotificationEmitter().emitSafely(creatorStatusEvent(input));
+      },
+    },
   );
 }
 
@@ -35,5 +45,6 @@ export type { UserRepository } from './UserRepository';
 export type {
   UserCreatorPort,
   CollectionDiscoveryPort,
+  UserNotificationPort,
   ReelLikeSummaryPort,
 } from './ports';

@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { buildFollowCreatorLoginHref } from '@/src/navigation/authIntent';
+import { maybePromptForPush } from '@/src/notifications/permissionPrompt';
 import { followCreator, unfollowCreator } from '@/src/services/engagementApi';
 
 /**
@@ -43,6 +44,7 @@ export function useCreatorFollowHandler(opts: {
     try {
       if (next) {
         await followCreator(opts.creatorId);
+        void maybePromptForPush('first_follow');
       } else {
         await unfollowCreator(opts.creatorId);
       }

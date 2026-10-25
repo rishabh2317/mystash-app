@@ -32,6 +32,10 @@ type Props = {
   isSaved?: boolean;
   savePending?: boolean;
   onSavePress?: () => void;
+  /** Public grid media box. Profile Collection/Saved uses Instagram 3:4. */
+  aspectRatio?: number;
+  /** Flush corners for an edge-to-edge profile grid. */
+  flush?: boolean;
 };
 
 const PLAY_SIZE = 24;
@@ -43,6 +47,8 @@ export function CollectionTile({
   isSaved = false,
   savePending = false,
   onSavePress,
+  aspectRatio,
+  flush = false,
 }: Props) {
   const { tokens } = useThemeMode();
   const title = collection.title?.trim() || 'Untitled collection';
@@ -72,10 +78,11 @@ export function CollectionTile({
         accessibilityLabel={a11yLabel}
         style={({ pressed }) => [
           styles.portrait,
+          aspectRatio != null ? { aspectRatio } : null,
           {
-            borderRadius: tokens.radius.md,
+            borderRadius: flush ? 0 : tokens.radius.md,
             backgroundColor: IMMERSIVE_TOKENS.stage,
-            borderWidth: StyleSheet.hairlineWidth,
+            borderWidth: flush ? 0 : StyleSheet.hairlineWidth,
             borderColor: tokens.color.border,
             overflow: 'hidden',
             opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),

@@ -8,6 +8,8 @@ import type {
   ReelEligibilityPort,
   UserCounterDenormPort,
 } from './ports';
+import type { EnqueueEventInput } from '../notifications/domain/types';
+import type { NotificationEmitter } from '../notifications/producers';
 
 const eligibleReels: ReelEligibilityPort = {
   async getEligiblePublicReel(reelId) {
@@ -269,5 +271,40 @@ describe('EngagementService', () => {
   it('rejects follow self', async () => {
     const svc = new EngagementService(new InMemoryEngagementRepository());
     await assert.rejects(() => svc.followCreator({ userId: 'u1', creatorId: 'u1' }));
+  });
+
+  it('emits social notifications only on a newly inserted fact, keyed by that fact', async () => {
+    const repo = new InMemoryEngagementRepository();
+    const emitted: EnqueueEventInput[] = [];
+    const notifications: NotificationEmitter = {
+      async emitSafely(input) {
+        emitted.push(input);
+        return 'enqueued';
+      },
+    };
+    const users: UserCounterDenormPort = { async applyUserCounters() {} };
+    const collections: CollectionCounterDenormPort = { async applyCollectionCounters() {} };
+    const svc = new EngagementService(repo, collections, users, eligibleReels, notifications);
+
+    await svc.followCreator({ userId: 'u1', creatorId: 'c1' });
+    await svc.followCreator({ userId: 'u1', creatorId: 'c1' });
+    await svc.saveCollection({ userId: 'u1', collectionId: 'col-1', creatorId: 'c1' });
+    await svc.saveCollection({ userId: 'u1', collectionId: 'col-1', creatorId: 'c1' });
+    await svc.likeReel({ userId: 'u1', reelId: 'reel-1' });
+    await svc.likeReel({ userId: 'u1', reelId: 'reel-1' });
+    await svc.saveCollection({ userId: 'c1', collectionId: 'own', creatorId: 'c1' });
+    await svc.likeReel({ userId: 'creator-1', reelId: 'reel-1' });
+
+    assert.deepEqual(
+      emitted.map((e) => e.eventType),
+      ['creator.followed', 'collection.saved', 'reel.liked'],
+    );
+    const followFact = [...repo.facts.values()].find((f) => f.interactionType === 'follow');
+    assert.equal(emitted[0].idempotencyKey, `fact:${followFact?.eventId}`);
+    assert.equal(emitted[0].occurredAt, followFact?.createdAt);
+    assert.equal(emitted[0].recipientUserId, 'c1');
+    assert.equal(emitted[0].actorUserId, 'u1');
+    assert.equal(emitted[1].payload.collectionId, 'col-1');
+    assert.equal(emitted[2].payload.collectionId, 'collection-reel-1');
   });
 });

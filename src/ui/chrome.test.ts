@@ -14,7 +14,7 @@ import {
   isImmersiveTabRoute,
 } from './chrome';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 describe('UX-B.2 chrome contracts', () => {
   it('keeps five footer tabs: Watch · Search · Create · Stash · Profile', () => {
@@ -55,8 +55,22 @@ describe('UX-B.2 chrome contracts', () => {
     assert.doesNotMatch(search, /softCanvasGradient/);
     assert.match(stash, /useBottomTabBarHeight/);
     assert.match(stash, /BAG_COPY\.yourStash/);
+    assert.match(stash, /StashSignedOutState/);
+    assert.match(stash, /router\.push\('\/\(tabs\)\/profile'\)/);
     assert.match(cart, /Redirect/);
     assert.match(cart, /\/stash/);
+  });
+
+  it('keeps My Stash signed-out illustration, copy, and Profile destination', () => {
+    const empty = readFileSync(join(ROOT, 'components/commerce/StashSignedOutState.tsx'), 'utf8');
+    assert.match(empty, /my_stash_empty_state\.png/);
+    assert.match(empty, /resizeMode="contain"/);
+    assert.match(empty, /BAG_COPY\.signInTitle/);
+    assert.match(empty, /BAG_COPY\.signInBody/);
+    assert.match(empty, /label="Sign in"/);
+    assert.match(empty, /variant="filled"/);
+    assert.equal(BAG_COPY.signInTitle, 'Sign in to view your Stash');
+    assert.equal(BAG_COPY.signInBody, 'Sign in to stash products you discover.');
   });
 
   it('hides Stash badge unless signed in with items', () => {

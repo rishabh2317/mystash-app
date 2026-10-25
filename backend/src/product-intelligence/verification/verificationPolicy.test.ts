@@ -99,6 +99,26 @@ describe('decideProductVerification', () => {
     assert.equal(result.decision, 'created_verified');
   });
 
+  it('does not verify an exact buying URL that failed the identity gate', () => {
+    const strong = match({
+      score: 0.9,
+      reason: 'title=1.00 brand=0.00 model=0.00',
+      components: { title: 1, brand: 0, model: 0, candidate: 1 },
+    });
+    const result = decideProductVerification({
+      hasCommerceOffer: true,
+      bestMatch: strong,
+      identityUrl: 'https://www.amazon.in/NEUDIS-Sheath-Dresses-Length-Sleeveless/dp/B0BQRMD35B',
+      bestPdpScore: 1,
+      hadExistingCatalog: false,
+      identityCompatible: false,
+      ...cfg,
+    });
+    assert.equal(result.verificationStatus, 'UNVERIFIED');
+    assert.equal(result.identityPath, 'none');
+    assert.equal(result.decision, 'created_unverified_weak_identity');
+  });
+
   it('stays metadata-only when no commerce offer exists', () => {
     const strong = match({
       score: 0.99,

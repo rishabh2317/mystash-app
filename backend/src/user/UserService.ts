@@ -20,9 +20,11 @@ import { emitUserEvent } from './observability';
 import { scheduleSearchUserProjection } from '../search/schedule';
 import type {
   CollectionDiscoveryPort,
+  UserNotificationPort,
   ReelLikeSummaryPort,
   UserCreatorPort,
 } from './ports';
+import { logger } from '../logger';
 import type { UpdateUserPatch, UserRepository } from './UserRepository';
 
 function normalizeIso2Country(value: string | null | undefined): string | null {
@@ -100,6 +102,18 @@ function reservationUntil(from = new Date()): string {
   return d.toISOString();
 }
 
+/** Same-user insert race on `users.id` / `users_pkey`. Not username uniqueness. */
+export function isUsersPrimaryKeyConflict(error: unknown, userId: string): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/duplicate user id/i.test(message)) return true;
+  if (/users_pkey/i.test(message)) return true;
+  if (/duplicate key/i.test(message) && new RegExp(`\\(id\\).*=.*${userId}`, 'i').test(message)) {
+    return true;
+  }
+  if (/users_username|duplicate username/i.test(message)) return false;
+  return false;
+}
+
 export class UserService implements UserCreatorPort {
   constructor(
     private readonly repo: UserRepository,
@@ -117,6 +131,10 @@ export class UserService implements UserCreatorPort {
       async sumPublicReelLikesReceived() {
         return 0;
       },
+    },
+    private readonly notifications: UserNotificationPort = {
+      async purgeUser() {},
+      async creatorStatusChanged() {},
     },
   ) {}
 
@@ -148,12 +166,7 @@ export class UserService implements UserCreatorPort {
 
   async ensureFromAuth(authUser: AuthUserLike): Promise<User> {
     const existing = await this.repo.getById(authUser.id);
-    if (existing) {
-      if (authUser.email && authUser.email !== existing.emailMirrored) {
-        return this.repo.updateUser(authUser.id, { emailMirrored: authUser.email });
-      }
-      return existing;
-    }
+    if (existing) return this.returnExistingFromAuth(authUser, existing);
 
     let username = deriveUsername(authUser);
     if (!(await this.repo.isUsernameAvailable(username))) {
@@ -167,27 +180,41 @@ export class UserService implements UserCreatorPort {
       str((authUser.user_metadata ?? {}).provider) ||
       'email';
 
-    const user = await this.repo.insertUser({
-      id: authUser.id,
-      authProvider: provider,
-      username,
-      displayName: deriveDisplayName(authUser, username),
-      profilePhotoUrl: derivePhoto(authUser),
-      accountStatus: 'ACTIVE',
-      creatorStatus: 'NONE',
-      emailMirrored: authUser.email ?? null,
-    });
+    try {
+      const user = await this.repo.insertUser({
+        id: authUser.id,
+        authProvider: provider,
+        username,
+        displayName: deriveDisplayName(authUser, username),
+        profilePhotoUrl: derivePhoto(authUser),
+        accountStatus: 'ACTIVE',
+        creatorStatus: 'NONE',
+        emailMirrored: authUser.email ?? null,
+      });
 
-    emitUserEvent(
-      'UserCreated',
-      buildUserEventPayload({
-        userId: user.id,
-        accountStatus: user.accountStatus,
-        creatorStatus: user.creatorStatus,
-        username: user.username,
-      }),
-    );
-    return user;
+      emitUserEvent(
+        'UserCreated',
+        buildUserEventPayload({
+          userId: user.id,
+          accountStatus: user.accountStatus,
+          creatorStatus: user.creatorStatus,
+          username: user.username,
+        }),
+      );
+      return user;
+    } catch (error) {
+      if (!isUsersPrimaryKeyConflict(error, authUser.id)) throw error;
+      const raced = await this.repo.getById(authUser.id);
+      if (!raced) throw error;
+      return this.returnExistingFromAuth(authUser, raced);
+    }
+  }
+
+  private async returnExistingFromAuth(authUser: AuthUserLike, existing: User): Promise<User> {
+    if (authUser.email && authUser.email !== existing.emailMirrored) {
+      return this.repo.updateUser(authUser.id, { emailMirrored: authUser.email });
+    }
+    return existing;
   }
 
   async updateProfile(
@@ -330,16 +357,27 @@ export class UserService implements UserCreatorPort {
     return this.setCreatorStatus(user, 'NONE');
   }
 
+  /** Operator-driven transitions notify the creator; self-service onboarding steps do not. */
   async suspendCreator(userId: string): Promise<User> {
     const user = await this.requireUser(userId);
     assertCreatorTransition(user.creatorStatus, 'SUSPENDED');
-    return this.setCreatorStatus(user, 'SUSPENDED');
+    return this.notifyCreatorStatus(user, await this.setCreatorStatus(user, 'SUSPENDED'));
   }
 
   async reinstateCreator(userId: string): Promise<User> {
     const user = await this.requireUser(userId);
     assertCreatorTransition(user.creatorStatus, 'ACTIVE');
-    return this.setCreatorStatus(user, 'ACTIVE');
+    return this.notifyCreatorStatus(user, await this.setCreatorStatus(user, 'ACTIVE'));
+  }
+
+  private async notifyCreatorStatus(before: User, after: User): Promise<User> {
+    await this.notifications.creatorStatusChanged({
+      userId: after.id,
+      from: before.creatorStatus,
+      to: after.creatorStatus,
+      changedAt: after.updatedAt,
+    });
+    return after;
   }
 
   async suspendAccount(userId: string): Promise<User> {
@@ -390,6 +428,12 @@ export class UserService implements UserCreatorPort {
       socialLinks: {},
     });
     await this.discovery.hideCreatorCollectionsFromDiscovery(userId);
+    try {
+      await this.notifications.purgeUser(userId);
+    } catch (err) {
+      // The notification sweeper re-runs the purge for recently deleted accounts.
+      logger.warn({ userId, message: (err as Error).message?.slice(0, 200) }, 'user.delete.notification_purge_failed');
+    }
     emitUserEvent(
       'AccountDeleted',
       buildUserEventPayload({
@@ -403,6 +447,7 @@ export class UserService implements UserCreatorPort {
     return updated;
   }
 
+  /** Notifications purged by deleteAccount stay deleted; restore never brings them back. */
   async restoreAccount(userId: string): Promise<User> {
     const user = await this.requireUser(userId);
     assertAccountTransition(user.accountStatus, 'ACTIVE');

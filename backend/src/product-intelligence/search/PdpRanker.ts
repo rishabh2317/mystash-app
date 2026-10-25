@@ -1,10 +1,12 @@
 import type { SearchCandidate } from '../domain/types';
 import { classifyCandidatePage } from './CandidatePageClassifier';
 import { classifyPdp } from './PdpClassifier';
+import { isProductIdentityCompatible } from './productIdentityCompatibility';
 
 export type PdpRankHints = {
   brand?: string | null;
   name?: string | null;
+  model?: string | null;
   category?: string | null;
 };
 
@@ -124,7 +126,20 @@ export function rankPdpCandidates(
   candidates: SearchCandidate[],
   hints: PdpRankHints,
 ): Array<SearchCandidate & { pdpScore: number }> {
-  return candidates
+  const eligible = candidates.filter((candidate) =>
+    isProductIdentityCompatible(
+      hints,
+      {
+        title: candidate.title,
+        brand: candidate.brand,
+        model: candidate.model,
+        merchantUrl: candidate.merchantUrl,
+        category: candidate.category,
+      },
+      { requireBrandSupport: false },
+    ),
+  );
+  return eligible
     .map((c) => {
       const classification = classifyPdp({
         url: c.merchantUrl,

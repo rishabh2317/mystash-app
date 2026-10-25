@@ -85,6 +85,7 @@ export class UserImportService {
     private readonly bagSync: UserImportBagSyncPort | null = null,
     private readonly scheduleTimeout: (userImportId: string) => Promise<void> = defaultScheduleTimeout,
     private readonly nowMs: () => number = () => Date.now(),
+    private readonly countPlaceCards: (userImportId: string) => Promise<number> = async () => 0,
   ) {}
 
   async submit(
@@ -211,8 +212,16 @@ export class UserImportService {
       const source = row.contentSourceId
         ? await this.contentSource.getById(row.contentSourceId)
         : null;
+      const placeCardCount = await this.countPlaceCards(row.id);
+      const progressSource = source
+        ? {
+            processingStatus: source.processingStatus,
+            candidateCount: source.candidateCount,
+            placeCardCount,
+          }
+        : null;
       const progressInput = {
-        source,
+        source: progressSource,
         timedOutAt: row.timedOutAt,
         createdAt: row.createdAt,
         nowMs,

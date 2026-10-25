@@ -2,9 +2,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -12,13 +12,21 @@ import {
 
 import { OverflowMenu } from '@/components/chrome/OverflowMenu';
 import { TopBar } from '@/components/chrome/TopBar';
+import { CollectionTileSkeleton } from '@/components/collection/CollectionTileSkeleton';
 import { CreatorProfile } from '@/components/creator/CreatorProfile';
+import { ProfileHeaderSkeleton } from '@/components/profile/ProfileHeaderSkeleton';
+import { SkeletonGrid } from '@/components/status/SkeletonStack';
 import type { CreatorProfileTab } from '@/components/creator/CreatorProfileHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { mapCreatorProductToCatalogViewModel } from '@/src/mappers/creatorProductMapper';
 import { pageCanvasGradient } from '@/src/theme/tokens';
 import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import {
+  PROFILE_VIDEO_GRID_ASPECT,
+  PROFILE_VIDEO_GRID_COLUMNS,
+  PROFILE_VIDEO_GRID_GAP,
+} from '@/src/ui/personalProfile';
 import { productPagePath } from '@/src/ui/productPage';
 import { reconcilePublicCollectionCount } from '@/src/ui/publicCreatorProfile';
 import {
@@ -30,6 +38,12 @@ import { isFollowingCreator } from '@/src/services/engagementApi';
 import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
 import { shareCreatorProfile } from '@/src/services/shareLinks';
 import { fetchPublicCreatorByUsername, UserApiError } from '@/src/services/userApi';
+import {
+  hasDetailContent,
+  resolveContentLoadState,
+  resourceIdentity,
+  retainLoadedContent,
+} from '@/src/ui/contentLoadState';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CreatorViewModel } from '@/src/types/creator';
@@ -66,9 +80,17 @@ export default function CreatorProfileScreen() {
 
   const onAddToCart = useProductAddToCartHandler();
   const loadGen = useRef(0);
+  const loadedIdentityRef = useRef<string | null>(null);
 
   const loadProfile = useCallback(async (username: string) => {
     const gen = ++loadGen.current;
+    const keep = retainLoadedContent(resourceIdentity(username), loadedIdentityRef.current);
+    if (!keep) {
+      setCreator(null);
+      loadedIdentityRef.current = null;
+      setCollections([]);
+      setProducts([]);
+    }
     setProfileLoading(true);
     setProfileError(null);
     setNotFound(false);
@@ -79,6 +101,7 @@ export default function CreatorProfileScreen() {
     try {
       const profile = await fetchPublicCreatorByUsername(username);
       if (gen !== loadGen.current) return;
+      loadedIdentityRef.current = resourceIdentity(username);
       setCreator(profile);
       setProfileLoading(false);
 
@@ -330,10 +353,30 @@ export default function CreatorProfileScreen() {
         }
       />
 
-      {profileLoading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={text} />
-        </View>
+      {resolveContentLoadState({
+        hasContent: hasDetailContent(creator != null),
+        fetching: profileLoading,
+        error: Boolean(profileError),
+      }) === 'skeleton' ? (
+        <ScrollView
+          contentContainerStyle={{
+            paddingTop: tokens.space.md,
+            paddingBottom: tokens.space.xxl,
+            gap: tokens.space.md,
+          }}
+        >
+          <View style={{ paddingHorizontal: tokens.space.md }}>
+            <ProfileHeaderSkeleton />
+          </View>
+          <SkeletonGrid columns={PROFILE_VIDEO_GRID_COLUMNS} gap={PROFILE_VIDEO_GRID_GAP}>
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+          </SkeletonGrid>
+        </ScrollView>
       ) : notFound ? (
         <View style={styles.centered}>
           <Text style={[styles.stateTitle, { color: text }]}>Creator not found</Text>
@@ -344,7 +387,7 @@ export default function CreatorProfileScreen() {
             <Text style={{ color: text, fontWeight: '700' }}>Go back</Text>
           </Pressable>
         </View>
-      ) : profileError ? (
+      ) : profileError && !creator ? (
         <View style={styles.centered}>
           <Text style={[styles.stateTitle, { color: text }]}>Couldn’t load creator</Text>
           <Text style={[styles.stateBody, { color: muted }]}>{profileError}</Text>

@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { videoExtractionCacheLookup } from '../domain/identity';
 import type { ContentSourceRecord, VideoExtractionPortResult } from '../domain/types';
 import type { VideoExtractionPort } from '../ports';
+import { USER_IMPORT_EXTRACTION_CACHE_SCOPE } from '../../services/extractionCache';
 import { runProgressiveExtract, type ProgressiveExtractResult } from '../../stages/progressiveExtract';
 import { ContentSourceTerminalError } from './errors';
 
@@ -35,6 +36,7 @@ export function createVideoExtractionAdapter(
         externalVideoId: lookup.externalVideoId,
         correlationId: params.contentSource.id,
         traceId: params.traceId,
+        cacheScope: USER_IMPORT_EXTRACTION_CACHE_SCOPE,
       });
 
       if (extracted.kind === 'source_unavailable') {
@@ -61,6 +63,7 @@ export function createVideoExtractionAdapter(
         empty: extracted.products.length === 0,
         finalStage: extracted.finalStage,
         extractionMethod: extracted.cacheHit ? 'cache' : 'ai_extract',
+        places: extracted.places,
       };
     },
   };

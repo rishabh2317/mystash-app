@@ -106,3 +106,26 @@ export function personalProductCountLabel(count: number): string {
   const n = Math.max(0, Math.floor(count));
   return `${n} product${n === 1 ? '' : 's'}`;
 }
+
+/** Instagram-style Collection / Saved video grid. Product grids stay 2-up. */
+export const PROFILE_VIDEO_GRID_COLUMNS = 3;
+/** Instagram profile posts are 3:4, not square. */
+export const PROFILE_VIDEO_GRID_ASPECT = 3 / 4;
+/** Hairline separators between tiles (matches `tokens.stroke.hairline`). */
+export const PROFILE_VIDEO_GRID_GAP = 1;
+/** Grid is full-bleed; profile chrome keeps its own padding. */
+export const PROFILE_VIDEO_GRID_GUTTER = 0;
+
+/**
+ * Profile grid cell width from content width, gutters, and inter-tile gaps.
+ * Floor so a row of N tiles cannot overflow the screen.
+ */
+export function profileGridCellWidth(
+  screenWidth: number,
+  gutter: number,
+  gap: number,
+  columns = 2,
+): number {
+  const col = Math.max(1, Math.floor(columns));
+  return Math.max(0, Math.floor((screenWidth - gutter * 2 - gap * (col - 1)) / col));
+}

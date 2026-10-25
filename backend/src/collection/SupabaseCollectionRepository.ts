@@ -198,6 +198,8 @@ function mapTag(row: Row): CollectionProductTag {
     id: String(row.id),
     collectionId: String(row.collection_id),
     catalogProductId: (row.catalog_product_id as string) ?? null,
+    campaignProductId: (row.campaign_product_id as string) ?? null,
+    discoveredProductId: (row.discovered_product_id as string) ?? null,
     sortOrder: Number(row.sort_order) || 0,
     isPrimary: strength === 'PRIMARY' || Boolean(row.is_primary),
     recommendationStrength: strength,
@@ -303,6 +305,22 @@ function collectionPatchToRow(patch: UpdateCollectionPatch): Row {
 
 export class SupabaseCollectionRepository implements CollectionRepository {
   constructor(private readonly admin: SupabaseClient) {}
+
+  async listOwnedCollections(creatorId: string): Promise<Array<Pick<Collection, 'id' | 'title' | 'status'>>> {
+    const { data, error } = await this.admin
+      .from('collections')
+      .select('id, title, status')
+      .eq('creator_id', creatorId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    return (data ?? []).map((row) => ({
+      id: String((row as Row).id),
+      title: ((row as Row).title as string) ?? null,
+      status: (row as Row).status as Collection['status'],
+    }));
+  }
 
   async insertCollection(input: CreateCollectionInput): Promise<Collection> {
     const now = new Date().toISOString();
@@ -460,6 +478,8 @@ export class SupabaseCollectionRepository implements CollectionRepository {
     const row: Row = {
       collection_id: input.collectionId,
       catalog_product_id: input.catalogProductId ?? null,
+      campaign_product_id: input.campaignProductId ?? null,
+      discovered_product_id: input.discoveredProductId ?? null,
       sort_order: input.sortOrder ?? 0,
       is_primary: strength === 'PRIMARY',
       recommendation_strength: strength,

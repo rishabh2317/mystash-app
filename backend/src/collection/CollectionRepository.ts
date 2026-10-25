@@ -72,6 +72,8 @@ export type CreateTagInput = {
   id?: string;
   collectionId: string;
   catalogProductId?: string | null;
+  campaignProductId?: string | null;
+  discoveredProductId?: string | null;
   sortOrder?: number;
   isPrimary?: boolean;
   recommendationStrength?: CollectionProductTag['recommendationStrength'];
@@ -106,6 +108,7 @@ export type UpdateTagPatch = Partial<
 
 export interface CollectionRepository {
   insertCollection(input: CreateCollectionInput): Promise<Collection>;
+  listOwnedCollections(creatorId: string): Promise<Array<Pick<Collection, 'id' | 'title' | 'status'>>>;
   getCollection(id: string): Promise<Collection | null>;
   getCollectionBySlug(slug: string): Promise<Collection | null>;
   updateCollection(id: string, patch: UpdateCollectionPatch): Promise<Collection>;

@@ -21,7 +21,7 @@ export function createUserImportBagSync(admin: SupabaseClient): UserImportBagSyn
         createDiscoveredProductService(admin),
         {
           resolveForUserImport: (drafts) => pi.resolver.resolveForUserImport(drafts),
-          resolveForUserImportFast: (drafts) => pi.resolver.resolveForUserImportFast(drafts),
+          getCatalogProduct: (id) => pi.catalog.getById(id),
         },
         userImports,
         createCartService(admin),

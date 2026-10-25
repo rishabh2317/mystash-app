@@ -22,6 +22,7 @@ import { noopCollectionTagRemap } from '../catalog/ports';
 export type ProductIntelligenceBundle = {
   resolver: ProductResolver;
   enrichment: MerchantEnrichmentService;
+  catalog: ReturnType<typeof createCatalogService>;
 };
 
 function createDiscoveryProvider(
@@ -74,5 +75,5 @@ export function createProductIntelligence(
     ingestId,
   );
 
-  return { resolver, enrichment };
+  return { resolver, enrichment, catalog };
 }

@@ -45,6 +45,7 @@ export class MerchantEnrichmentService {
       const metadata = this.normalizer.normalize(raw, {
         brandHint: input.brandHint,
         categoryHint: input.categoryHint,
+        productName: input.titleHint,
       });
       const validation = this.validator.validate(metadata);
       if (!validation.ok) {

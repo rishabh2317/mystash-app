@@ -83,7 +83,7 @@ describe('commerce country resolution', () => {
   });
 
   it('settings exposes shopping country override controls', () => {
-    const settings = readFileSync(join(ROOT, 'app/settings.tsx'), 'utf8');
+    const settings = readFileSync(join(ROOT, 'app/settings/index.tsx'), 'utf8');
     assert.match(settings, /shoppingCountry/);
     assert.match(settings, /setManualCountry|enableAutomaticLocation/);
     assert.match(settings, /SHOPPING_COUNTRY_OPTIONS/);

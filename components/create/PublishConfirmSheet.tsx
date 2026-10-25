@@ -3,12 +3,14 @@ import React from 'react';
 import {
   ActivityIndicator,
   Modal,
-  Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 
+import { ActionButton } from '@/components/ui/ActionButton';
+import { Text } from '@/components/ui/Text';
+import { outlineCardChrome } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
 import { CREATE_COPY } from '@/src/ui/createCopy';
 import {
@@ -26,7 +28,7 @@ type Props = {
   onCancel: () => void;
 };
 
-/** Light confirm sheet before publish (UX-CREATE-B.7 / B.8 tokens). Not an Alert. */
+/** Compact confirm sheet before publish. Not an Alert. */
 export function PublishConfirmSheet({
   visible,
   summary,
@@ -35,6 +37,7 @@ export function PublishConfirmSheet({
   onCancel,
 }: Props) {
   const tokens = useThemeTokens();
+  const chrome = outlineCardChrome(tokens);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={publishing ? undefined : onCancel}>
@@ -42,129 +45,55 @@ export function PublishConfirmSheet({
         <View
           style={[
             styles.card,
+            chrome,
             {
-              backgroundColor: tokens.color.canvasSoft,
-              borderColor: tokens.color.border,
-              borderRadius: tokens.radius.xl,
-              padding: tokens.space.md + 2,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderRadius: tokens.radius.lg,
+              padding: tokens.space.md,
               gap: tokens.space.sm,
             },
           ]}
         >
-          <Text
-            style={{
-              color: tokens.color.text,
-              fontSize: tokens.fontSize.title + 1,
-              fontWeight: tokens.fontWeight.extraBold,
-            }}
-          >
-            {CREATE_COPY.publishConfirmTitle}
+          {summary.thumbnailUrl ? (
+            <Image
+              source={{ uri: summary.thumbnailUrl }}
+              style={[styles.cover, { borderRadius: tokens.radius.md }]}
+              contentFit="cover"
+            />
+          ) : (
+            <View
+              style={[
+                styles.cover,
+                { backgroundColor: tokens.color.canvasEnd, borderRadius: tokens.radius.md },
+              ]}
+            />
+          )}
+          <Text style={typeStyle(tokens, 'tileTitle')} numberOfLines={2}>
+            {summary.title}
           </Text>
-          <Text
-            style={{
-              color: tokens.color.textMuted,
-              fontSize: tokens.fontSize.bodyStrong,
-              lineHeight: 20,
-            }}
-          >
-            {summary.previewLine}
-          </Text>
-
-          <View style={styles.summaryRow}>
-            {summary.thumbnailUrl ? (
-              <Image
-                source={{ uri: summary.thumbnailUrl }}
-                style={[styles.thumb, { borderRadius: tokens.radius.md }]}
-                contentFit="cover"
-              />
-            ) : (
-              <View
-                style={[
-                  styles.thumb,
-                  { backgroundColor: tokens.color.canvasEnd, borderRadius: tokens.radius.md },
-                ]}
-              />
-            )}
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text
-                style={{
-                  color: tokens.color.text,
-                  fontSize: tokens.fontSize.body,
-                  fontWeight: tokens.fontWeight.bold,
-                }}
-                numberOfLines={2}
-              >
-                {summary.title}
-              </Text>
-              <Text
-                style={{
-                  color: tokens.color.textMuted,
-                  fontSize: 13,
-                  fontWeight: tokens.fontWeight.semibold,
-                }}
-              >
-                {publishProductCountLabel(summary.productCount)}
-              </Text>
-            </View>
-          </View>
+          <Text style={typeStyle(tokens, 'sectionTitle')}>{CREATE_COPY.publishConfirmReady}</Text>
+          <Text style={typeStyle(tokens, 'bodyMuted')}>{summary.previewLine}</Text>
+          <Text style={typeStyle(tokens, 'tileMeta')}>{publishProductCountLabel(summary.productCount)}</Text>
 
           {publishing ? (
-            <View style={styles.publishingRow}>
-              <ActivityIndicator color={tokens.color.cta} />
-              <Text
-                style={{
-                  color: tokens.color.textMuted,
-                  fontSize: tokens.fontSize.bodyStrong,
-                  fontWeight: tokens.fontWeight.semibold,
-                }}
-              >
-                {CREATE_COPY.publishPublishing}
-              </Text>
+            <View style={[styles.publishingRow, { minHeight: 48, gap: tokens.space.sm }]}>
+              <ActivityIndicator color={tokens.color.primary} />
+              <Text style={typeStyle(tokens, 'bodyMuted')}>{CREATE_COPY.publishPublishing}</Text>
             </View>
           ) : (
-            <View style={[styles.actions, { gap: tokens.space.sm - 2, marginTop: tokens.space.xs }]}>
-              <Pressable
-                onPress={onCancel}
-                style={[
-                  styles.secondaryBtn,
-                  {
-                    borderColor: tokens.color.border,
-                    borderRadius: tokens.radius.md,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={CREATE_COPY.publishConfirmSecondary}
-              >
-                <Text
-                  style={{
-                    color: tokens.color.text,
-                    fontWeight: tokens.fontWeight.bold,
-                  }}
-                >
-                  {CREATE_COPY.publishConfirmSecondary}
-                </Text>
-              </Pressable>
-              <Pressable
+            <View style={{ gap: tokens.space.xs, marginTop: tokens.space.xs }}>
+              <ActionButton
+                label={CREATE_COPY.publishConfirmPrimary}
+                variant="filled"
                 onPress={onConfirm}
-                style={[
-                  styles.primaryBtn,
-                  {
-                    backgroundColor: tokens.color.cta,
-                    borderRadius: tokens.radius.md,
-                  },
-                ]}
-                accessibilityRole="button"
                 accessibilityLabel={CREATE_COPY.publishConfirmPrimary}
-              >
-                <Text
-                  style={{
-                    color: tokens.color.successOn,
-                    fontWeight: tokens.fontWeight.extraBold,
-                  }}
-                >
-                  {CREATE_COPY.publishConfirmPrimary}
-                </Text>
-              </Pressable>
+              />
+              <ActionButton
+                label={CREATE_COPY.publishConfirmSecondary}
+                variant="quiet"
+                onPress={onCancel}
+                accessibilityLabel={CREATE_COPY.publishConfirmSecondary}
+              />
             </View>
           )}
         </View>
@@ -177,34 +106,12 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     justifyContent: 'center',
-    padding: 24,
+    paddingHorizontal: 24,
   },
-  card: {
-    borderWidth: 1,
-  },
-  summaryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
-  thumb: { width: 64, height: 64 },
+  card: {},
+  cover: { width: '100%', height: 120 },
   publishingRow: {
-    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    minHeight: 48,
-  },
-  actions: { flexDirection: 'row' },
-  secondaryBtn: {
-    flex: 1,
-    borderWidth: 1,
-    minHeight: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  primaryBtn: {
-    flex: 1,
-    minHeight: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
   },
 });

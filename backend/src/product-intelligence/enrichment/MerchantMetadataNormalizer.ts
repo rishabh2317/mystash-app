@@ -6,6 +6,7 @@ import {
   type CompletenessInput,
 } from './MetadataQuality';
 import type { MerchantProductMetadata } from './types';
+import { merchantBrandAfterHint } from '../search/productIdentityCompatibility';
 
 const INC_SUFFIX =
   /\b(inc\.?|incorporated|ltd\.?|limited|llc|corp\.?|corporation|electronics|co\.?)\b/gi;
@@ -43,14 +44,21 @@ export class MerchantMetadataNormalizer {
 
   normalize(
     raw: Partial<MerchantProductMetadata>,
-    hints?: { brandHint?: string | null; categoryHint?: string | null },
+    hints?: { brandHint?: string | null; categoryHint?: string | null; productName?: string | null },
   ): MerchantProductMetadata {
     const merchantUrl = (raw.merchantUrl ?? '').trim();
     const merchant =
       raw.merchant?.trim() ||
       (merchantUrl ? detectMerchantLabel(merchantUrl) : 'Merchant');
 
-    let brand = raw.brand?.trim() || hints?.brandHint?.trim() || null;
+    let brand =
+      raw.brand?.trim() ||
+      merchantBrandAfterHint({
+        title: raw.title,
+        brandHint: hints?.brandHint,
+        productName: hints?.productName,
+        merchantUrl,
+      });
     if (brand) {
       brand = brand
         .replace(INC_SUFFIX, ' ')
@@ -107,6 +115,7 @@ export class MerchantMetadataNormalizer {
       extractedAt: raw.extractedAt ?? new Date().toISOString(),
       provider: raw.provider ?? 'unknown',
       metadataCompleteness: 0,
+      identitySource: raw.identitySource ?? null,
     };
     meta.metadataCompleteness = computeMetadataCompleteness(meta);
     return meta;

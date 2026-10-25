@@ -10,6 +10,7 @@ import { ContentSourceService } from '../content-source/ContentSourceService';
 import { InMemoryContentSourceRepository } from '../content-source/InMemoryContentSourceRepository';
 import { contentSourceProcessingJobId } from '../content-source/jobs/contentSourceQueue';
 import type { ContentProcessingQueuePort } from '../content-source/ports';
+import { InMemoryPlaceRepository } from '../place/InMemoryPlaceRepository';
 import { USER_IMPORT_TIMEOUT_MS } from './domain/shareProgress';
 import { InMemoryUserImportRepository } from './InMemoryUserImportRepository';
 import type { UserImportBagSyncPort, UserImportContentSourcePort } from './ports';
@@ -32,6 +33,7 @@ function createHarness(
     bagSync?: UserImportBagSyncPort | null;
     scheduleTimeout?: (userImportId: string) => Promise<void>;
     nowMs?: () => number;
+    countPlaceCards?: (userImportId: string) => Promise<number>;
   } = {},
 ) {
   const repo = options.repo ?? new InMemoryUserImportRepository();
@@ -71,6 +73,7 @@ function createHarness(
       options.bagSync ?? null,
       scheduleTimeout,
       options.nowMs,
+      options.countPlaceCards,
     ),
   };
 }
@@ -365,7 +368,10 @@ describe('UserImportService content source relationship', () => {
   });
 
   it('lists recent share progress without queue vocabulary', async () => {
-    const { service, sourceRepo } = createHarness();
+    const places = new InMemoryPlaceRepository();
+    const { service, sourceRepo } = createHarness({
+      countPlaceCards: (userImportId) => places.countByUserImport(userImportId),
+    });
     const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
     const looking = await service.listRecent(USER_A);
     assert.equal(looking.length, 1);
@@ -390,6 +396,22 @@ describe('UserImportService content source relationship', () => {
     assert.equal(empty[0]?.state, 'nothing_yet');
     assert.equal(empty[0]?.productCount, 0);
     assert.equal(empty[0]?.primaryProduct, null);
+
+    const placesLead = await places.insertHypothesis({
+      contentSourceId: source.id,
+      extractedName: 'Cafe de Flore',
+      unresolvedReason: 'name_not_distinctive',
+    });
+    await places.insertLead({
+      userId: USER_A,
+      contentSourcePlaceId: placesLead.id,
+      contentSourceId: source.id,
+      userImportId: submitted.record.id,
+    });
+    const leadOnly = await service.listRecent(USER_A);
+    assert.equal(leadOnly[0]?.state, 'ready');
+    assert.equal(leadOnly[0]?.productCount, 0);
+    assert.equal(leadOnly[0]?.primaryProduct, null);
 
     const catalogId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const discoveredId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';

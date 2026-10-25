@@ -7,10 +7,11 @@ import { isExactProductBuyingUrl } from '../../shopping/shoppingConfig';
  * - verificationMatchMin: enrichment/admission floor
  * - pdpClassifierMin: PDP quality floor for exact-URL path
  *
- * VERIFIED requires a commerce offer AND either:
+ * VERIFIED requires a commerce offer, a passed identity-compatibility gate, AND either:
  *   (A) bestMatch.score >= catalogHitMinScore  (strong identity match)
  *   (B) exact product buying URL + match >= verificationMatchMin
  *       + pdpScore >= pdpClassifierMin
+ * exact_buying_url does not bypass identity compatibility.
  */
 export function decideProductVerification(input: {
   hasCommerceOffer: boolean;
@@ -21,6 +22,8 @@ export function decideProductVerification(input: {
   verificationMatchMin: number;
   pdpClassifierMin: number;
   hadExistingCatalog: boolean;
+  /** False when the identity URL failed the product-identity gate. Defaults to compatible. */
+  identityCompatible?: boolean;
 }): {
   verificationStatus: VerificationStatus;
   decision: string;
@@ -30,6 +33,16 @@ export function decideProductVerification(input: {
     return {
       verificationStatus: 'UNVERIFIED',
       decision: input.hadExistingCatalog ? 'updated_metadata_only' : 'created_metadata_only',
+      identityPath: 'none',
+    };
+  }
+
+  if (input.identityCompatible === false) {
+    return {
+      verificationStatus: 'UNVERIFIED',
+      decision: input.hadExistingCatalog
+        ? 'updated_unverified_weak_identity'
+        : 'created_unverified_weak_identity',
       identityPath: 'none',
     };
   }

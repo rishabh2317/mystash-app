@@ -1,27 +1,11 @@
 import type { Express, Request, Response } from 'express';
-import { createSupabaseAdmin, createSupabaseUserClient } from '../supabase';
+import { requireAuthUserId } from '../auth/requireAuth';
+import { createSupabaseAdmin } from '../supabase';
 import { CartServiceError, createCartService } from './factory';
 import type { CartItemSource, RemoveCartItemReason } from './domain/types';
 
 async function requireUserId(req: Request, res: Response): Promise<string | null> {
-  const auth = req.headers.authorization;
-  if (!auth) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  try {
-    const {
-      data: { user },
-    } = await createSupabaseUserClient(auth).auth.getUser();
-    if (!user) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return null;
-    }
-    return user.id;
-  } catch {
-    res.status(401).json({ error: 'Unauthorized' });
-    return null;
-  }
+  return requireAuthUserId(req, res, { requireVerifiedEmail: true });
 }
 
 function mapItemJson(item: {

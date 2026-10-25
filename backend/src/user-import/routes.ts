@@ -1,5 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { logger } from '../logger';
+import { rethrowUnverifiedEmail, sendAuthError } from '../auth/requireAuth';
+import { assertEmailVerified } from '../auth/emailVerification';
 import { createSupabaseAdmin, createSupabaseUserClient } from '../supabase';
 import { createUserImportService } from './factory';
 import { UserImportServiceError } from './UserImportService';
@@ -36,8 +38,11 @@ export function supabaseUserImportAuthenticator(): UserImportAuthenticator {
       const {
         data: { user },
       } = await createSupabaseUserClient(authHeader).auth.getUser();
-      return user ? { userId: user.id } : null;
-    } catch {
+      if (!user) return null;
+      assertEmailVerified(user);
+      return { userId: user.id };
+    } catch (e) {
+      rethrowUnverifiedEmail(e);
       return null;
     }
   };
@@ -94,6 +99,7 @@ export function createUserImportHandler(deps: UserImportHandlerDeps) {
         created: result.created,
       });
     } catch (e) {
+      if (sendAuthError(res, e)) return;
       if (e instanceof UserImportServiceError) {
         res.status(e.statusCode).json({ error: e.message });
         return;
@@ -124,6 +130,7 @@ export function createUserImportListHandler(deps: UserImportListHandlerDeps) {
       const shares = await deps.service.listRecent(auth.userId);
       res.json({ shares });
     } catch (e) {
+      if (sendAuthError(res, e)) return;
       if (e instanceof UserImportServiceError) {
         res.status(e.statusCode).json({ error: e.message });
         return;
@@ -151,6 +158,7 @@ export function createUserImportRetryHandler(deps: UserImportRetryHandlerDeps) {
       const record = await deps.service.retry(auth.userId, importId);
       res.json({ importId: record.id, status: 'RECEIVED' });
     } catch (e) {
+      if (sendAuthError(res, e)) return;
       if (e instanceof UserImportServiceError) {
         res.status(e.statusCode).json({ error: e.message });
         return;
@@ -178,6 +186,7 @@ export function createUserImportDeleteHandler(deps: UserImportDeleteHandlerDeps)
       await deps.service.delete(auth.userId, importId);
       res.status(204).send();
     } catch (e) {
+      if (sendAuthError(res, e)) return;
       if (e instanceof UserImportServiceError) {
         res.status(e.statusCode).json({ error: e.message });
         return;

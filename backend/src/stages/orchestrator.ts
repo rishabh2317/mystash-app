@@ -30,6 +30,11 @@ import { parseSupportedVideoUrl } from '../pipeline/sourceIdentity';
 import { gatherYoutubeContext } from '../pipeline/youtubeContext';
 import { getVideoExtractionCache, setVideoExtractionCache } from '../services/extractionCache';
 import { emitPipelineEvent } from '../services/observability';
+import {
+  getNotificationEmitter,
+  ingestFailedEvent,
+  ingestReadyEvent,
+} from '../notifications/producers';
 import { ingestLog } from '../pipeline/ingestLog';
 import {
   estimateTokenCostUsd,
@@ -96,6 +101,7 @@ async function failIngestDueToSource(
   admin: SupabaseClient,
   params: {
     ingestRequestId: string;
+    userId: string | null;
     collectionId: string | null;
     pipelineRunId: string | null;
     stages: string[];
@@ -121,10 +127,16 @@ async function failIngestDueToSource(
       durationMs: Math.round(performance.now() - params.startedAt),
     },
   });
-  await admin
+  const failedAt = new Date().toISOString();
+  const { error: failErr } = await admin
     .from('ingest_requests')
-    .update({ status: 'failed', updated_at: new Date().toISOString() })
+    .update({ status: 'failed', updated_at: failedAt })
     .eq('id', params.ingestRequestId);
+  if (!failErr && params.userId) {
+    await getNotificationEmitter().emitSafely(
+      ingestFailedEvent({ ingestId: params.ingestRequestId, userId: params.userId, transitionAt: failedAt }),
+    );
+  }
   await finalizePipelineRun(admin, params.pipelineRunId, {
     stages: params.stages,
     finalStage: 'metadata',
@@ -321,7 +333,7 @@ export async function runProgressiveIngestPipeline(
   const { data: ingest, error: ingErr } = await admin
     .from('ingest_requests')
     .select(
-      'id, source_url, platform, video_title, video_description, video_description_source, video_creator, thumbnail, collection_id',
+      'id, user_id, source_url, platform, video_title, video_description, video_description_source, video_creator, thumbnail, collection_id',
     )
     .eq('id', ingestRequestId)
     .maybeSingle();
@@ -345,6 +357,7 @@ export async function runProgressiveIngestPipeline(
   }
 
   const collectionId = (ingest.collection_id as string) || null;
+  const ownerUserId = (ingest.user_id as string | null) ?? null;
   if (collectionId) {
     const { notifyMediaProcessingStarted } = await import('../collection/ingestBridge');
     await notifyMediaProcessingStarted(
@@ -414,10 +427,22 @@ export async function runProgressiveIngestPipeline(
       } catch {
         /* resilient: publish still allowed later */
       }
-      await admin
+      const cachedAt = new Date().toISOString();
+      const { error: cachedErr } = await admin
         .from('ingest_requests')
-        .update({ status: hit.payload.status, updated_at: new Date().toISOString() })
+        .update({ status: hit.payload.status, updated_at: cachedAt })
         .eq('id', ingestRequestId);
+      if (!cachedErr && ownerUserId) {
+        await getNotificationEmitter().emitSafely(
+          ingestReadyEvent({
+            ingestId: ingestRequestId,
+            userId: ownerUserId,
+            transitionAt: cachedAt,
+            productCount: hit.payload.products.length,
+            videoTitle: cachedMetadata?.title ?? (ingest.video_title as string | null),
+          }),
+        );
+      }
       await finalizePipelineRun(admin, pipelineRunId, {
         cacheKey: hit.cacheKey,
         stages: ['cache'],
@@ -455,6 +480,7 @@ export async function runProgressiveIngestPipeline(
     if (pack.sourceBlock) {
       return failIngestDueToSource(admin, {
         ingestRequestId,
+        userId: ownerUserId,
         collectionId,
         pipelineRunId,
         stages,
@@ -552,6 +578,7 @@ export async function runProgressiveIngestPipeline(
     if (pack.availability !== 'available') {
       return failIngestDueToSource(admin, {
         ingestRequestId,
+        userId: ownerUserId,
         collectionId,
         pipelineRunId,
         stages,
@@ -1024,10 +1051,22 @@ export async function runProgressiveIngestPipeline(
       error: (e as Error).message?.slice(0, 200),
     });
   }
-  await admin
+  const readyAt = new Date().toISOString();
+  const { error: readyErr } = await admin
     .from('ingest_requests')
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({ status, updated_at: readyAt })
     .eq('id', ingestRequestId);
+  if (!readyErr && ownerUserId) {
+    await getNotificationEmitter().emitSafely(
+      ingestReadyEvent({
+        ingestId: ingestRequestId,
+        userId: ownerUserId,
+        transitionAt: readyAt,
+        productCount: products.length,
+        videoTitle: title || (ingest.video_title as string | null),
+      }),
+    );
+  }
 
   try {
     const { data: ingestMeta } = await admin

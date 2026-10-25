@@ -14,6 +14,14 @@ describe('shareProgressState', () => {
     assert.equal(shareProgressState({ processingStatus: 'PROCESSING', candidateCount: 0 }), 'looking');
     assert.equal(shareProgressState({ processingStatus: 'READY', candidateCount: 2 }), 'ready');
     assert.equal(shareProgressState({ processingStatus: 'READY', candidateCount: 0 }), 'nothing_yet');
+    assert.equal(
+      shareProgressState({ processingStatus: 'READY', candidateCount: 0, placeCardCount: 1 }),
+      'ready',
+    );
+    assert.equal(
+      shareProgressState({ processingStatus: 'READY', candidateCount: 0, placeCardCount: 0 }),
+      'nothing_yet',
+    );
     assert.equal(shareProgressState({ processingStatus: 'FAILED', candidateCount: 0 }), 'couldnt_finish');
     assert.equal(shareProgressState(null), 'looking');
   });

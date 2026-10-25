@@ -1,6 +1,7 @@
 import { mapPublishedCollectionListItem } from '@/src/mappers/collectionMapper';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CollectionAggregateDto } from '@/src/types/collectionAggregate';
+import { supabase } from '@/src/services/supabase';
 
 export class CollectionApiError extends Error {
   constructor(
@@ -18,6 +19,14 @@ function apiBase(): string {
     throw new CollectionApiError('Mystash service is not configured.', 500);
   }
   return base;
+}
+
+async function collectionHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
 }
 
 export type CreatorCollectionsPage = {
@@ -116,7 +125,7 @@ export async function fetchCollectionById(collectionId: string): Promise<Collect
 
   const res = await fetch(`${apiBase()}/collections/${encodeURIComponent(id)}`, {
     method: 'GET',
-    headers: { Accept: 'application/json' },
+    headers: await collectionHeaders(),
   });
 
   if (res.status === 404) {

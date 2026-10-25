@@ -51,6 +51,14 @@ export class ContentSourceService {
     return this.repo.findById(id);
   }
 
+  /** Display metadata only. Does not change processing status or enqueue work. */
+  async patchDisplay(
+    id: string,
+    patch: { title?: string | null; thumbnailUrl?: string | null; publishedAt?: string | null },
+  ): Promise<ContentSourceRecord | null> {
+    return this.repo.patchDisplay(id, patch);
+  }
+
   async listProducts(contentSourceId: string) {
     return this.repo.listProducts(contentSourceId);
   }

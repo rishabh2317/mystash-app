@@ -19,6 +19,13 @@ import {
   noopUserCounterDenorm,
 } from './ports';
 import { scheduleSearchEngagementNearline } from '../search/schedule';
+import {
+  collectionSavedEvent,
+  creatorFollowedEvent,
+  NOOP_NOTIFICATION_EMITTER,
+  reelLikedEvent,
+  type NotificationEmitter,
+} from '../notifications/producers';
 
 export class EngagementServiceError extends Error {
   constructor(
@@ -61,6 +68,7 @@ export class EngagementService {
     private readonly collections: CollectionCounterDenormPort = noopCollectionCounterDenorm,
     private readonly users: UserCounterDenormPort = noopUserCounterDenorm,
     private readonly reels: ReelEligibilityPort = denyAllReelEligibility,
+    private readonly notifications: NotificationEmitter = NOOP_NOTIFICATION_EMITTER,
   ) {}
 
   async recordFact(input: RecordFactInput): Promise<{ fact: InteractionFact; inserted: boolean }> {
@@ -239,6 +247,14 @@ export class EngagementService {
       });
       this.maybeEmitCounterUpdated('creator', params.creatorId, 'followers', followers.value);
       this.maybeEmitCounterUpdated('user', params.userId, 'following', following.value);
+      await this.notifications.emitSafely(
+        creatorFollowedEvent({
+          factEventId: fact.eventId,
+          recipientUserId: params.creatorId,
+          actorUserId: params.userId,
+          occurredAt: fact.createdAt,
+        }),
+      );
     }
     return edge;
   }
@@ -331,7 +347,7 @@ export class EngagementService {
       objectId: reel.reelId,
     });
     if (!existing) {
-      const { fact } = await this.recordFact({
+      const { fact, inserted } = await this.recordFact({
         eventId: params.eventId ?? randomUUID(),
         interactionType: 'like',
         objectType: 'reel',
@@ -350,6 +366,17 @@ export class EngagementService {
         sourceEventId: fact.eventId,
         privacyClass: 'private',
       });
+      if (inserted && reel.creatorId && reel.creatorId !== params.userId) {
+        await this.notifications.emitSafely(
+          reelLikedEvent({
+            factEventId: fact.eventId,
+            recipientUserId: reel.creatorId,
+            actorUserId: params.userId,
+            occurredAt: fact.createdAt,
+            collectionId: reel.collectionId,
+          }),
+        );
+      }
     }
     const likeCount = await this.repo.countActiveEdges({
       edgeType: 'LIKE',
@@ -434,6 +461,18 @@ export class EngagementService {
     });
     if (inserted) {
       await this.bumpAndDenormCollection(params.collectionId, 'saves', 'savesCount');
+      const ownerId = fact.creatorId ?? params.creatorId ?? null;
+      if (ownerId && ownerId !== params.userId) {
+        await this.notifications.emitSafely(
+          collectionSavedEvent({
+            factEventId: fact.eventId,
+            recipientUserId: ownerId,
+            actorUserId: params.userId,
+            occurredAt: fact.createdAt,
+            collectionId: params.collectionId,
+          }),
+        );
+      }
     }
     return edge;
   }
@@ -545,7 +584,8 @@ export class EngagementService {
   }
 
   async listSavedCollections(userId: string, limit = 100): Promise<RelationshipEdge[]> {
-    return this.repo.listActiveEdges({ userId, edgeType: 'SAVE', limit });
+    const edges = await this.repo.listActiveEdges({ userId, edgeType: 'SAVE', limit });
+    return edges.filter((edge) => edge.objectType === 'collection');
   }
 
   private async requireEligibleReel(reelId: string) {

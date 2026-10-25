@@ -4,6 +4,7 @@ import { rankPdpCandidates, type PdpRankHints } from './PdpRanker';
 import { classifyPdp } from './PdpClassifier';
 import { classifyCandidatePage } from './CandidatePageClassifier';
 import { mayEnterMetadataEnrichment } from './MetadataEnrichmentAdmissionPolicy';
+import { isProductIdentityCompatible } from './productIdentityCompatibility';
 
 export type ShortlistedCandidate = SearchCandidate & {
   pdpScore: number;
@@ -39,6 +40,21 @@ export function decoratePdpCandidates(
   const decorated: ShortlistedCandidate[] = [];
 
   for (const candidate of candidates) {
+    if (
+      !isProductIdentityCompatible(
+        hints,
+        {
+          title: candidate.title,
+          brand: candidate.brand,
+          model: candidate.model,
+          merchantUrl: candidate.merchantUrl,
+          category: candidate.category,
+        },
+        { requireBrandSupport: false },
+      )
+    ) {
+      continue;
+    }
     const classification = classifyPdp({
       url: candidate.merchantUrl,
       title: candidate.title,

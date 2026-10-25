@@ -6,9 +6,16 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import type { CollectionViewModel } from '@/src/types/collection';
 import { CollectionTile } from '@/components/collection/CollectionTile';
+import {
+  PROFILE_VIDEO_GRID_COLUMNS,
+  PROFILE_VIDEO_GRID_GAP,
+  PROFILE_VIDEO_GRID_GUTTER,
+  profileGridCellWidth,
+} from '@/src/ui/personalProfile';
 
 type Props = {
   collections: CollectionViewModel[];
@@ -37,6 +44,13 @@ export function CreatorCollectionList({
 }: Props) {
   const muted = isLight ? '#4E5257' : '#AEB8C5';
   const text = isLight ? '#1A1A1B' : '#F8FAFC';
+  const { width: screenWidth } = useWindowDimensions();
+  const cellWidth = profileGridCellWidth(
+    screenWidth,
+    PROFILE_VIDEO_GRID_GUTTER,
+    PROFILE_VIDEO_GRID_GAP,
+    PROFILE_VIDEO_GRID_COLUMNS,
+  );
 
   if (loading && collections.length === 0) {
     return (
@@ -65,7 +79,7 @@ export function CreatorCollectionList({
     <FlatList
       data={collections}
       keyExtractor={(item) => item.collectionId}
-      numColumns={2}
+      numColumns={PROFILE_VIDEO_GRID_COLUMNS}
       columnWrapperStyle={styles.row}
       contentContainerStyle={styles.content}
       ListHeaderComponent={ListHeaderComponent}
@@ -76,7 +90,7 @@ export function CreatorCollectionList({
         loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={text} /> : null
       }
       renderItem={({ item }) => (
-        <View style={styles.cell}>
+        <View style={{ width: cellWidth }}>
           <CollectionTile collection={item} isLight={isLight} onPress={onPressCollection} />
         </View>
       )}
@@ -88,15 +102,12 @@ export function CreatorCollectionList({
 
 const styles = StyleSheet.create({
   content: {
-    paddingHorizontal: 16,
+    paddingHorizontal: PROFILE_VIDEO_GRID_GUTTER,
     paddingBottom: 40,
   },
   row: {
-    gap: 12,
-    marginBottom: 12,
-  },
-  cell: {
-    flex: 1,
+    gap: PROFILE_VIDEO_GRID_GAP,
+    marginBottom: PROFILE_VIDEO_GRID_GAP,
   },
   centered: {
     flex: 1,

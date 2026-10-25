@@ -1,9 +1,10 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
 
 import { CollectionPageHeader } from '@/components/collection/CollectionPageHeader';
+import { CollectionPageSkeleton } from '@/components/collection/CollectionPageSkeleton';
 import { CollectionScreen } from '@/components/collection/CollectionScreen';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { Text } from '@/components/ui/Text';
@@ -19,6 +20,12 @@ import { shareCollection } from '@/src/services/shareLinks';
 import { softCanvasGradient } from '@/src/theme/tokens';
 import { typeStyle } from '@/src/theme/typography';
 import type { CollectionDetailViewModel } from '@/src/types/collectionDetail';
+import {
+  hasDetailContent,
+  resolveContentLoadState,
+  resourceIdentity,
+  retainLoadedContent,
+} from '@/src/ui/contentLoadState';
 
 export default function CollectionPageRoute() {
   const router = useRouter();
@@ -33,6 +40,8 @@ export default function CollectionPageRoute() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const loadedIdentityRef = useRef<string | null>(null);
+  const requestIdentity = resourceIdentity(collectionId);
   const [isSaved, setIsSaved] = useState(false);
   const [savePending, setSavePending] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -40,15 +49,23 @@ export default function CollectionPageRoute() {
 
   const load = useCallback(async () => {
     if (!collectionId?.trim()) {
+      loadedIdentityRef.current = null;
+      setDetail(null);
       setNotFound(true);
       setLoading(false);
       return;
+    }
+    const keep = retainLoadedContent(requestIdentity, loadedIdentityRef.current);
+    if (!keep) {
+      setDetail(null);
+      loadedIdentityRef.current = null;
     }
     setLoading(true);
     setError(null);
     setNotFound(false);
     try {
       const next = await loadCollectionDetail(collectionId.trim());
+      loadedIdentityRef.current = requestIdentity;
       setDetail(next);
       if (user) {
         try {
@@ -60,7 +77,10 @@ export default function CollectionPageRoute() {
         setIsSaved(false);
       }
     } catch (e) {
-      setDetail(null);
+      if (!keep) {
+        setDetail(null);
+        loadedIdentityRef.current = null;
+      }
       if (e instanceof CollectionApiError && e.statusCode === 404) {
         setNotFound(true);
       } else {
@@ -69,7 +89,7 @@ export default function CollectionPageRoute() {
     } finally {
       setLoading(false);
     }
-  }, [collectionId, user]);
+  }, [collectionId, requestIdentity, user]);
 
   useEffect(() => {
     void load();
@@ -163,7 +183,6 @@ export default function CollectionPageRoute() {
     }
   }, [detail]);
 
-  const text = tokens.color.text;
   const message = [typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' as const }];
   const shell = (body: React.ReactNode) => (
     <View style={styles.root}>
@@ -173,8 +192,20 @@ export default function CollectionPageRoute() {
     </View>
   );
 
-  if (loading) {
-    return shell(<ActivityIndicator size="large" color={text} />);
+  const loadState = resolveContentLoadState({
+    hasContent: hasDetailContent(detail != null),
+    fetching: loading,
+    error: Boolean(error),
+  });
+
+  if (loadState === 'skeleton') {
+    return (
+      <View style={styles.root}>
+        <LinearGradient colors={[...softCanvasGradient(tokens)]} style={StyleSheet.absoluteFill} />
+        <CollectionPageHeader title="Shop" />
+        <CollectionPageSkeleton />
+      </View>
+    );
   }
 
   if (notFound) {

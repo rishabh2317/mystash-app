@@ -6,17 +6,19 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 
 import { TopBar } from '@/components/chrome/TopBar';
+import { StatusBlock } from '@/components/status/StatusBlock';
+import { CollectionTileSkeleton } from '@/components/collection/CollectionTileSkeleton';
 import { EditProfileSheet } from '@/components/profile/EditProfileSheet';
 import { PersonalProfile } from '@/components/profile/PersonalProfile';
+import { ProfileAuthForm, type ProfileAuthStep } from '@/components/profile/ProfileAuthForm';
+import { ProfileHeaderSkeleton } from '@/components/profile/ProfileHeaderSkeleton';
+import { SkeletonGrid } from '@/components/status/SkeletonStack';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import {
@@ -25,15 +27,26 @@ import {
   parseFollowCreatorIntent,
   parseSaveCollectionIntent,
 } from '@/src/navigation/authIntent';
+import { useUnreadNotifications } from '@/src/hooks/useUnreadNotifications';
+import { NOTIFICATIONS_HREF } from '@/src/notifications/linking';
 import { requestAddToCart } from '@/src/services/cartBoundary';
+import { NOTIFICATIONS_COPY } from '@/src/ui/notificationsInbox';
 import { listCreatorCollections } from '@/src/services/collectionApi';
 import { followCreator, saveCollection } from '@/src/services/engagementApi';
 import { loadSavedCollections } from '@/src/services/personalProfileContent';
 import { shareCreatorProfile } from '@/src/services/shareLinks';
 import { collectionTilePressPath } from '@/src/ui/collectionLayout';
+import {
+  PROFILE_VIDEO_GRID_ASPECT,
+  PROFILE_VIDEO_GRID_COLUMNS,
+  PROFILE_VIDEO_GRID_GAP,
+} from '@/src/ui/personalProfile';
 import { reconcilePublicCollectionCount } from '@/src/ui/publicCreatorProfile';
 import { pageCanvasGradient } from '@/src/theme/tokens';
+import { AUTH_COPY } from '@/src/auth/authErrors';
+import { MIN_PASSWORD_LENGTH, passwordMeetsPolicy } from '@/src/auth/passwordPolicy';
 import { ensureMe, updateMyProfile } from '@/src/services/userApi';
+import { maybePromptForPush } from '@/src/notifications/permissionPrompt';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CreatorViewModel } from '@/src/types/creator';
 
@@ -46,9 +59,23 @@ export default function ProfileScreen() {
     username?: string | string[];
     collectionId?: string | string[];
   }>();
-  const { tokens, isLight } = useThemeMode();
-  const { user, loading, signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
+  const { tokens } = useThemeMode();
+  const {
+    user,
+    loading,
+    emailVerified,
+    pendingConfirmationEmail,
+    passwordRecoveryPending,
+    signInWithEmail,
+    signUpWithEmail,
+    signInWithGoogle,
+    resendConfirmationEmail,
+    dismissPendingConfirmation,
+    signOut,
+  } = useAuth();
+  const notifications = useUnreadNotifications();
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
+  const [authStep, setAuthStep] = useState<ProfileAuthStep>('welcome');
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -73,6 +100,12 @@ export default function ProfileScreen() {
 
   // OD-12: resume ADD_TO_CART / FOLLOW_CREATOR / SAVE_COLLECTION after successful auth.
   useEffect(() => {
+    if (!loading && user && passwordRecoveryPending) {
+      router.replace('/auth/reset-password' as Href);
+    }
+  }, [loading, user, passwordRecoveryPending, router]);
+
+  useEffect(() => {
     if (!user || loading) return;
 
     const cartIntent = parseAddToCartIntent(params);
@@ -95,6 +128,7 @@ export default function ProfileScreen() {
       if (consumedAuthIntentRef.current === consumeKey) return;
       consumedAuthIntentRef.current = consumeKey;
       void followCreator(followIntent.creatorId)
+        .then(() => void maybePromptForPush('first_follow'))
         .catch((e) => {
           if (__DEV__) {
             console.warn('[profile] follow intent failed', e);
@@ -189,14 +223,14 @@ export default function ProfileScreen() {
   }, []);
 
   useEffect(() => {
-    if (!user || loading) {
+    if (!user || loading || !emailVerified || passwordRecoveryPending) {
       setCreator(null);
       setCollections([]);
       setSaved([]);
       return;
     }
     void loadProfile();
-  }, [user, loading, loadProfile]);
+  }, [user, loading, emailVerified, passwordRecoveryPending, loadProfile]);
 
   useEffect(() => {
     if (!creator?.userId) return;
@@ -255,8 +289,8 @@ export default function ProfileScreen() {
         Alert.alert('Missing fields', 'Full name and username are mandatory for sign up.');
         return;
       }
-      if (password.length < 8) {
-        Alert.alert('Weak password', 'Password must be at least 8 characters.');
+      if (!passwordMeetsPolicy(password)) {
+        Alert.alert('Weak password', `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
         return;
       }
       if (password !== confirmPassword) {
@@ -280,15 +314,22 @@ export default function ProfileScreen() {
         if (error) {
           Alert.alert('Sign up failed', error);
         } else if (needsEmailConfirmation) {
-          Alert.alert(
-            'Confirm your email',
-            'Supabase sent a real message (often from noreply@mail.app.supabase.io). Check inbox and spam, tap Confirm, then use Sign in below with the same email and password.\n\nFor local testing only: in Supabase → Authentication → Providers → Email, turn off "Confirm email".',
-          );
-          setAuthMode('signin');
+          Alert.alert(AUTH_COPY.pendingTitle, AUTH_COPY.pendingBody);
         } else {
           Alert.alert('Welcome', 'Your account is ready. You are signed in.');
         }
       }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onResendConfirmation = async () => {
+    setSubmitting(true);
+    try {
+      const { error } = await resendConfirmationEmail(email.trim() || undefined);
+      if (error) Alert.alert('Could not resend', error);
+      else Alert.alert(AUTH_COPY.pendingTitle, AUTH_COPY.confirmationSent);
     } finally {
       setSubmitting(false);
     }
@@ -322,103 +363,64 @@ export default function ProfileScreen() {
     );
   }
 
-  if (!user) {
+  if ((pendingConfirmationEmail && !user) || (user && !emailVerified)) {
     return (
       <View style={styles.screen}>
-        <LinearGradient
-          colors={
-            isLight
-              ? [tokens.color.canvasSoft, tokens.color.canvasSoftEnd, tokens.color.canvasEnd]
-              : [tokens.color.canvasSoft, tokens.color.canvasSoftEnd, tokens.color.canvas]
-          }
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.8, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
         <TopBar mode="page" title="Profile" showBag={false} />
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.name, { color: tokens.color.text }]}>Welcome to Mystash</Text>
-          <Text style={[styles.email, { color: tokens.color.textMuted }]}>
-            Sign in to manage profile, wishlist, and creator earnings.
-          </Text>
-
-          <View
-            style={[
-              styles.authCard,
-              { backgroundColor: isLight ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.08)' },
-            ]}
+        <View style={[styles.centered, { paddingHorizontal: 24 }]}>
+          <StatusBlock
+            kind="empty"
+            title={AUTH_COPY.pendingTitle}
+            message={AUTH_COPY.pendingBody}
+            actionLabel={submitting ? 'Sending…' : AUTH_COPY.resend}
+            onAction={() => void onResendConfirmation()}
+          />
+          <Pressable
+            onPress={() => {
+              void dismissPendingConfirmation();
+              if (user) void signOut();
+            }}
+            style={{ marginTop: 16 }}
           >
-            <View style={styles.authModeSwitch}>
-              <TouchableOpacity
-                onPress={() => setAuthMode('signup')}
-                style={[styles.authPill, authMode === 'signup' && styles.authPillActive]}
-              >
-                <Text style={styles.authPillText}>Create account</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setAuthMode('signin')}
-                style={[styles.authPill, authMode === 'signin' && styles.authPillActive]}
-              >
-                <Text style={styles.authPillText}>Sign in</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={{ color: muted, fontWeight: '600' }}>Use a different email</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
-            {authMode === 'signup' && (
-              <>
-                <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Full name *"
-                  style={styles.input}
-                  autoCapitalize="words"
-                />
-                <TextInput
-                  value={username}
-                  onChangeText={setUsername}
-                  placeholder="Username *"
-                  style={styles.input}
-                  autoCapitalize="none"
-                />
-              </>
-            )}
-
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Email *"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              style={styles.input}
-            />
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Password *"
-              secureTextEntry
-              style={styles.input}
-            />
-            {authMode === 'signup' && (
-              <TextInput
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                placeholder="Confirm password *"
-                secureTextEntry
-                style={styles.input}
-              />
-            )}
-
-            <TouchableOpacity style={styles.primaryBtn} onPress={onSubmitAuth} disabled={submitting}>
-              <Text style={styles.primaryBtnText}>
-                {authMode === 'signup' ? 'Create account' : 'Sign in'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.googleBtn} onPress={onGoogleSignIn} disabled={submitting}>
-              <Ionicons name="logo-google" size={16} color="#111827" />
-              <Text style={styles.googleBtnText}>Continue with Google</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
+  if (!user) {
+    return (
+      <View style={[styles.screen, { backgroundColor: tokens.color.canvasSoft }]}>
+        <TopBar
+          mode="page"
+          title="Profile"
+          showBag={false}
+          showBack={authStep === 'form'}
+          onBack={() => setAuthStep('welcome')}
+        />
+        <ProfileAuthForm
+          step={authStep}
+          onOpenMode={(mode) => {
+            setAuthMode(mode);
+            setAuthStep('form');
+          }}
+          authMode={authMode}
+          onChangeMode={setAuthMode}
+          name={name}
+          onChangeName={setName}
+          onChangeUsername={setUsername}
+          email={email}
+          onChangeEmail={setEmail}
+          password={password}
+          onChangePassword={setPassword}
+          confirmPassword={confirmPassword}
+          onChangeConfirmPassword={setConfirmPassword}
+          submitting={submitting}
+          onSubmit={() => void onSubmitAuth()}
+          onGoogle={() => void onGoogleSignIn()}
+          onForgotPassword={() => router.push('/auth/forgot-password' as Href)}
+        />
       </View>
     );
   }
@@ -433,13 +435,19 @@ export default function ProfileScreen() {
         trailing={
           <View style={{ flexDirection: 'row', gap: 4 }}>
             <Pressable
-              onPress={() => router.push('/settings')}
+              onPress={() => router.push(notifications.enabled ? NOTIFICATIONS_HREF : '/settings')}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Notifications"
+              accessibilityLabel={NOTIFICATIONS_COPY.bellLabel(notifications.unread)}
               style={styles.menuBtn}
             >
               <Ionicons name="notifications-outline" size={22} color={text} />
+              {notifications.unread.unread > 0 ? (
+                <View
+                  style={[styles.unreadDot, { backgroundColor: tokens.color.primary }]}
+                  accessibilityElementsHidden
+                />
+              ) : null}
             </Pressable>
             <Pressable
               onPress={() => router.push('/settings')}
@@ -455,8 +463,18 @@ export default function ProfileScreen() {
       />
 
       {profileLoading && !creator ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={text} />
+        <View style={{ paddingTop: tokens.space.md, gap: tokens.space.md }}>
+          <View style={{ paddingHorizontal: tokens.space.md }}>
+            <ProfileHeaderSkeleton />
+          </View>
+          <SkeletonGrid columns={PROFILE_VIDEO_GRID_COLUMNS} gap={PROFILE_VIDEO_GRID_GAP}>
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+            <CollectionTileSkeleton variant="public" aspectRatio={PROFILE_VIDEO_GRID_ASPECT} radius={0} />
+          </SkeletonGrid>
         </View>
       ) : profileError && !creator ? (
         <View style={styles.centered}>
@@ -498,12 +516,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
   },
-  content: {
-    paddingHorizontal: 18,
-    paddingTop: 26,
-    paddingBottom: 32,
-    gap: 16,
-  },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -520,75 +532,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  name: {
-    fontSize: 24,
-    fontWeight: '800',
-  },
-  email: {
-    fontSize: 14,
-    marginTop: 4,
-  },
-  authCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    padding: 14,
-    gap: 10,
-  },
-  authModeSwitch: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 4,
-  },
-  authPill: {
-    flex: 1,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(148,163,184,0.35)',
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  authPillActive: {
-    backgroundColor: 'rgba(0,242,255,0.18)',
-    borderColor: 'rgba(0,242,255,0.7)',
-  },
-  authPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: 'rgba(148,163,184,0.45)',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    color: '#111827',
-  },
-  primaryBtn: {
-    borderRadius: 10,
-    paddingVertical: 12,
-    backgroundColor: '#111827',
-    alignItems: 'center',
-  },
-  primaryBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  googleBtn: {
-    borderRadius: 10,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  googleBtnText: {
-    color: '#111827',
-    fontWeight: '700',
-    fontSize: 14,
+  unreadDot: {
+    position: 'absolute',
+    top: 8,
+    right: 9,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

@@ -1,8 +1,11 @@
 import '@/src/polyfills/installCryptoForAuth';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import { Product, Video } from '@/src/mocks/videos';
 import { mapVideoRow } from '@/src/mappers/videoRowMapper';
+import { bindAuthAutoRefresh } from '@/src/auth/sessionLifecycle';
+import { FEED_PAGE_SIZE, FEED_VIDEO_COLUMNS, feedHasMore, feedPageRange } from '@/src/ui/feedQuery';
 import type { CatalogProductRow } from '@/src/types/catalogProduct';
 import { createClient } from '@supabase/supabase-js';
 
@@ -13,7 +16,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables. Please check your .env file.');
 }
 
-/** AsyncStorage is required so PKCE `code_verifier` survives until `exchangeCodeForSession` (Google OAuth on device). */
+/**
+ * Session persistence uses AsyncStorage (not SecureStore).
+ * The PKCE `code_verifier` must survive the Google/browser hop until
+ * `exchangeCodeForSession`. SecureStore is a poor fit for the full Auth
+ * storage adapter (size limits, no web, and undocumented SDK compatibility).
+ * Tokens are readable on a rooted/jailbroken device; that is accepted until a
+ * supported encrypted adapter is proven with PKCE + restore.
+ */
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: AsyncStorage,
@@ -23,6 +33,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     flowType: 'pkce',
   },
 });
+
+bindAuthAutoRefresh(supabase.auth, AppState);
 
 export interface DatabaseVideo {
   id: string;
@@ -126,6 +138,32 @@ async function fetchProductsForVideos(videoIds: string[]): Promise<Map<string, P
     map.set(row.video_id, list);
   }
   return map;
+}
+
+/** First paint: one page of reel metadata. Product rows load for the active reel only. */
+export async function fetchFeedPage(page: number): Promise<{ videos: Video[]; hasMore: boolean }> {
+  const { from, to } = feedPageRange(page, FEED_PAGE_SIZE);
+  const { data, error } = await supabase
+    .from('videos')
+    .select(FEED_VIDEO_COLUMNS)
+    .order('created_at', { ascending: false })
+    .range(from, to);
+
+  if (error) {
+    console.error('Supabase feed page error:', error.code, error.message);
+    throw new Error(error.message || 'Could not load videos from Supabase');
+  }
+
+  const rows = (data ?? []) as DatabaseVideo[];
+  return {
+    videos: rows.map((video) => mapVideoRow(video, [])),
+    hasMore: feedHasMore(rows.length, FEED_PAGE_SIZE),
+  };
+}
+
+export async function fetchProductsForVideo(videoId: string): Promise<Product[]> {
+  const map = await fetchProductsForVideos([videoId]);
+  return map.get(videoId) ?? [];
 }
 
 export async function fetchVideos(): Promise<Video[]> {

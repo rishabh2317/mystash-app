@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { TopBar } from '@/components/chrome/TopBar';
+import { TextBlockSkeleton } from '@/components/status/TextBlockSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { listFollowingIds } from '@/src/services/engagementApi';
@@ -37,7 +38,7 @@ export default function PersonalFollowingScreen() {
       <TopBar mode="page" title={PERSONAL_PROFILE_COPY.followingLabel} showBack showBag={false} />
       <View style={styles.body}>
         {loading ? (
-          <ActivityIndicator color={tokens.color.text} />
+          <TextBlockSkeleton />
         ) : error ? (
           <Text style={{ color: tokens.color.textMuted, textAlign: 'center' }}>{error}</Text>
         ) : count === 0 ? (

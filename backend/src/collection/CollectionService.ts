@@ -275,6 +275,23 @@ export class CollectionService {
     };
   }
 
+  async listEditable(userId: string): Promise<Array<Pick<Collection, 'id' | 'title' | 'status'>>> {
+    const rows = await this.repo.listOwnedCollections(userId);
+    return rows.filter((row) =>
+      ['draft', 'processing', 'ready_for_review', 'review_required'].includes(row.status),
+    );
+  }
+
+  /** Existing lifecycle step so publish() can run. Does not change publish rules. */
+  async markReadyForReview(collectionId: string, userId: string): Promise<Collection> {
+    const collection = await this.requireOwned(collectionId, userId);
+    if (collection.status === 'ready_for_review' || collection.status === 'review_required') {
+      return collection;
+    }
+    assertTransition(collection.status, 'ready_for_review');
+    return this.repo.updateCollection(collection.id, { status: 'ready_for_review' });
+  }
+
   async createDraft(params: {
     user: AuthUserLike;
     title?: string | null;

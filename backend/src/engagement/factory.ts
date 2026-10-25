@@ -4,6 +4,7 @@ import { SupabaseEngagementRepository } from './SupabaseEngagementRepository';
 import type { CollectionCounterDenormPort, UserCounterDenormPort } from './ports';
 import { getEligiblePublicReel } from './reelEligibility';
 import { createUserService } from '../user/factory';
+import { getNotificationEmitter } from '../notifications/producers';
 
 export function createCollectionCounterDenorm(
   admin: SupabaseClient,
@@ -48,6 +49,7 @@ export function createEngagementService(
     {
       getEligiblePublicReel: (reelId) => getEligiblePublicReel(admin, reelId),
     },
+    getNotificationEmitter(),
   );
 }
 

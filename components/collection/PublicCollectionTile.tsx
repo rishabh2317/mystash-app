@@ -9,13 +9,15 @@ import type { CollectionViewModel } from '@/src/types/collection';
 type Props = {
   collection: CollectionViewModel;
   onPress: (collection: CollectionViewModel) => void;
+  aspectRatio?: number;
+  flush?: boolean;
 };
 
 /**
  * Public-profile collection cell: product-count overlay + real Save / Unsave
  * (same auth-gated engagement path as reel / collection save).
  */
-export function PublicCollectionTile({ collection, onPress }: Props) {
+export function PublicCollectionTile({ collection, onPress, aspectRatio, flush }: Props) {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
   const [savePending, setSavePending] = useState(false);
@@ -63,6 +65,8 @@ export function PublicCollectionTile({ collection, onPress }: Props) {
     <CollectionTile
       collection={collection}
       variant="public"
+      aspectRatio={aspectRatio}
+      flush={flush}
       onPress={onPress}
       isSaved={isSaved}
       savePending={savePending}

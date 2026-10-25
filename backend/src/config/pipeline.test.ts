@@ -46,6 +46,19 @@ describe('buildCacheKey', () => {
     const key = buildCacheKey({ platform: 'youtube', externalVideoId: 'abc123' });
     assert.equal(key, 'youtube:abc123:v5-test:prov-test:youtube-text-captions-v1');
   });
+
+  it('keeps creator keys stable and scopes user-import extractions separately', () => {
+    const creator = buildCacheKey({ platform: 'youtube', externalVideoId: 'abc123' });
+    const user = buildCacheKey({
+      platform: 'youtube',
+      externalVideoId: 'abc123',
+      scope: 'user-import',
+    });
+    assert.notEqual(creator, user);
+    assert.equal(creator, 'youtube:abc123:v5-test:prov-test:youtube-text-captions-v1');
+    assert.match(user, /:user-import:places-v2$/);
+    assert.doesNotMatch(user, /places-v1/);
+  });
 });
 
 describe('stagePass', () => {
