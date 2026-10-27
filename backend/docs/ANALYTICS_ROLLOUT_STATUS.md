@@ -39,3 +39,9 @@ Execution results will be appended only after verification. This document distin
 - Actual PostgREST enforcement passed: the service-only probe with a 100 ms function statement timeout returned SQLSTATE `57014` after 212 ms, without client abort. The temporary probe was removed. No shared database-role timeout was altered.
 - Backend production typecheck/build and client no-emit checks pass. The 194-test release-focused regression pass succeeded after preparation changes. Changed-file lint has no errors or new findings; two pre-existing Home-feed hook warnings remain.
 - A constant, aggregate-only maintenance-success log is added for deployment verification. It contains no user, request, event or profile payload. Runtime activation and its acceptance results remain pending below.
+
+## Runtime acceptance follow-up
+
+The API started and local health/config/private-route smoke checks passed. Public health also returns HTTP 200 through Cloudflare with the Node client and a labeled release-check user agent. Cloudflare's existing handling of Python's default user agent returned 403; no gateway security setting was changed.
+
+A real-process check found that the standalone worker exited after its startup RPCs because the reused schedulers unreferenced their timers. The new worker was stopped while this was corrected. Dedicated-worker calls now explicitly retain their scheduler timers; embedded callers keep their previous unreferenced behavior. Both scheduler paths have child-process regressions proving continued lifetime after startup and graceful shutdown. All nine worker scheduling/timeout/lifetime checks pass. This correction changes only worker process management, not event collection or application behavior.

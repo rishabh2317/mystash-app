@@ -4,7 +4,7 @@ import { logger } from '../logger';
 import { analyticsRpc } from '../analytics/rpc';
 
 /** SQL lease/rate gate coordinates replicas; durable reports expire after 30 days. */
-export function startEngagementReconciliation(admin: SupabaseClient): { close(): void } {
+export function startEngagementReconciliation(admin: SupabaseClient, options: { keepAlive?: boolean } = {}): { close(): void } {
   let running = false;
   const check = async () => {
     if (running) return;
@@ -23,6 +23,6 @@ export function startEngagementReconciliation(admin: SupabaseClient): { close():
   };
   void check();
   const timer = setInterval(() => void check(), 60 * 60 * 1000);
-  timer.unref();
+  if (!options.keepAlive) timer.unref();
   return { close: () => clearInterval(timer) };
 }

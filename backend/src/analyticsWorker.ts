@@ -6,8 +6,8 @@ import { createSupabaseAdmin } from './supabase';
 
 // Deploy analytics independently without starting ingestion, AI, notification or library jobs.
 const admin = createSupabaseAdmin();
-const maintenance = startAnalyticsMaintenance(admin);
-const reconciliation = startEngagementReconciliation(admin);
+const maintenance = startAnalyticsMaintenance(admin, { keepAlive: true });
+const reconciliation = startEngagementReconciliation(admin, { keepAlive: true });
 logger.info('analytics.worker_started');
 
 let closing = false;

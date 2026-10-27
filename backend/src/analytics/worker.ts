@@ -17,7 +17,7 @@ export async function runCreatorRollup(admin:SupabaseClient,timeoutMs=ANALYTICS_
  const {error}=await analyticsRpc(admin,'analytics_rollup_creators',{p_measurement_enabled:analyticsEnabled()},timeoutMs);
  if(error)throw new Error('Creator rollup unavailable');
 }
-export function startAnalyticsMaintenance(admin:SupabaseClient,options:{rpcTimeoutMs?:number;tickMs?:number;maintenanceTickMs?:number;maintenanceIntervalMs?:number}={}){
+export function startAnalyticsMaintenance(admin:SupabaseClient,options:{rpcTimeoutMs?:number;tickMs?:number;maintenanceTickMs?:number;maintenanceIntervalMs?:number;keepAlive?:boolean}={}){
  const timeout=options.rpcTimeoutMs??ANALYTICS_RPC_TIMEOUT_MS;
  let aggregateBusy=false,maintenanceBusy=false,lastMaintenance=0,closed=false;
  const aggregate=async()=>{if(closed||aggregateBusy)return;aggregateBusy=true;
@@ -37,6 +37,6 @@ export function startAnalyticsMaintenance(admin:SupabaseClient,options:{rpcTimeo
  void aggregate();void maintain();
  const timer=setInterval(()=>void aggregate(),options.tickMs??300000);
  const maintenanceTimer=setInterval(()=>void maintain(),options.maintenanceTickMs??60000);
- timer.unref();maintenanceTimer.unref();
+ if(!options.keepAlive){timer.unref();maintenanceTimer.unref();}
  return {close(){closed=true;clearInterval(timer);clearInterval(maintenanceTimer);}};
 }
