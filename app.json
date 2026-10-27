@@ -27,7 +27,6 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
       "package": "com.anonymous.Mystash",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
@@ -40,6 +39,14 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
       "expo-router",
       [
         "expo-splash-screen",
@@ -83,7 +90,11 @@
       "reactCompiler": false
     },
     "extra": {
-      "youtubeEmbedOrigin": "https://mystash.app"
-    }
+      "youtubeEmbedOrigin": "https://mystash.app",
+      "eas": {
+        "projectId": "2a341a10-5b80-419d-889b-44ab2f39a066"
+      }
+    },
+    "owner": "rishabh17"
   }
 }
