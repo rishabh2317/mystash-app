@@ -1,6 +1,6 @@
 # Mystash Analytics — Consolidated deployment checklist, Phases 1–5
 
-**Status: controlled rollout authorized by the user on 2026-10-28; preparation and staged verification are in progress. Optional collection/personalization/admin access remain disabled pending pilot acceptance.** All optional analytics/reporting/personalization flags remain absent/false locally. Admin membership is unassigned in the real project. No build, account provisioning, migration push, service deployment or paid service has been started.
+**Status: initial backend/schema rollout deployed and verified on 2026-10-28.** Runtime release `42ddade`; collection, personalization, optional reports/rollups and admin access remain disabled. Pilot/client activation waits for the verified test account and remaining acceptance gates. No paid service or mobile build was initiated.
 
 This is one coordinated release plan with ordered migration/backend/worker/client steps. All unchecked steps require future operator execution after explicit approval. Do not treat local fixture success or this document as permission to change production. Preserve both application identifiers, the existing Android share target and all existing business functionality.
 
@@ -13,12 +13,12 @@ All seven findings have local fixes and permanent regressions. [Fix details, ver
 - [x] R1: flag-independent consent recovery/disable controls, actual private settings, stale-enable revision guard and bounded requests.
 - [x] R2: every merchant store enforces current optional identity consent regardless of headers; withdrawal races covered.
 - [x] R3: idempotent `deleted_at` and status erasure across all phases; restoration requires fresh consent.
-- [x] R4: independently scheduled maintenance, abortable RPC deadlines and scoped SQL deadlines implemented. Live PostgREST timeout enforcement/worker evidence is still required.
-- [x] R5: preserving projection initialization, explicit legacy baselines, stock/drift guards, inventory and opt-in cutover preparation implemented. No reset/purge executed. Live all-counter parity and drained writers are still required.
+- [x] R4: independently scheduled maintenance, abortable RPC deadlines and scoped SQL deadlines implemented. Live PostgREST statement cancellation and initial worker execution are now verified; broader monitoring/capacity acceptance remains open.
+- [x] R5: preserving projection initialization, explicit legacy baselines, stock/drift guards, inventory and opt-in cutover preparation implemented. No reset/purge executed. Live 238-counter parity and drained, preserving cutover are now verified; no reset was needed.
 - [x] R6: clean separate client/backend no-emit checks; minimal existing type issues fixed and locked file-system dependency declared directly.
 - [x] R7: valid offline scope/revision queues held without collection; withdrawals, mismatches, invalid policies/receipts and TTL still purge.
 
-**Deployment blockers remaining:** reviewed release checkpoint; full-schema/actual-role rehearsal and migration history; backed-up, drained, approved counter cutover; live API deadline enforcement; worker/retention/alert/capacity proof; privacy/logging/flag and Android/iOS/old-client validation. Do not treat the local checkmarks as production acceptance.
+**Activation gates remaining:** identified verified pilot account; Android/iOS/old-client acceptance; gateway/application log-redaction and failure-alert review; target-DAU/storage/query/WAL/egress measurements; durable off-host recovery. The checkpoint, application-schema/role restore rehearsal, backed-up preserving counter cutover, live API deadlines and initial runtime checks are complete. Keep optional features and admin access off.
 
 ## Original readiness audit — 2026-10-27 (historical reproductions)
 
@@ -64,12 +64,14 @@ The checkout is `codex/cross-platform-development` at base HEAD `e787627f20eadf8
 
 - [x] Create reviewed checkpoint `b5c0b23`, push/verify the release branch, exclude private backups/credentials/artifacts and preserve the six separate Creator Studio edits.
 - [x] Restore the private logical backup into PostgreSQL 17 with copied database ownership/roles, IP egress denied, and rehearse the exact transaction plus private-role checks. Application schema/records and business parity passed; managed gateway timeout behavior was verified separately live. Managed platform workers were not run locally.
-- [ ] Verify the target migration history, backup/restore point, write-drain/counter baseline, private credential presence, approved admin identity, gateway log redaction and rollback owner. These live prerequisites were not queried or changed by this audit.
-- [ ] Verify a running independent maintenance/reconciliation worker with failure alerts, RPC/SQL deadlines, matched API/worker collection flags and measured 1k-DAU storage/query/WAL headroom. 10k/100k figures remain planning estimates, not measured capacity or free-tier guarantees.
+- [x] Verify the existing target, migration history, restore-tested private backup, drained/preserving counter baseline, private credential availability and rollback protocol in the controlled rollout.
+- [ ] Identify the pilot account and finish gateway/log-redaction acceptance. Admin membership stays empty unless separately approved; no admin identity has been selected.
+- [x] Verify the independent maintenance/reconciliation worker, real SQL/RPC deadlines, matching disabled collection flags, successful cleanup and stable PIDs.
+- [ ] Verify failure-alert ownership and measured 1k-DAU storage/query/WAL/egress headroom. 10k/100k figures remain planning estimates, not measured capacity or free-tier guarantees.
 - [ ] Perform new Android/iOS UI and old-client compatibility checks for consent/settings, dashboards, Creator Studio, share target, saved items and merchant navigation. The previously successful iOS build predates this implementation; Node/SQL tests do not validate the new native UI.
 - [x] Re-run existing and permanent R1–R7 regressions after fixes: 378 selected tests pass, both disposable SQL suites pass, and separate project-scoped compilers are clean. Historical audit reproductions were coverage gaps now covered.
 
-### Phase assessment and minimum sequence
+### Original phase assessment and minimum sequence (historical; current execution record supersedes it)
 
 Phase 1 is held on counter cutover/compile/erasure evidence; Phase 2 on general consent and merchant identity enforcement; Phases 3–4 have locally tested report math/authorization but still require maintenance guarantees, role/schema rehearsal and device QA; Phase 5's separate purpose epoch/reset/stale-commit guards pass locally but depend on the earlier activity/privacy layer being corrected. No current recommendation consumer is connected. Unsupported monthly/returning-user/conversion metrics remain intentionally unavailable; adding playback or extra infrastructure is not a readiness requirement.
 
@@ -82,11 +84,11 @@ Minimum sequence: fix R6's small existing compile/dependency issues; implement/t
 - [x] Complete local implementations and per-phase reports: [Phase 1](./ANALYTICS_PHASE_1.md), [Phase 2](./ANALYTICS_PHASE_2.md), [Phase 3](./ANALYTICS_PHASE_3.md), [Phase 4](./ANALYTICS_PHASE_4.md), [Phase 5](./ANALYTICS_PHASE_5.md).
 - [x] Keep all playback analytics excluded. Embedded YouTube/Instagram players and Product Page embed match original Git source.
 - [x] Run selected regressions (378 passing), both disposable SQL suites including readiness/timeout/counter checks, clean client/backend no-emit checks and lint with no new findings. Three existing UI files use documented temporary test-loader copies.
-- [ ] Review/checkpoint the entire analytics change set, preserving existing work. Separate analytics changes from the already present Creator Studio UI edits for release review. Exclude environment files, tokens, credentials, temporary tests/logs and native/cloud artifacts. No commit/push is implied by this checklist.
+- [x] Review/checkpoint the entire analytics change set, preserving existing work. Separate analytics changes from the already present Creator Studio UI edits for release review. Exclude environment files, tokens, credentials, temporary tests/logs and native/cloud artifacts. No commit/push is implied by this checklist.
 - [x] Resolve R6 project-scoped compilation blockers: client and backend production-option checks both have zero diagnostics. Use `npm run typecheck:client` and `npm --prefix backend run typecheck` in independently installed CI; the mixed root project is not the release gate.
-- [ ] Obtain existing CI disposition or separately address ten pre-existing lint findings in the broadened touched-file scope; no new lint findings were introduced.
+- [x] Resolve the pre-existing type-style/unused-constant errors and worktree module resolution during release preparation; no new lint findings. Two existing Home-feed hook warnings remain documented and unchanged.
 - [ ] Verify the target Git revision, repository, Supabase project, migration history, backend/worker host and Expo/EAS project. Reuse existing application IDs/project linkage; do not invent or replace them.
-- [ ] Inventory pending migrations and schema drift. The local runner uses minimal deterministic business fixtures; it is not a full-schema production replay. Run an approved full-schema dry run against a representative isolated test environment before production approval. Do not blindly push unrelated pending migrations.
+- [x] Inventory pending migrations and schema drift; exactly the six reviewed migrations were applied after the successful isolated application-schema restore rehearsal. The local runner uses minimal deterministic business fixtures; it is not a full-schema production replay. Run an approved full-schema dry run against a representative isolated test environment before production approval. Do not blindly push unrelated pending migrations.
 - [x] Create and restore-verify a private logical backup without upgrading a Supabase plan. PostgreSQL 17 tooling was installed alongside the existing version; no service started. Keep the recovery archive private; off-site/PITR/storage-object backups are not implied.
 - [ ] Review source cardinality/index plans and expected migration locks/duration. New indexes touch existing facts, users, collections, imports/ingests and source tables; schedule an appropriate maintenance/change window if needed.
 - [ ] Confirm the budget/capacity envelope. Initial target is 1k DAU; 10k/100k estimates and required benchmarks are in phase notes. No free-tier capacity guarantee is made. Stop for approval if any plan upgrade/payment would be required.
@@ -104,16 +106,16 @@ Apply only after schema review and deployment approval, before the new backend/w
 - [x] `20261027160000_interest_profiles.sql` — separate purpose epoch/policy, bounded interest snapshots, reset/withdrawal erasure, leased worker methods and expiry. Earlier unused personalization bits are explicitly reset false.
 - [x] `20261027170000_analytics_readiness.sql` — scoped background/privacy RPC deadlines, private all-counter inventory, read-only preflight and explicit preserving counter preparation.
 - [x] With writers drained, inspect `engagement_counter_preflight()`/inventory; stop on any blocking drift. Run the approved preserving preparation transaction only after inspection, then require zero missing projections/baselines and blocking drift, reconcile, and record before/after totals and unchanged authoritative relationship counts. No reset/purge is authorized. See the [R5 runbook](./ANALYTICS_READINESS_FIXES.md#r5-preferred-preserving-cutover).
-- [ ] Verify all required functions, constraints, triggers and indexes exist, including renamed compatibility functions and the final maintenance wrapper chain. Each migration must succeed as reviewed; do not continue through a partial failure.
-- [ ] Verify RLS/grants as actual roles: PUBLIC/anon/authenticated cannot write/read private analytics tables, self-enroll as admin, or call service-only RPCs. The backend service role can perform intended operations. Do not regrant direct client fact/counter writes as a workaround.
-- [ ] Confirm admin membership starts empty and no real user has been silently opted in to any optional purpose. Business saves/follows/counters are preserved.
+- [x] Verify all required functions, constraints, triggers and indexes exist, including renamed compatibility functions and the final maintenance wrapper chain. Each migration must succeed as reviewed; do not continue through a partial failure.
+- [x] Verify RLS/grants as actual roles: PUBLIC/anon/authenticated cannot write/read private analytics tables, self-enroll as admin, or call service-only RPCs. The backend service role can perform intended operations. Do not regrant direct client fact/counter writes as a workaround.
+- [x] Confirm admin membership starts empty and no real user has been silently opted in to any optional purpose. Business saves/follows/counters are preserved.
 
 ## 3. Backend release and privacy bridge
 
-- [ ] Deploy the approved compatible backend with all optional flags initially false; no cloud/native app build is implied. Review private environment **names/presence only**; never log values. Existing server Supabase credentials remain server-only; public client configuration contains only approved public values.
-- [ ] Reopen engagement entry points only after counter parity/preparation and compatible atomic writers are verified; old non-atomic writers are not a safe implicit rollback target.
+- [x] Deploy the approved compatible backend with all optional flags initially false; no cloud/native app build is implied. Review private environment **names/presence only**; never log values. Existing server Supabase credentials remain server-only; public client configuration contains only approved public values.
+- [x] Reopen engagement entry points only after counter parity/preparation and compatible atomic writers are verified; old non-atomic writers are not a safe implicit rollback target.
 - [ ] Verify Phase 1 correctness endpoints and exact creator summary against known records. These foundations are not gated by optional analytics flags; migration/backend order matters.
-- [ ] Verify `/analytics/config` reports collection disabled and batches/profile reads fail closed while disabled. No guest/device identifier should be created/sent before measurement opt-in.
+- [x] Verify `/analytics/config` reports collection disabled and batches fail closed while disabled; live Node HTTP checks passed. Profile reads remain gated by disabled personalization. No guest/device identifier should be created/sent before measurement opt-in.
 - [ ] Verify verified-session authentication and generic/no-store error behavior on private routes. Extra user/creator IDs, raw export selectors and unbounded ranges must be rejected.
 - [ ] Verify privacy bridge endpoints remain available to authorized self during shutdown: full/partial measurement withdrawal, actual self-only preference reads, personalization settings/withdrawal and interest reset. Test delayed enables and decrease-only replay after a full withdrawal. An ordinary creator/admin may not read another user's activity or profile.
 - [ ] Configure HTTP/edge access logging to redact Authorization, measurement headers, query text, source/merchant URLs and payloads. Application diagnostic counts alone are not complete delivery monitoring.
@@ -122,9 +124,10 @@ Apply only after schema review and deployment approval, before the new backend/w
 
 ## 4. Worker and maintenance release
 
-- [ ] Deploy the compatible existing worker after migrations. No new broker, vector store or external analytics service is required.
-- [ ] Enable `ANALYTICS_MAINTENANCE_ENABLED` only as part of the approved rollout so privacy TTL/invalid-profile cleanup runs even if collection and optional computation are off. Alert on maintenance failures; do not turn retention off during rollback.
-- [ ] Verify the existing Phase 1 reconciliation job records exact mismatch diagnostics and expires its 30-day records. It starts with the worker and needs the Phase 1 schema.
+- [x] Deploy the dedicated analytics-only worker after migrations, separately from stopped ingestion/AI jobs. Its scheduler lifetime fix passed real-process tests and stable-PID observation. No new broker/vector store/external analytics service was used.
+- [x] Enable `ANALYTICS_MAINTENANCE_ENABLED` only in the dedicated worker as part of the approved rollout; its first successful cleanup is verified with all optional computation/collection off. Keep retention available during rollback.
+- [ ] Assign and verify failure-alert ownership before broader activation; process auto-restart and local logs alone are not complete monitoring.
+- [x] Verify the Phase 1 reconciliation job records a successful zero/zero diagnostic; its 30-day expiry and scheduling are covered by SQL/code tests. It starts with the worker and needs the Phase 1 schema.
 - [ ] Stage `ANALYTICS_ROLLUPS_ENABLED` and `ANALYTICS_ADMIN_ROLLUPS_ENABLED` under approved load observation. First run can backfill retained operational facts; raw optional data exists only where legitimately collected. Do not backfill fabricated playback or pre-instrumentation observations.
 - [ ] Check advisory locks, idempotency, watermarks, normal overlap/daily catch-up, outage-safe dedupe expiry and five-minute availability windows. Match worker `ANALYTICS_ENABLED` to the API's collection flag; coverage is sampling, not proof of complete delivery.
 - [ ] For purpose-specific profiling, stage `ANALYTICS_INTEREST_WORKER_ENABLED` only with `ANALYTICS_PERSONALIZATION_ENABLED` and `ANALYTICS_ENABLED` as separately approved. No consent means no claimed profile. Verify 100-account batch limit, four-account concurrency, two-minute leases and hourly freshness target against measured throughput.
@@ -159,7 +162,7 @@ Use approved test accounts/data; never paste credentials or raw personal events 
 
 ## 7. Post-deployment validation and observation
 
-- [ ] Record the approved release/migration revisions, actual flag states (names/booleans only), worker versions and rollback owner. Confirm no unexpected spend or plan upgrade occurred.
+- [x] Record release `42ddade`, the six deployed migration versions, boolean flag states, private restore-tested backup, host/service ownership and rollback protocol in the execution record. No paid plan/service was initiated.
 - [ ] Check migrations/grants, privacy endpoints, queue acknowledgements, duplicate/payload conflict behavior, shutdown gates and SQL reconciliation. Compare known transactional actions/counters without manufacturing historical observations.
 - [ ] Check rollup/profile job freshness, lease recovery, retention cleanup, query plans/latency, payload sizes, database storage/WAL/CPU and capped/dropped/invalid counts. Best-effort batch diagnostics and SQL event counters have different units; do not invent an end-to-end delivery rate.
 - [ ] Inspect creator scoping and admin denial/revocation with authorized test accounts. Admin reports contain no private audience/profile rows, search text, merchant/source URLs or precise place data.
@@ -177,4 +180,4 @@ Use approved test accounts/data; never paste credentials or raw personal events 
 - [ ] If restoring data, recover/invalidate optional consent and erasure state before reopening reads or computation, rotate purpose/measurement receipts as appropriate and purge resurrected optional profiles/events through an approved plan. Stale snapshots must continue to fall back.
 - [ ] Re-run authorization, privacy, retention, source/counter reconciliation and Android/iOS smoke checks. Re-enable nothing until the failure is understood, corrected and approved.
 
-No checklist action above has been executed against production as part of Phase 5. Stop after the local completion report and await explicit deployment instructions.
+Historical local Phase 5 completion was followed by the user-authorized controlled rollout on 2026-10-28. The backend/schema/maintenance stage is now deployed; the execution record distinguishes completed actions from unchecked pilot, monitoring, capacity and broader-activation gates. Keep collection/personalization/reporting/admin access off until those gates pass.

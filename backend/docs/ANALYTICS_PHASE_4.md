@@ -1,6 +1,6 @@
 # Analytics Phase 4 — Admin dashboards and product intelligence
 
-Deployment-readiness follow-up: [R1–R7 local fixes and current cutover gates](./ANALYTICS_READINESS_FIXES.md). This supersedes earlier compiler-baseline and maintenance-ordering notes; no production deployment/reset is authorized.
+Historical phase-completion report. Subsequent [R1–R7 fixes](./ANALYTICS_READINESS_FIXES.md) and the user-authorized [controlled rollout execution record](./ANALYTICS_ROLLOUT_STATUS.md) supersede earlier compiler-baseline, maintenance-ordering and deployment-status notes. No analytics reset was performed.
 
 Completed as local preparation only. Phase 5 and the consolidated deployment checklist remain pending. No deployed migrations, services, tracking flags, account grants, native/cloud builds, dependency installations or paid services were initiated. Phase 4 does not change discovery ranking, recommendations, product resolution, ingestion, publishing, authentication, existing navigation or embedded video playback.
 

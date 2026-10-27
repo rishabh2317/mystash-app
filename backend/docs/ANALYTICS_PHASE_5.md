@@ -1,6 +1,6 @@
 # Analytics Phase 5 — Opt-in interests and personalization readiness
 
-Deployment-readiness follow-up: [R1–R7 local fixes and current cutover gates](./ANALYTICS_READINESS_FIXES.md). This supersedes earlier compiler-baseline and maintenance-ordering notes; no production deployment/reset is authorized.
+Historical phase-completion report. Subsequent [R1–R7 fixes](./ANALYTICS_READINESS_FIXES.md) and the user-authorized [controlled rollout execution record](./ANALYTICS_ROLLOUT_STATUS.md) supersede earlier compiler-baseline, maintenance-ordering and deployment-status notes. No analytics reset was performed.
 
 Completed locally, with all production flags unchanged/off and no deployment, build, dependency installation, account grant or paid service initiated. The consolidated future rollout plan is in [ANALYTICS_DEPLOYMENT_CHECKLIST.md](./ANALYTICS_DEPLOYMENT_CHECKLIST.md). That checklist is not deployment authorization.
 
