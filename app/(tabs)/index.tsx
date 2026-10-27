@@ -1,3 +1,4 @@
+import { CollectionExposure } from '@/src/analytics/CollectionExposure';
 import { TopBar } from '@/components/chrome/TopBar';
 import { FeedProductSheet } from '@/components/feed/FeedProductSheet';
 import { FeedTeachHint } from '@/components/feed/FeedTeachHint';
@@ -273,7 +274,7 @@ export default function HomeScreen() {
     ({ item, index }: { item: Video; index: number }) => {
       const active = index === activeIndex;
       return (
-        <View style={{ height: itemHeight, width: '100%' }}>
+        <CollectionExposure collectionId={item.collection_id} style={{ height: itemHeight, width: '100%' }}>
           <ReelItem
             video={item}
             isActive={active}
@@ -322,7 +323,7 @@ export default function HomeScreen() {
             creatorDisplayName={active ? engagement.displayName : undefined}
             moreFromCreator={active ? engagement.moreFromCreator : null}
           />
-        </View>
+        </CollectionExposure>
       );
     },
     [

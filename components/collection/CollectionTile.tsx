@@ -1,3 +1,4 @@
+import { useQualifiedExposure } from '@/src/analytics/hooks';
 import React from 'react';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -50,6 +51,7 @@ export function CollectionTile({
   aspectRatio,
   flush = false,
 }: Props) {
+  const exposureRef=useQualifiedExposure('collection.impression','collection',collection.collectionId);
   const { tokens } = useThemeMode();
   const title = collection.title?.trim() || 'Untitled collection';
   const creatorLabel =
@@ -73,6 +75,8 @@ export function CollectionTile({
   if (variant === 'public') {
     return (
       <Pressable
+        ref={exposureRef}
+        collapsable={false}
         onPress={() => onPress(collection)}
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
@@ -173,6 +177,8 @@ export function CollectionTile({
   if (variant === 'personal') {
     return (
       <Pressable
+        ref={exposureRef}
+        collapsable={false}
         onPress={() => onPress(collection)}
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
@@ -254,6 +260,8 @@ export function CollectionTile({
   if (variant === 'reel') {
     return (
       <Pressable
+        ref={exposureRef}
+        collapsable={false}
         onPress={() => onPress(collection)}
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
@@ -315,6 +323,8 @@ export function CollectionTile({
     const viewsLabel = `${formatEngagementCount(views)} view${views === 1 ? '' : 's'}`;
     return (
       <Pressable
+        ref={exposureRef}
+        collapsable={false}
         onPress={() => onPress(collection)}
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
@@ -388,6 +398,8 @@ export function CollectionTile({
   // renders it, so its geometry and colours stay exactly as they were.
   return (
     <Pressable
+        ref={exposureRef}
+        collapsable={false}
       onPress={() => onPress(collection)}
       accessibilityRole="button"
       accessibilityLabel={a11yLabel}

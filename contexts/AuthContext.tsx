@@ -1,8 +1,10 @@
+import { analyticsIdentityChanged } from '@/src/analytics/privacy';
+import { stopAnalytics } from '@/src/analytics/client';
 import { Session, User } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AUTH_COPY, formatAuthError } from '@/src/auth/authErrors';
 import { completeAuthCallback, getAuthParamsFromUrl } from '@/src/auth/authCallback';
@@ -83,6 +85,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const analyticsIdentity=useRef<string|null|undefined>(undefined);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<string | null>(null);
@@ -98,6 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ]).then(([sessionResult, pendingEmail, recovery]) => {
       if (!mounted) return;
       const next = sessionResult.data.session ?? null;
+      if(analyticsIdentityChanged(analyticsIdentity.current,next?.user.id??null))stopAnalytics();
+      analyticsIdentity.current=next?.user.id??null;
       setSession(next);
       setPendingConfirmationEmail(pendingEmail);
       setPasswordRecoveryPending(recovery);
@@ -110,6 +115,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if(analyticsIdentityChanged(analyticsIdentity.current,nextSession?.user.id??null))stopAnalytics();
+      analyticsIdentity.current=nextSession?.user.id??null;
       setSession(nextSession ?? null);
       setLoading(false);
       if (event === 'PASSWORD_RECOVERY') {
@@ -272,6 +279,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: null };
       },
       signOut: async () => {
+        stopAnalytics();
         await unlinkPushBeforeSignOut().catch(() => undefined);
         await clearPendingConfirmationEmail(AsyncStorage);
         await writePasswordRecoveryPending(AsyncStorage, false);

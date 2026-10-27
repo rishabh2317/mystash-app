@@ -319,4 +319,12 @@ describe('SearchService V1', () => {
       EmbeddingSpaceMismatchError,
     );
   });
+  it('separates zero matching results from popular fallback cards', async () => {
+    const { svc } = await seeded();
+    const result = await svc.search({ q: 'zxqvvnonexistentunmatchable', lexicalOnly: true });
+    assert.equal(result.matchingResultCount, 0);
+    assert.equal(result.fallbackResultCount, result.results.length);
+    assert.ok(result.results.length > 0);
+  });
+
 });

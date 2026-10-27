@@ -5,9 +5,11 @@ export function emitEngagementEvent(
   event: EngagementEventName,
   payload: EngagementEventPayload,
 ): void {
+  const { actorUserId: _actor, anonymousId: _anonymous, ...safe } = payload;
   ingestLog('info', event, {
     svc: 'engagement',
     domain: 'engagement',
-    ...payload,
+    ...safe,
+    objectId: payload.objectType === 'user' ? undefined : payload.objectId,
   });
 }

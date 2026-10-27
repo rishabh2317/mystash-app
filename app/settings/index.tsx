@@ -1,3 +1,4 @@
+import { AnalyticsPrivacyControls } from '@/src/analytics/PrivacyControls';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -293,6 +294,7 @@ export default function SettingsScreen() {
           <Pressable onPress={() => router.replace('/(tabs)/profile')} style={{ marginTop: 16 }}>
             <Text style={typeStyle(tokens, 'link')}>{SETTINGS_COPY.goToProfile}</Text>
           </Pressable>
+          <AnalyticsPrivacyControls />
         </View>
       </View>
     );
@@ -455,6 +457,7 @@ export default function SettingsScreen() {
           />
         </SettingsSection>
 
+        <AnalyticsPrivacyControls />
         <SettingsSection title={SETTINGS_COPY.account}>
           <SettingsRow
             variant="destructive"

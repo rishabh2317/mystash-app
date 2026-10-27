@@ -1,3 +1,4 @@
+import { useMeasuredOpen } from '@/src/analytics/hooks';
 import { useRouter, type Href } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -111,6 +112,7 @@ function mergeLiveOffer(
 }
 
 export function ProductPage({ page }: Props) {
+  useMeasuredOpen('product.opened','product',page.productId,{namespace:'auto'});
   const router = useRouter();
   const { tokens } = useThemeMode();
   const { width: screenWidth } = useWindowDimensions();

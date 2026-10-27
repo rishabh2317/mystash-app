@@ -54,6 +54,8 @@ export type CounterName =
   | 'following';
 
 export type InteractionFact = {
+  /** Delivery acknowledgement only; not a persisted fact property. */
+  inserted?: boolean;
   id: string;
   eventId: string;
   interactionType: InteractionType;
@@ -96,6 +98,8 @@ export type CounterProjection = {
 };
 
 export type RecordFactInput = {
+  /** Optional measurement context, never persisted as a fact property. */
+  measurementRequested?: boolean;
   eventId: string;
   interactionType: InteractionType;
   objectType: EngagementObjectType;

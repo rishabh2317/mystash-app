@@ -215,6 +215,7 @@ export default function SearchScreen() {
 
   const loadGen = useRef(0);
   const activeQueryRef = useRef('');
+  const measurementRef=useRef<{requestId:string|null;results:{id:string;entityType:string}[]}>({requestId:null,results:[]});
   const prevPathRef = useRef<string | null>(null);
 
   const text = tokens.color.text;
@@ -320,11 +321,13 @@ export default function SearchScreen() {
       const res = await searchBlended({
         q: query,
         presentation: 'typed',
+        measureTypedResults: true,
         limit: PAGE_LIMIT,
         cursor: opts?.cursor ?? null,
       });
       if (gen !== loadGen.current) return;
 
+      if(!opts?.cursor)measurementRef.current={requestId:res.measurementRequestId??null,results:res.results};
       const mapped = await cardsToSections(partitionResults(res.results));
       if (gen !== loadGen.current) return;
 
@@ -403,6 +406,8 @@ export default function SearchScreen() {
         query: q,
         clickedId: id,
         clickedEntityType: entityType,
+        requestId:measurementRef.current.requestId,
+        rank:measurementRef.current.results.findIndex(r=>r.id===id&&r.entityType===entityType),
       }).catch(() => {
         /* analytics must not block nav */
       });

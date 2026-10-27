@@ -229,7 +229,7 @@ export async function runOutboxBurst(opts: {
     body: 'Load',
     data: { v: 1, nid: userId, did: String(i), type: 'ingest.failed', link: '/notifications' },
     ttlSeconds: 60,
-    priority: 'default',
+    priority: 'normal',
     collapseId: String(i),
     threadId: 'burst',
   });

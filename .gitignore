@@ -59,3 +59,12 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Private rollout backups, connection plans and rehearsal evidence
+backend/.analytics-release-private/
+
+# Local Python rehearsal bytecode
+__pycache__/
+
+# Ignored dependency symlink used by this isolated worktree
+/backend/node_modules

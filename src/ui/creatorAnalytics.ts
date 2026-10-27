@@ -7,13 +7,14 @@ export const ANALYTICS_COPY = {
   signIn: 'Sign in to view analytics.',
   notCreator: 'Analytics are available after you start creating.',
   unavailable: 'Analytics unavailable right now.',
-  headlineViews: 'Collection views',
-  followers: 'Followers',
-  saves: 'Saves',
+  headlineViews: 'Recorded collection views',
+  followers: 'Current followers',
+  saves: 'Current saves',
   shares: 'Shares',
-  productClicks: 'Product clicks',
+  productClicks: 'Outbound clicks',
   topCollections: 'Top collections',
-  lifetime: 'All time',
+  lifetime: 'Current collections',
+  definitionHint: 'Views include feed activations and collection opens. Clicks record merchant destination requests, not purchases.',
 } as const;
 
 export function analyticsTotalsAreEmpty(totals: CreatorAnalyticsSummary['totals']): boolean {

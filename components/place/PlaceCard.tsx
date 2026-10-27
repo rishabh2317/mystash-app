@@ -1,3 +1,5 @@
+import { enqueueObservation } from '@/src/analytics/client';
+import { useQualifiedExposure } from '@/src/analytics/hooks';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import React from 'react';
@@ -20,12 +22,16 @@ type Props = {
  * Media-first Stash place card. Leads stay lighter and never invent a place photo.
  */
 export function PlaceCard({ item, onSearch }: Props) {
+  const entityType=item.kind==='resolved'?'place':'place_save';
+  const exposureRef=useQualifiedExposure('place.impression',entityType,item.id);
   const { tokens } = useThemeMode();
   const view = placeCardView(item);
   const chrome = outlineCardChrome(tokens);
 
   return (
     <View
+      ref={exposureRef}
+      collapsable={false}
       style={[
         styles.card,
         {
@@ -84,7 +90,10 @@ export function PlaceCard({ item, onSearch }: Props) {
           size="compact"
           variant="outlinePrimary"
           label={view.ctaLabel}
-          onPress={() => onSearch(view.searchUrl)}
+          onPress={() => {
+            enqueueObservation('place.outbound_requested',entityType,item.id,'stash',{destination_kind:'search'});
+            onSearch(view.searchUrl);
+          }}
           accessibilityLabel={`${view.ctaLabel}, ${view.name}`}
         />
       </View>

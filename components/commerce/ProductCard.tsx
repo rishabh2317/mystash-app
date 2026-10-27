@@ -1,3 +1,4 @@
+import { useQualifiedExposure } from '@/src/analytics/hooks';
 import React, { useEffect } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -36,6 +37,7 @@ export type ProductCardVariant = 'compact' | 'standard' | 'collection' | 'relate
 
 type Props = {
   product: CatalogProductViewModel;
+  measurementCollectionId?: string | null;
   /** @deprecated Colors come from ThemeMode tokens. */
   isLight?: boolean;
   onPress: (product: CatalogProductViewModel) => void;
@@ -95,7 +97,10 @@ export function ProductCard({
   merchantPreviews,
   onMerchantPress,
   onViewMoreMerchants,
+  measurementCollectionId,
 }: Props) {
+  const exposureRef=useQualifiedExposure('product.impression','product',product.catalogProductId??product.id,
+    {namespace:'auto',collection_id:measurementCollectionId??undefined});
   const { tokens, isLight } = useThemeMode();
   const [buyPressed, setBuyPressed] = React.useState(false);
   useEffect(() => {
@@ -141,6 +146,8 @@ export function ProductCard({
     const hasMoreMerchants = merchants.length > COLLECTION_MERCHANT_PREVIEW_LIMIT;
     return (
       <View
+        ref={exposureRef}
+        collapsable={false}
         style={[
           styles.collectionCard,
           {
@@ -298,6 +305,8 @@ export function ProductCard({
     const scrim = mediaScrimGradient();
     return (
       <Pressable
+        ref={exposureRef}
+        collapsable={false}
         onPress={openDetails}
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
@@ -374,6 +383,8 @@ export function ProductCard({
     const inset = 5;
     return (
       <View
+        ref={exposureRef}
+        collapsable={false}
         style={[
           styles.miniCard,
           {
@@ -443,6 +454,8 @@ export function ProductCard({
     const inset = 6;
     return (
       <View
+        ref={exposureRef}
+        collapsable={false}
         style={[
           styles.relatedCard,
           {
@@ -515,6 +528,8 @@ export function ProductCard({
 
   return (
     <View
+        ref={exposureRef}
+        collapsable={false}
       style={[
         styles.card,
         isCompact && styles.cardCompact,

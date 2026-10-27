@@ -1,8 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { EngagementService } from './EngagementService';
-import { SupabaseEngagementRepository } from './SupabaseEngagementRepository';
+import type { EngagementService } from './EngagementService';
+import { AtomicEngagementService } from './AtomicEngagementService';
 import type { CollectionCounterDenormPort, UserCounterDenormPort } from './ports';
-import { getEligiblePublicReel } from './reelEligibility';
 import { createUserService } from '../user/factory';
 import { getNotificationEmitter } from '../notifications/producers';
 
@@ -21,7 +20,8 @@ export function createCollectionCounterDenorm(
         row.product_clicks_count = counters.productClicksCount;
       }
       if (counters.purchasesCount !== undefined) row.purchases_count = counters.purchasesCount;
-      await admin.from('collections').update(row).eq('id', collectionId);
+      const { error } = await admin.from('collections').update(row).eq('id', collectionId);
+      if (error) throw new Error(error.message);
     },
   };
 }
@@ -35,22 +35,8 @@ export function createUserCounterDenorm(admin: SupabaseClient): UserCounterDenor
   };
 }
 
-export function createEngagementService(
-  admin: SupabaseClient,
-  opts?: {
-    collections?: CollectionCounterDenormPort;
-    users?: UserCounterDenormPort;
-  },
-): EngagementService {
-  return new EngagementService(
-    new SupabaseEngagementRepository(admin),
-    opts?.collections ?? createCollectionCounterDenorm(admin),
-    opts?.users ?? createUserCounterDenorm(admin),
-    {
-      getEligiblePublicReel: (reelId) => getEligiblePublicReel(admin, reelId),
-    },
-    getNotificationEmitter(),
-  );
+export function createEngagementService(admin: SupabaseClient): EngagementService {
+  return new AtomicEngagementService(admin, getNotificationEmitter());
 }
 
 export { EngagementService, EngagementServiceError } from './EngagementService';

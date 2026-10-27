@@ -12,7 +12,7 @@ import type {
 
 type Row = Record<string, unknown>;
 
-function mapFact(row: Row): InteractionFact {
+export function mapFact(row: Row): InteractionFact {
   return {
     id: String(row.id),
     eventId: String(row.event_id),
@@ -35,7 +35,7 @@ function mapFact(row: Row): InteractionFact {
   };
 }
 
-function mapEdge(row: Row): RelationshipEdge {
+export function mapEdge(row: Row): RelationshipEdge {
   return {
     id: String(row.id),
     userId: String(row.user_id),
@@ -104,11 +104,12 @@ export class SupabaseEngagementRepository implements EngagementRepository {
   }
 
   async getFactByEventId(eventId: string): Promise<InteractionFact | null> {
-    const { data } = await this.admin
+    const { data, error } = await this.admin
       .from('engagement_interaction_facts')
       .select('*')
       .eq('event_id', eventId)
       .maybeSingle();
+    if (error) throw new Error(error.message);
     return data ? mapFact(data as Row) : null;
   }
 
@@ -208,7 +209,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
     objectType: 'creator' | 'collection' | 'reel' | 'catalog_product';
     objectId: string;
   }): Promise<RelationshipEdge | null> {
-    const { data } = await this.admin
+    const { data, error } = await this.admin
       .from('engagement_relationship_edges')
       .select('*')
       .eq('user_id', input.userId)
@@ -217,6 +218,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
       .eq('object_id', input.objectId)
       .eq('state', 'ACTIVE')
       .maybeSingle();
+    if (error) throw new Error(error.message);
     return data ? mapEdge(data as Row) : null;
   }
 
@@ -225,7 +227,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
     edgeType: EdgeType;
     limit?: number;
   }): Promise<RelationshipEdge[]> {
-    const { data } = await this.admin
+    const { data, error } = await this.admin
       .from('engagement_relationship_edges')
       .select('*')
       .eq('user_id', input.userId)
@@ -233,6 +235,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
       .eq('state', 'ACTIVE')
       .order('updated_at', { ascending: false })
       .limit(input.limit ?? 100);
+    if (error) throw new Error(error.message);
     return (data ?? []).map((r) => mapEdge(r as Row));
   }
 
@@ -258,24 +261,13 @@ export class SupabaseEngagementRepository implements EngagementRepository {
     counterName: CounterName;
     delta?: number;
   }): Promise<CounterProjection> {
-    const delta = input.delta ?? 1;
-    const existing = await this.getCounter(input);
-    const nextValue = Math.max(0, (existing?.value ?? 0) + delta);
-    const { data, error } = await this.admin
-      .from('engagement_counter_projections')
-      .upsert(
-        {
-          object_type: input.objectType,
-          object_id: input.objectId,
-          counter_name: input.counterName,
-          value: nextValue,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'object_type,object_id,counter_name' },
-      )
-      .select('*')
-      .single();
-    if (error || !data) throw new Error(error?.message ?? 'counter upsert failed');
+    const { data, error } = await this.admin.rpc('engagement_increment_counter', {
+      p_object_type: input.objectType,
+      p_object_id: input.objectId,
+      p_counter_name: input.counterName,
+      p_delta: input.delta ?? 1,
+    });
+    if (error || !data) throw new Error(error?.message ?? 'counter increment failed');
     return mapCounter(data as Row);
   }
 
@@ -284,13 +276,14 @@ export class SupabaseEngagementRepository implements EngagementRepository {
     objectId: string;
     counterName: CounterName;
   }): Promise<CounterProjection | null> {
-    const { data } = await this.admin
+    const { data, error } = await this.admin
       .from('engagement_counter_projections')
       .select('*')
       .eq('object_type', input.objectType)
       .eq('object_id', input.objectId)
       .eq('counter_name', input.counterName)
       .maybeSingle();
+    if (error) throw new Error(error.message);
     return data ? mapCounter(data as Row) : null;
   }
 }

@@ -358,6 +358,7 @@ export function CollectionScreen({
                     key={product.id}
                     product={product}
                     variant="collection"
+                    measurementCollectionId={collection.collectionId}
                     onPress={openProduct}
                     onAddToCart={product.catalogProductId ? onAddToCart : undefined}
                     merchantPreviews={merchantsByProduct[key]}

@@ -1,3 +1,4 @@
+import { AnalyticsHost } from '@/src/analytics/AnalyticsHost';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import {
   Inter_400Regular,
@@ -50,6 +51,7 @@ export default function RootLayout() {
     <ThemeModeProvider>
       <AuthProvider>
         <AuthRecoveryGate />
+        <AnalyticsHost />
         <NotificationsProvider>
           <CommerceCountryProvider>
             <CartProvider>

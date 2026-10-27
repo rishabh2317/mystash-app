@@ -151,6 +151,9 @@ export type SearchResultCard = {
 };
 
 export type BlendedSearchResponse = {
+  matchingResultCount?: number;
+  fallbackResultCount?: number;
+  measurementRequestId?: string | null;
   query: string;
   intent: QueryIntent;
   retrievalMode: 'hybrid' | 'lexical_only' | 'semantic_only';

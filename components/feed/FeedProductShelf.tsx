@@ -112,6 +112,7 @@ export function FeedProductShelf({ products, collectionId, onProductPress }: Pro
               <ProductCard
                 product={vm}
                 variant="mini"
+                measurementCollectionId={collectionId}
                 showIndexPrice
                 onPress={() => onProductPress?.(thin)}
                 onAddToCart={vm.catalogProductId ? onAddToCart : undefined}

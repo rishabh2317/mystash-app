@@ -19,7 +19,7 @@ export class SearchTelemetryStore {
       svc: 'search',
       domain: 'search',
       eventType: event.eventType,
-      query: event.query,
+      // Search text belongs to functional in-memory suggestions, never analytics logs.
       intent: event.intent,
       retrievalMode: event.retrievalMode,
       latencyMs: event.latencyMs,

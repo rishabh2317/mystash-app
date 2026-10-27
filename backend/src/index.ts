@@ -1,3 +1,5 @@
+import { analyticsContextMiddleware } from './analytics/context';
+import { registerAnalyticsRoutes } from './analytics/routes';
 import { Buffer } from 'node:buffer';
 import 'dotenv/config';
 import cors from 'cors';
@@ -50,6 +52,8 @@ const HOST = '0.0.0.0';
 
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '512kb' }));
+app.use(analyticsContextMiddleware);
+registerAnalyticsRoutes(app);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });

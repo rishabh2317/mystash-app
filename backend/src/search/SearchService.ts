@@ -252,6 +252,7 @@ export class SearchService {
         /* already degraded */
       }
     }
+    const usedPopularFallback = fused.length === 0;
     if (fused.length === 0) {
       const popular = await this.index.popular({ limit, entityType: 'collection' });
       fused = popular.map((document, i) => ({
@@ -296,6 +297,8 @@ export class SearchService {
     });
 
     return {
+      matchingResultCount: usedPopularFallback ? 0 : page.length,
+      fallbackResultCount: usedPopularFallback ? page.length : 0,
       query: prepared.corrected,
       intent,
       retrievalMode,
@@ -377,7 +380,7 @@ export class SearchService {
   async candidatesForRecommendations(params: {
     q: string;
     limit?: number;
-  }): Promise<Array<{ entityType: string; id: string; score: number }>> {
+  }): Promise<{ entityType: string; id: string; score: number }[]> {
     const res = await this.search({
       q: params.q,
       limit: params.limit ?? 50,
@@ -399,7 +402,6 @@ export class SearchService {
   }): void {
     this.telemetry.record({
       eventType: 'click',
-      query: params.query,
       userId: params.userId ?? null,
       anonymousId: params.anonymousId ?? null,
       clickedId: params.clickedId,

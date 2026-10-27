@@ -1,3 +1,6 @@
+import { analyticsHeaders } from '@/src/analytics/client';
+import { newEventId } from '@/src/services/newEventId';
+import { supabase } from '@/src/services/supabase';
 import { Platform } from 'react-native';
 import { router, type Href } from 'expo-router';
 import { merchantBrowserPath } from '@/src/ui/merchantBrowser';
@@ -41,6 +44,7 @@ export async function resolveProductShoppingDestination(
   context: ShoppingClickContext,
 ): Promise<ShoppingDestination> {
   const query = new URLSearchParams();
+  query.set('eventId',newEventId());
   if (context.offerId?.trim()) query.set('offerId', context.offerId.trim());
   if (context.collectionId) query.set('collectionId', context.collectionId);
   if (context.videoId) query.set('videoId', context.videoId);
@@ -52,12 +56,17 @@ export async function resolveProductShoppingDestination(
   query.set('platform', Platform.OS);
   query.set('format', 'json');
 
+  const measurement=analyticsHeaders();
+  const {data}=measurement['x-mystash-session']?await supabase.auth.getSession().catch(()=>({data:{session:null}})):{data:{session:null}};
+  const token=data.session?.access_token;
   const suffix = query.toString();
   const endpoint = `${shoppingApiBase()}/products/${encodeURIComponent(context.catalogProductId)}/redirect${
     suffix ? `?${suffix}` : ''
   }`;
   const res = await fetch(endpoint, {
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json',...measurement,
+      ...(measurement['x-mystash-session']?{'x-mystash-outbound-id':newEventId()}:{}),
+      ...(token?{Authorization:`Bearer ${token}`}:{}) },
   });
   if (!res.ok) {
     throw new Error(

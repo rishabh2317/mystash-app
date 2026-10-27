@@ -148,8 +148,8 @@ export function startOutboxMaterializer(
   const loop = async (): Promise<void> => {
     if (stopped) return;
     let claimed = 0;
-    let idlePollMs = OUTBOX_POLICY.idlePollMs;
-    let claimBatch = OUTBOX_POLICY.claimBatch;
+    let idlePollMs: number = OUTBOX_POLICY.idlePollMs;
+    let claimBatch: number = OUTBOX_POLICY.claimBatch;
     try {
       const resolved = await resolveOutboxPolicy(repo);
       if (resolved.batchRpc) {

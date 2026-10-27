@@ -38,6 +38,7 @@ export class EngagementServiceError extends Error {
 }
 
 export type MerchantClickedInput = {
+  measurementRequested?: boolean;
   eventId?: string;
   actorUserId?: string | null;
   anonymousId?: string | null;
@@ -106,7 +107,7 @@ export class EngagementService {
     if (inserted) {
       await this.bumpAndDenormCollection(params.collectionId, 'views', 'viewsCount');
     }
-    return fact;
+    return { ...fact, inserted };
   }
 
   async recordCollectionImpression(params: {
@@ -612,7 +613,7 @@ export class EngagementService {
     this.maybeEmitCounterUpdated('collection', collectionId, counterName, counter.value);
   }
 
-  private maybeEmitCounterUpdated(
+  protected maybeEmitCounterUpdated(
     objectType: string,
     objectId: string,
     counterName: string,
@@ -651,7 +652,7 @@ export class EngagementService {
     }
   }
 
-  private emitForFact(fact: InteractionFact): void {
+  protected emitForFact(fact: InteractionFact): void {
     const base = buildEngagementEventPayload({
       eventId: fact.eventId,
       actorUserId: fact.actorUserId,

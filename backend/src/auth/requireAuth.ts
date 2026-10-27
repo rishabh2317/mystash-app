@@ -1,5 +1,5 @@
 import type { User } from '@supabase/supabase-js';
-import type { Request, Response } from 'express';
+import type { Express, Request, Response } from 'express';
 import { createSupabaseUserClient } from '../supabase';
 import {
   EMAIL_NOT_VERIFIED,
@@ -7,6 +7,8 @@ import {
   UnverifiedEmailError,
   isAuthEmailVerified,
 } from './emailVerification';
+
+export type { Express, Request, Response };
 
 export function sendUnverifiedEmail(res: Response): void {
   res.status(403).json({ error: UNVERIFIED_EMAIL_MESSAGE, code: EMAIL_NOT_VERIFIED });

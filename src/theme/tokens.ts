@@ -404,7 +404,7 @@ export const IMMERSIVE_TOKENS: ThemeImmersiveTokens = {
 const MEDIA_SCRIM_COLORS = ['transparent', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.82)'] as const;
 const MEDIA_SCRIM_LOCATIONS = [0, 0.45, 1] as const;
 
-const TITANIUM_RAISED = CARD_SURFACE_VARIANT === 'raised';
+const TITANIUM_RAISED = (CARD_SURFACE_VARIANT as CardSurfaceVariant) === 'raised';
 
 const TITANIUM_COLOR: ThemeColorTokens = {
   text: '#1A1A1A',
@@ -447,7 +447,6 @@ const TITANIUM_COLOR: ThemeColorTokens = {
  * Information cards must use `outlineCard` via `outlineCardChrome`,
  * not `surface` — `surface` stays as a lightly raised chrome fill for docks/sheets only.
  */
-const NEBULA_RAISED = CARD_SURFACE_VARIANT === 'raised';
 
 const NEBULA_COLOR: ThemeColorTokens = {
   text: '#FFFFFF',

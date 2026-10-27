@@ -1,3 +1,4 @@
+import { useMeasuredOpen } from '@/src/analytics/hooks';
 import { useEffect, useRef } from 'react';
 
 import { recordCollectionView } from '@/src/services/engagementApi';
@@ -41,6 +42,7 @@ export function useRecordCollectionView(input: {
   surface: string;
   enabled?: boolean;
 }): void {
+  useMeasuredOpen('collection.opened','collection',input.enabled===false?undefined:input.collectionId??undefined);
   const recordedFor = useRef<string | null>(null);
 
   useEffect(() => {

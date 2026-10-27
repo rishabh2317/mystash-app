@@ -16,7 +16,8 @@
     "supabase:deploy:all-edge": "npx supabase functions deploy ingest-url --project-ref womdeohfpvzmhomgqwig && npx supabase functions deploy publish-ingest --project-ref womdeohfpvzmhomgqwig && npx supabase functions deploy process-extraction-queue --project-ref womdeohfpvzmhomgqwig",
     "supabase:db-push": "npx supabase db push --yes",
     "db:reset:local": "bash scripts/supabase-db-reset-local.sh",
-    "supabase:secrets:list": "npx supabase secrets list --project-ref womdeohfpvzmhomgqwig"
+    "supabase:secrets:list": "npx supabase secrets list --project-ref womdeohfpvzmhomgqwig",
+    "typecheck:client": "tsc --noEmit -p tsconfig.client.json"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
@@ -32,6 +33,7 @@
     "expo-constants": "~18.0.14",
     "expo-crypto": "~15.0.9",
     "expo-device": "~8.0.10",
+    "expo-file-system": "~19.0.24",
     "expo-font": "~14.0.12",
     "expo-haptics": "~15.0.8",
     "expo-image": "~3.0.11",

@@ -1,4 +1,5 @@
-import { getOrCreateAnonymousId } from '@/src/services/anonymousId';
+import { analyticsHeaders,enqueueObservation } from '@/src/analytics/client';
+import { newEventId } from '@/src/services/newEventId';
 import { supabase } from '@/src/services/supabase';
 
 export class SearchApiError extends Error {
@@ -51,6 +52,7 @@ export type SearchQueryIntent =
   | 'TRENDING';
 
 export type BlendedSearchResponse = {
+  measurementRequestId?: string | null;
   query: string;
   intent: SearchQueryIntent | string;
   retrievalMode: string;
@@ -162,6 +164,7 @@ export async function searchBlended(input: {
   presentation?: 'unified' | 'typed';
   limit?: number;
   cursor?: string | null;
+  measureTypedResults?: boolean;
 }): Promise<BlendedSearchResponse> {
   const q = input.q.trim();
   if (!q) {
@@ -173,9 +176,11 @@ export async function searchBlended(input: {
   if (input.limit != null) params.set('limit', String(input.limit));
   if (input.cursor) params.set('cursor', input.cursor);
 
+  const measurement=input.measureTypedResults&&!input.cursor?analyticsHeaders():{};
+  const requestId=measurement['x-mystash-session']?newEventId():null;
   const res = await fetch(`${apiBase()}/search?${params.toString()}`, {
     method: 'GET',
-    headers: await authHeaders(),
+    headers: {...await authHeaders(),...measurement,...(requestId?{'x-mystash-search-id':requestId}:{})},
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -188,6 +193,7 @@ export async function searchBlended(input: {
       : null;
 
   return {
+    measurementRequestId: typeof body.measurementRequestId==='string'?body.measurementRequestId:null,
     query: typeof body.query === 'string' ? body.query : q,
     intent: typeof body.intent === 'string' ? body.intent : '',
     retrievalMode: typeof body.retrievalMode === 'string' ? body.retrievalMode : '',
@@ -261,34 +267,14 @@ export async function searchAutocomplete(input: {
   return { query: body.query ?? q, suggestions };
 }
 
-/** Search-owned CTR — not Engagement. Failures must not block navigation. */
+/** Best-effort result intent, correlated to an acknowledged server result set. No query text is sent. */
 export async function recordSearchClick(input: {
-  query: string;
+  query: string; // Retained for caller compatibility; never collected by this function.
   clickedId: string;
   clickedEntityType: SearchEntityType;
+  requestId?: string | null;
+  rank?: number;
 }): Promise<void> {
-  const query = input.query.trim();
-  if (!query || !input.clickedId.trim()) return;
-  const token = await optionalBearerToken();
-  const body: Record<string, string> = {
-    query,
-    clicked_id: input.clickedId.trim(),
-    clicked_entity_type: input.clickedEntityType,
-  };
-  if (!token) {
-    try {
-      body.anonymous_id = await getOrCreateAnonymousId();
-    } catch {
-      /* optional */
-    }
-  }
-  const res = await fetch(`${apiBase()}/search/telemetry/click`, {
-    method: 'POST',
-    headers: await authHeaders(true),
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const errBody = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new SearchApiError(errBody.error ?? `Click telemetry failed (${res.status})`, res.status);
-  }
+  if(input.requestId&&input.rank!==undefined&&input.rank>=0)enqueueObservation('search.result_clicked',input.clickedEntityType,input.clickedId,'search',
+    {request_id:input.requestId,result_type:input.clickedEntityType,rank:input.rank},input.clickedEntityType==='product'?{namespace:'catalog'}:{});
 }

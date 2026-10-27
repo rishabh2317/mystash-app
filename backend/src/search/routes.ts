@@ -1,3 +1,5 @@
+import { createSupabaseAdmin } from '../supabase';
+import { recordSearchResponse } from '../analytics/serverEvents';
 import type { Express, Request, Response } from 'express';
 import { optionalVerifiedUserId } from '../auth/requireAuth';
 import {
@@ -67,6 +69,12 @@ export function registerSearchRoutes(app: Express): void {
         filters: Object.keys(filters).length ? filters : undefined,
         lexicalOnly: req.query.lexical_only === '1',
       });
+      if(!cursor&&req.headers['x-mystash-search-id']){
+        result.measurementRequestId=await recordSearchResponse(createSupabaseAdmin(),req,userId,{
+          results:result.results,matchingCount:result.matchingResultCount??0,fallbackCount:result.fallbackResultCount??0,
+          latencyMs:result.latencyMs,retrievalMode:result.retrievalMode,filterKeys:Object.keys(filters),queryLength:q.length,
+        });
+      }
       res.json(result);
     } catch (e) {
       sendError(res, e);

@@ -1,3 +1,6 @@
+import { UUID } from '../analytics/contracts';
+import { requestMeasurement } from '../analytics/context';
+import { recordOutboundObservation } from '../analytics/serverEvents';
 import type { Request, Response } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
@@ -18,6 +21,7 @@ import {
   listStoredShoppingDestinations,
 } from './storedDestinations';
 import { validHttpUrl } from './urlValidation';
+import { resolveRedirectAttribution } from './redirectAttribution';
 
 function queryString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -55,25 +59,20 @@ async function redirectCatalog(
   destination: ShoppingResolution,
   requestedProductId: string,
 ): Promise<void> {
-  const videoId = queryString(req.query.videoId);
-  const collectionId = queryString(req.query.collectionId);
-  const collectionProductTagId = queryString(req.query.tagId);
-  let creatorId = queryString(req.query.creatorId);
-  if (!creatorId && videoId) {
-    const { data: video } = await admin
-      .from('videos')
-      .select('curator_id')
-      .eq('id', videoId)
-      .maybeSingle();
-    creatorId = (video?.curator_id as string | null) ?? null;
-  }
+  const userId = await authenticatedUserId(req);
+  const attribution = await resolveRedirectAttribution(admin, {
+    productId: product.id, collectionId: queryString(req.query.collectionId),
+    tagId: queryString(req.query.tagId), videoId: queryString(req.query.videoId), userId,
+  }).catch(() => ({ collectionId: null, tagId: null, creatorId: null, videoId: null }));
+  const { collectionId, creatorId, videoId } = attribution;
+  const collectionProductTagId = attribution.tagId;
 
   const platform =
     queryString(req.query.platform) ?? headerString(req.headers['sec-ch-ua-platform']) ?? null;
   const country = resolveRequestCountry(req);
-  const userId = await authenticatedUserId(req);
   const timestamp = new Date().toISOString();
-  const eventId = queryString(req.query.eventId) ?? randomUUID();
+  const suppliedEventId=queryString(req.query.eventId);
+  const eventId=suppliedEventId&&UUID.test(suppliedEventId)?suppliedEventId:randomUUID();
   const analytics = {
     productId: product.id,
     requestedProductId,
@@ -81,8 +80,8 @@ async function redirectCatalog(
     videoId,
     collectionId,
     collectionProductTagId,
-    userId,
-    destinationUrl: destination.url,
+    authenticated: Boolean(userId),
+    destinationHost: new URL(destination.url).hostname,
     shoppingProvider: destination.shoppingProvider,
     affiliateProvider: destination.affiliateProvider,
     timestamp,
@@ -93,19 +92,22 @@ async function redirectCatalog(
 
   logger.info(analytics, 'shopping.redirect.started');
 
-  const { error } = await admin.from('product_clicks').insert({
+  const measurementRequested=!!req.headers['x-mystash-session'];
+  const clickRow={
+    event_id: eventId,
     catalog_product_id: product.id,
     video_id: videoId,
     creator_id: creatorId,
     user_id: userId,
-    destination_url: destination.url,
+    destination_url: new URL(destination.url).origin,
     destination_type: destination.destinationType,
     shopping_provider: destination.shoppingProvider,
     affiliate_provider: destination.affiliateProvider,
     platform,
     country,
     created_at: timestamp,
-  });
+  };
+  const {error}=await admin.rpc('analytics_record_legacy_click',{p_user_id:userId,p_revision:requestMeasurement(req)?.revision??null,p_row:clickRow});
   if (error) {
     logger.error({ ...analytics, error: error.message }, 'shopping.redirect.analytics_failed');
   }
@@ -113,6 +115,7 @@ async function redirectCatalog(
   try {
     await engagement.recordMerchantClicked({
       eventId,
+      measurementRequested,
       actorUserId: userId,
       catalogProductId: product.id,
       collectionId,
@@ -136,6 +139,8 @@ async function redirectCatalog(
     );
   }
 
+  await recordOutboundObservation(admin,req,userId,{productId:product.id,namespace:'catalog',collectionId,
+    destinationKind:destination.destinationType,affiliate:!!destination.affiliateProvider});
   logger.info(analytics, 'shopping.redirect.completed');
   if (wantsJson(req)) {
     res.json({
@@ -187,7 +192,9 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
-    logger.info({ productId, offerId, destinationUrl: listing, country }, 'shopping.redirect.listing');
+    await recordOutboundObservation(admin,req,await authenticatedUserId(req),{productId:imported.id,namespace:'discovered',
+      destinationKind:'listing',affiliate:false});
+    logger.info({ productId, offerId, destinationHost: new URL(listing).hostname, country }, 'shopping.redirect.listing');
     if (wantsJson(req)) {
       res.json({
         url: listing,

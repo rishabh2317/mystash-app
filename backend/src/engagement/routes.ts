@@ -39,7 +39,7 @@ export function registerEngagementRoutes(app: Express): void {
         creatorId: body.creator_id ?? null,
         surface: body.surface ?? null,
       });
-      res.json({ ok: true, event_id: fact.eventId, inserted: true });
+      res.json({ ok: true, event_id: fact.eventId, inserted: fact.inserted ?? true });
     } catch (e) {
       if (e instanceof EngagementServiceError) {
         res.status(e.statusCode).json({ error: e.message });
@@ -331,61 +331,16 @@ export function registerEngagementRoutes(app: Express): void {
       const userId = await requireUserId(req, res);
       if (!userId) return;
 
-      const { data: userRow, error: userErr } = await admin
-        .from('users')
-        .select('followers_count')
-        .eq('id', userId)
-        .maybeSingle();
-      if (userErr) {
-        res.status(500).json({ error: userErr.message });
+      const { data: userRow, error: userErr } = await admin.from('users')
+        .select('creator_status, account_status, deleted_at').eq('id', userId).maybeSingle();
+      if (userErr) throw new Error('Could not authorize analytics');
+      if (!userRow || userRow.creator_status === 'NONE' || userRow.account_status === 'DELETED' || userRow.deleted_at) {
+        res.status(403).json({ error: 'Creator analytics unavailable for this account' });
         return;
       }
-
-      const { data: collections, error: colErr } = await admin
-        .from('collections')
-        .select('id, title, views_count, saves_count, shares_count, product_clicks_count')
-        .eq('creator_id', userId)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false });
-      if (colErr) {
-        res.status(500).json({ error: colErr.message });
-        return;
-      }
-
-      const rows = collections ?? [];
-      let views = 0;
-      let saves = 0;
-      let shares = 0;
-      let productRedirects = 0;
-      const perCollection = rows.map((row) => {
-        const v = Number(row.views_count) || 0;
-        const s = Number(row.saves_count) || 0;
-        const sh = Number(row.shares_count) || 0;
-        const pr = Number(row.product_clicks_count) || 0;
-        views += v;
-        saves += s;
-        shares += sh;
-        productRedirects += pr;
-        return {
-          collection_id: String(row.id),
-          title: (row.title as string | null) ?? null,
-          views: v,
-          saves: s,
-          shares: sh,
-          product_redirects: pr,
-        };
-      });
-
-      res.json({
-        totals: {
-          views,
-          followers: Number(userRow?.followers_count) || 0,
-          saves,
-          shares,
-          product_redirects: productRedirects,
-        },
-        collections: perCollection,
-      });
+      const { data, error } = await admin.rpc('engagement_creator_summary', { p_creator_id: userId });
+      if (error) throw new Error('Could not load analytics');
+      res.json(data);
     } catch (e) {
       res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
     }

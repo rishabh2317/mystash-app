@@ -140,7 +140,7 @@ export function productPageSections(page: ProductPageView): {
 
 /** Lowest priced offer label among those with a parseable price — for “Prices from …”. */
 export function productPagePricesFromLabel(
-  offers: Array<Pick<ProductPageOffer, 'price' | 'currency'>>,
+  offers: Pick<ProductPageOffer, 'price' | 'currency'>[],
 ): string | null {
   let best: { price: string; currency: string | null; value: number } | null = null;
   for (const offer of offers) {
@@ -161,7 +161,7 @@ export function productPagePricesFromLabel(
  * Otherwise null (caller can fall back to prices-from).
  */
 export function productPageBestPriceLabel(
-  offers: Array<Pick<ProductPageOffer, 'price' | 'currency'>>,
+  offers: Pick<ProductPageOffer, 'price' | 'currency'>[],
 ): string | null {
   const priced = offers
     .map((offer) => {
@@ -182,7 +182,7 @@ export function productPageBestPriceLabel(
 }
 
 export function productPageBuyingFreshnessLine(
-  freshnessList: Array<'loading' | 'live' | 'stale' | 'stored'>,
+  freshnessList: ('loading' | 'live' | 'stale' | 'stored')[],
 ): string | null {
   if (freshnessList.some((f) => f === 'loading')) return PRODUCT_PAGE_COPY.priceUpdating;
   if (freshnessList.some((f) => f === 'live')) return PRODUCT_PAGE_COPY.pricesCheckedNow;
@@ -263,7 +263,7 @@ export function featuredSourceCanPlayInline(item: {
   url: string;
   collectionId?: string | null;
 }): boolean {
-  if (relatedMediaPath(item)) return false;
+  if (relatedMediaPath({ collectionId: item.collectionId ?? null })) return false;
   return getVideoUrlInfo(item.url).isValid;
 }
 

@@ -1,3 +1,4 @@
+import { analyticsHeaders } from '@/src/analytics/client';
 import { getOrCreateAnonymousId } from '@/src/services/anonymousId';
 import { newEventId } from '@/src/services/newEventId';
 import { supabase } from '@/src/services/supabase';
@@ -60,6 +61,7 @@ async function optionalBearerToken(): Promise<string | null> {
 async function authHeaders(): Promise<Record<string, string>> {
   const token = await optionalBearerToken();
   const headers: Record<string, string> = {
+    ...analyticsHeaders(),
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };
@@ -73,10 +75,11 @@ export async function followCreator(creatorId: string, eventId?: string): Promis
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
+      ...analyticsHeaders(),
+    'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify(eventId ? { event_id: eventId } : {}),
+    body: JSON.stringify({ event_id: eventId ?? newEventId() }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -90,10 +93,11 @@ export async function unfollowCreator(creatorId: string, eventId?: string): Prom
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
+      ...analyticsHeaders(),
+    'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify(eventId ? { event_id: eventId } : {}),
+    body: JSON.stringify({ event_id: eventId ?? newEventId() }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -152,7 +156,8 @@ export async function saveCollection(
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        ...analyticsHeaders(),
+    'Content-Type': 'application/json',
         Accept: 'application/json',
       },
       body: JSON.stringify({
@@ -175,10 +180,11 @@ export async function unsaveCollection(collectionId: string, eventId?: string): 
       method: 'DELETE',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        ...analyticsHeaders(),
+    'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: JSON.stringify(eventId ? { event_id: eventId } : {}),
+      body: JSON.stringify({ event_id: eventId ?? newEventId() }),
     },
   );
   if (!res.ok) {
@@ -235,7 +241,8 @@ async function setReelLiked(
       method: liked ? 'POST' : 'DELETE',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        ...analyticsHeaders(),
+    'Content-Type': 'application/json',
         Accept: 'application/json',
       },
       body: JSON.stringify({
@@ -355,10 +362,11 @@ export async function recordCreatorShare(input: {
 }
 
 /** Creator analytics from Engagement denorm mirrors (`GET /engagement/me/analytics`). */
-export async function getMyCreatorAnalytics(): Promise<CreatorAnalyticsSummary> {
+export async function getMyCreatorAnalytics(signal?: AbortSignal): Promise<CreatorAnalyticsSummary> {
   const token = await bearerToken();
   const res = await fetch(`${apiBase()}/engagement/me/analytics`, {
     method: 'GET',
+    signal,
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',

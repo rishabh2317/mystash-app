@@ -1,3 +1,4 @@
+import { useMeasuredOpen } from '@/src/analytics/hooks';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -61,6 +62,7 @@ export default function CreatorProfileScreen() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  useMeasuredOpen('creator.profile_opened','creator',!profileLoading?creator?.userId:undefined);
 
   const [activeTab, setActiveTab] = useState<CreatorProfileTab>(initialTab);
   const [collections, setCollections] = useState<CollectionViewModel[]>([]);
