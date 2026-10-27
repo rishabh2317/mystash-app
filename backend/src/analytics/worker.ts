@@ -29,7 +29,7 @@ export function startAnalyticsMaintenance(admin:SupabaseClient,options:{rpcTimeo
  };
  const maintain=async()=>{if(closed||!maintenanceEnabled()||maintenanceBusy||Date.now()-lastMaintenance<(options.maintenanceIntervalMs??3600000))return;
   maintenanceBusy=true;try{const {error}=await analyticsRpc(admin,'analytics_maintenance',undefined,timeout);
-   if(error)logger.warn({code:error.code},'analytics.maintenance_failed');else lastMaintenance=Date.now();
+   if(error)logger.warn({code:error.code},'analytics.maintenance_failed');else {lastMaintenance=Date.now();logger.info('analytics.maintenance_completed');}
   }catch{logger.warn('analytics.maintenance_failed');}finally{maintenanceBusy=false;}
  };
  if(!maintenanceEnabled()&&!creatorRollupsEnabled()&&!adminRollupsEnabled()&&!interestWorkerEnabled())return {close(){}};

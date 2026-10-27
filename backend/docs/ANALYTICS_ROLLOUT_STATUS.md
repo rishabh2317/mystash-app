@@ -29,3 +29,13 @@ The user authorized final preparation and controlled rollout of Phases 1–5. Th
 Keep collection, personalization and reporting false; keep privacy recovery and bounded retention available. Do not restart a pre-foundation writer or drop the additive schema to roll back. Stop the new API if unsafe and use a compatible forward fix; preserve the private backup and release fingerprints. A database restore, data purge, plan upgrade or public client rollout requires its own concrete recovery/acceptance checks; none is an implicit fallback.
 
 Execution results will be appended only after verification. This document distinguishes prepared commands from actions actually performed.
+
+## Verified execution — schema stage
+
+- Release checkpoint `b5c0b23eabf6edc3cbaff33466017774cee7c59b` is pushed to `origin/codex/cross-platform-development`; the remote hash was verified. The six Creator Studio files remain local and unstaged.
+- The exact generated transaction passed the isolated restore rehearsal, including migration-journal writes and the before/after business-data guards, before live execution.
+- All six allowlisted migrations and preserving counter initialization committed successfully on the verified project in one transaction. History now contains 51 versions. No unrelated migration, reset or purge was run.
+- Independent live verification reports all 238 counter inventory rows covered, zero missing projections/baselines, zero blocking drift, and zero collection/user reconciliation mismatches. Existing counts remain 19 users, 42 collections and 462 facts. Optional-event, consent-preference and interest-profile tables contain zero rows.
+- Actual PostgREST enforcement passed: the service-only probe with a 100 ms function statement timeout returned SQLSTATE `57014` after 212 ms, without client abort. The temporary probe was removed. No shared database-role timeout was altered.
+- Backend production typecheck/build and client no-emit checks pass. The 194-test release-focused regression pass succeeded after preparation changes. Changed-file lint has no errors or new findings; two pre-existing Home-feed hook warnings remain.
+- A constant, aggregate-only maintenance-success log is added for deployment verification. It contains no user, request, event or profile payload. Runtime activation and its acceptance results remain pending below.

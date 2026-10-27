@@ -62,8 +62,8 @@ The checkout is `codex/cross-platform-development` at base HEAD `e787627f20eadf8
 
 ### Remaining evidence and operational gates
 
-- [ ] Create a reviewed release checkpoint containing the intended analytics files, excluding credentials/temporary files and preserving the separate Creator Studio edits.
-- [ ] Complete a full-schema rehearsal against representative isolated data and actual service/anon/authenticated roles. Minimal fixture success does not establish deployed migration compatibility, role defaults, trigger interactions or index-lock duration.
+- [x] Create reviewed checkpoint `b5c0b23`, push/verify the release branch, exclude private backups/credentials/artifacts and preserve the six separate Creator Studio edits.
+- [x] Restore the private logical backup into PostgreSQL 17 with copied database ownership/roles, IP egress denied, and rehearse the exact transaction plus private-role checks. Application schema/records and business parity passed; managed gateway timeout behavior was verified separately live. Managed platform workers were not run locally.
 - [ ] Verify the target migration history, backup/restore point, write-drain/counter baseline, private credential presence, approved admin identity, gateway log redaction and rollback owner. These live prerequisites were not queried or changed by this audit.
 - [ ] Verify a running independent maintenance/reconciliation worker with failure alerts, RPC/SQL deadlines, matched API/worker collection flags and measured 1k-DAU storage/query/WAL headroom. 10k/100k figures remain planning estimates, not measured capacity or free-tier guarantees.
 - [ ] Perform new Android/iOS UI and old-client compatibility checks for consent/settings, dashboards, Creator Studio, share target, saved items and merchant navigation. The previously successful iOS build predates this implementation; Node/SQL tests do not validate the new native UI.
@@ -87,7 +87,7 @@ Minimum sequence: fix R6's small existing compile/dependency issues; implement/t
 - [ ] Obtain existing CI disposition or separately address ten pre-existing lint findings in the broadened touched-file scope; no new lint findings were introduced.
 - [ ] Verify the target Git revision, repository, Supabase project, migration history, backend/worker host and Expo/EAS project. Reuse existing application IDs/project linkage; do not invent or replace them.
 - [ ] Inventory pending migrations and schema drift. The local runner uses minimal deterministic business fixtures; it is not a full-schema production replay. Run an approved full-schema dry run against a representative isolated test environment before production approval. Do not blindly push unrelated pending migrations.
-- [ ] Obtain an approved backup/restore point using existing available tooling and verify a restore procedure. Do not enable a paid backup plan/service automatically.
+- [x] Create and restore-verify a private logical backup without upgrading a Supabase plan. PostgreSQL 17 tooling was installed alongside the existing version; no service started. Keep the recovery archive private; off-site/PITR/storage-object backups are not implied.
 - [ ] Review source cardinality/index plans and expected migration locks/duration. New indexes touch existing facts, users, collections, imports/ingests and source tables; schedule an appropriate maintenance/change window if needed.
 - [ ] Confirm the budget/capacity envelope. Initial target is 1k DAU; 10k/100k estimates and required benchmarks are in phase notes. No free-tier capacity guarantee is made. Stop for approval if any plan upgrade/payment would be required.
 
@@ -97,13 +97,13 @@ Apply only after schema review and deployment approval, before the new backend/w
 
 - [ ] Pause engagement mutations and drain old/new API instances, retry queues, background/direct legacy counter writers and in-flight transactions. Optional analytics flags do not pause these writes. Record the cutover boundary; never run mixed writers.
 
-- [ ] `20261027120000_engagement_atomic_foundations.sql` — atomic commits/counters, erasure/reconciliation, exact creator summary and server-only grants.
-- [ ] `20261027130000_behavioral_measurement.sql` — consent/preferences, bounded ingestion/search correlation, raw/identity retention, optional shopping attribution.
-- [ ] `20261027140000_creator_analytics.sql` — private creator rollups, coverage, retention and report RPC.
-- [ ] `20261027150000_admin_analytics.sql` — private global rollups, explicit admin membership, access auditing, business cohorts and admin report RPC.
-- [ ] `20261027160000_interest_profiles.sql` — separate purpose epoch/policy, bounded interest snapshots, reset/withdrawal erasure, leased worker methods and expiry. Earlier unused personalization bits are explicitly reset false.
-- [ ] `20261027170000_analytics_readiness.sql` — scoped background/privacy RPC deadlines, private all-counter inventory, read-only preflight and explicit preserving counter preparation.
-- [ ] With writers still drained, inspect `engagement_counter_preflight()`/inventory; stop on any blocking drift. Run the approved preserving preparation transaction only after inspection, then require zero missing projections/baselines and blocking drift, reconcile, and record before/after totals and unchanged authoritative relationship counts. No reset/purge is authorized. See the [R5 runbook](./ANALYTICS_READINESS_FIXES.md#r5-preferred-preserving-cutover).
+- [x] `20261027120000_engagement_atomic_foundations.sql` — atomic commits/counters, erasure/reconciliation, exact creator summary and server-only grants.
+- [x] `20261027130000_behavioral_measurement.sql` — consent/preferences, bounded ingestion/search correlation, raw/identity retention, optional shopping attribution.
+- [x] `20261027140000_creator_analytics.sql` — private creator rollups, coverage, retention and report RPC.
+- [x] `20261027150000_admin_analytics.sql` — private global rollups, explicit admin membership, access auditing, business cohorts and admin report RPC.
+- [x] `20261027160000_interest_profiles.sql` — separate purpose epoch/policy, bounded interest snapshots, reset/withdrawal erasure, leased worker methods and expiry. Earlier unused personalization bits are explicitly reset false.
+- [x] `20261027170000_analytics_readiness.sql` — scoped background/privacy RPC deadlines, private all-counter inventory, read-only preflight and explicit preserving counter preparation.
+- [x] With writers drained, inspect `engagement_counter_preflight()`/inventory; stop on any blocking drift. Run the approved preserving preparation transaction only after inspection, then require zero missing projections/baselines and blocking drift, reconcile, and record before/after totals and unchanged authoritative relationship counts. No reset/purge is authorized. See the [R5 runbook](./ANALYTICS_READINESS_FIXES.md#r5-preferred-preserving-cutover).
 - [ ] Verify all required functions, constraints, triggers and indexes exist, including renamed compatibility functions and the final maintenance wrapper chain. Each migration must succeed as reviewed; do not continue through a partial failure.
 - [ ] Verify RLS/grants as actual roles: PUBLIC/anon/authenticated cannot write/read private analytics tables, self-enroll as admin, or call service-only RPCs. The backend service role can perform intended operations. Do not regrant direct client fact/counter writes as a workaround.
 - [ ] Confirm admin membership starts empty and no real user has been silently opted in to any optional purpose. Business saves/follows/counters are preserved.
@@ -117,7 +117,7 @@ Apply only after schema review and deployment approval, before the new backend/w
 - [ ] Verify verified-session authentication and generic/no-store error behavior on private routes. Extra user/creator IDs, raw export selectors and unbounded ranges must be rejected.
 - [ ] Verify privacy bridge endpoints remain available to authorized self during shutdown: full/partial measurement withdrawal, actual self-only preference reads, personalization settings/withdrawal and interest reset. Test delayed enables and decrease-only replay after a full withdrawal. An ordinary creator/admin may not read another user's activity or profile.
 - [ ] Configure HTTP/edge access logging to redact Authorization, measurement headers, query text, source/merchant URLs and payloads. Application diagnostic counts alone are not complete delivery monitoring.
-- [ ] Prove target PostgREST hoists the scoped function statement timeouts into the transaction before RPC execution (v12+ behavior); verify real lock/statement cancellation and bounded retries in the isolated target rehearsal. HTTP abort/races alone are insufficient; stop if this proof fails.
+- [x] Prove live PostgREST statement cancellation through a temporary service-only probe: SQLSTATE 57014 after 212 ms for a 100 ms limit, with no client abort; probe removed. Local held-lock and bounded retry regressions also pass.
 - [ ] Enforce appropriate request/statement timeouts. Transactions must not remain open beyond the seven-day source/catch-up horizon. Set trusted request/rate limits without weakening consent or blocking privacy withdrawal.
 
 ## 4. Worker and maintenance release
