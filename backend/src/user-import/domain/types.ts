@@ -21,6 +21,8 @@ export type UserImportRecord = {
   status: UserImportStatus;
   /** When set, user-facing state is frozen at couldnt_finish. */
   timedOutAt: string | null;
+  attemptStartedAt?: string | null;
+  hiddenAt?: string | null;
   createdAt: string;
   updatedAt: string;
   schemaVersion: number;
@@ -57,6 +59,18 @@ export type ShareProgressPrimaryProduct = {
 
 /** Bag + Activity share progress. No queue or resolver vocabulary. */
 export type ShareProgressItem = {
+  /** Additive result contract; legacy state/product fields retain their semantics. */
+  resultVersion?: 1;
+  timedOut?: boolean;
+  resultProductCount?: number;
+  resultProducts?: ShareProgressPrimaryProduct[];
+  placeCount?: number;
+  resolvedPlaceCount?: number;
+  unverifiedPlaceCount?: number;
+  productStatus?: 'running' | 'complete' | 'failed' | 'unknown';
+  placeStatus?: 'running' | 'complete' | 'failed' | 'unknown';
+  hasInFlight?: boolean;
+  canRetry?: boolean;
   importId: string;
   state: 'looking' | 'ready' | 'nothing_yet' | 'couldnt_finish';
   kind: 'instagram' | 'youtube' | 'web';

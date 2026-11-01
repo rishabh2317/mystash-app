@@ -5,6 +5,7 @@ import { createDiscoveredProductService } from '../../discovered/factory';
 import { logger } from '../../logger';
 import {
   getBullmqConnection,
+  duplicateBullmqWorkerRedis,
   REDIS_UNAVAILABLE_ENQUEUE_ERROR,
   resolveRedisAvailability,
   shouldBypassBullmqEnqueue,
@@ -92,7 +93,7 @@ export function startProductAiReviewWorker(admin: SupabaseClient): Worker<Produc
       });
       logger.info({ productId: job.data.productId }, 'ai_review.job.done');
     },
-    { connection: getBullmqConnection().duplicate(), concurrency: 1 },
+    { connection: duplicateBullmqWorkerRedis('product-ai-review-worker'), concurrency: 1 },
   );
 
   worker.on('failed', (job, err) => {

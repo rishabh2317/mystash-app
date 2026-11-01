@@ -1,3 +1,4 @@
+import { SupabaseImportProgressRepository } from '../../user-import/ImportProgressRepository';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createCartService } from '../../cart/factory';
 import { createDiscoveredProductService } from '../../discovered/factory';
@@ -46,6 +47,7 @@ export function createResolvingContentSourceProcessor(
 
   const places = new SupabasePlaceRepository(admin);
   return new ContentSourceProcessor({
+    progress: new SupabaseImportProgressRepository(admin),
     sources,
     userImports,
     video: createVideoExtractionAdapter(admin),

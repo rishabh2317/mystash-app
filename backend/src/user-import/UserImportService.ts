@@ -1,3 +1,4 @@
+import type { ImportProgressRepository } from './ImportProgressRepository';
 import { enqueueUserImportTimeout } from '../content-source/jobs/contentSourceQueue';
 import { buildUserImportEventPayload } from './domain/events';
 import {
@@ -15,7 +16,6 @@ import type {
 import {
   resolveShareProgressState,
   shouldPersistImportTimeout,
-  shareProgressState,
 } from './domain/shareProgress';
 import { emitUserImportEvent } from './observability';
 import type { UserImportBagSyncPort, UserImportContentSourcePort } from './ports';
@@ -86,6 +86,11 @@ export class UserImportService {
     private readonly scheduleTimeout: (userImportId: string) => Promise<void> = defaultScheduleTimeout,
     private readonly nowMs: () => number = () => Date.now(),
     private readonly countPlaceCards: (userImportId: string) => Promise<number> = async () => 0,
+    private readonly results?: {
+      progress: ImportProgressRepository;
+      placeCounts(sourceId: string): Promise<{ total: number; resolved: number; unverified: number }>;
+      syncPlaces(row: { id: string; userId: string; contentSourceId: string | null }): Promise<void>;
+    },
   ) {}
 
   async submit(
@@ -119,9 +124,7 @@ export class UserImportService {
     const existing = await this.repo.findByUserAndDedupeKey(userId, dedupeKey);
     if (existing) {
       // Deliberate re-share: clear a prior timeout freeze and retry processing.
-      if (existing.timedOutAt) {
-        await this.repo.clearTimedOut(existing.id);
-      }
+      await this.repo.restart(existing.id, new Date(this.nowMs()).toISOString());
       await this.retryProcessing(existing);
       await this.syncBag(existing);
       await this.scheduleTimeout(existing.id);
@@ -153,9 +156,7 @@ export class UserImportService {
       if (!isUniqueViolation(err)) throw err;
       const raced = await this.repo.findByUserAndDedupeKey(userId, dedupeKey);
       if (!raced) throw err;
-      if (raced.timedOutAt) {
-        await this.repo.clearTimedOut(raced.id);
-      }
+      await this.repo.restart(raced.id, new Date(this.nowMs()).toISOString());
       await this.retryProcessing(raced);
       await this.syncBag(raced);
       await this.scheduleTimeout(raced.id);
@@ -173,6 +174,12 @@ export class UserImportService {
   }
 
   private async syncBag(record: UserImportRecord): Promise<void> {
+    const input = { id: record.id, userId: record.userId, contentSourceId: record.contentSourceId };
+    try {
+      await this.results?.syncPlaces(input);
+    } catch {
+      // A later submission or processing fan-out retries place membership.
+    }
     if (!this.bagSync) return;
     try {
       await this.bagSync.applyIfResolved({
@@ -212,6 +219,11 @@ export class UserImportService {
       const source = row.contentSourceId
         ? await this.contentSource.getById(row.contentSourceId)
         : null;
+      // Read completion first, then committed entities. Reading counts first can
+      // observe zero followed by COMPLETE and incorrectly stop frontend polling.
+      const progress = row.contentSourceId ? await this.results?.progress.get(row.contentSourceId) : null;
+      const currentProgress = progress && (!source?.queuedAt || Date.parse(progress.startedAt) >= Date.parse(source.queuedAt))
+        ? progress : null;
       const placeCardCount = await this.countPlaceCards(row.id);
       const progressSource = source
         ? {
@@ -224,11 +236,13 @@ export class UserImportService {
         source: progressSource,
         timedOutAt: row.timedOutAt,
         createdAt: row.createdAt,
+        attemptStartedAt: row.attemptStartedAt,
         nowMs,
       };
       if (shouldPersistImportTimeout(progressInput)) {
-        await this.repo.markTimedOut(row.id, new Date(nowMs).toISOString());
-        row.timedOutAt = new Date(nowMs).toISOString();
+        const current = await this.repo.markTimedOut(row.id, new Date(nowMs).toISOString(), row.attemptStartedAt ?? null);
+        row.timedOutAt = current?.timedOutAt ?? null;
+        progressInput.attemptStartedAt = current?.attemptStartedAt;
       }
       const state = resolveShareProgressState({
         ...progressInput,
@@ -238,11 +252,39 @@ export class UserImportService {
         state === 'ready' && source && source.processingStatus === 'READY'
           ? source.candidateCount
           : 0;
-      let products: ShareProgressPrimaryProduct[] = [];
-      if (row.contentSourceId && state === 'ready' && productCount > 0) {
-        products = mapBoundProducts(await this.contentSource.listProducts(row.contentSourceId));
+      const resultProducts = row.contentSourceId
+        ? mapBoundProducts(await this.contentSource.listProducts(row.contentSourceId)) : [];
+      const products = state === 'ready' && productCount > 0 ? resultProducts : [];
+      // New consumers get persisted discoveries even while the sibling branch is
+      // running or failed. Legacy fields above deliberately retain their old contract.
+      const uniqueProducts = [...new Map(resultProducts.map((p) => [p.productId, p])).values()];
+      const places = row.contentSourceId && this.results
+        ? await this.results.placeCounts(row.contentSourceId)
+        : { total: placeCardCount, resolved: 0, unverified: placeCardCount };
+      const fallbackStatus = source?.processingStatus === 'FAILED' ? 'failed'
+        : source?.processingStatus === 'READY' ? 'complete' : 'running';
+      let productStatus = currentProgress?.products ?? fallbackStatus;
+      let placeStatus: 'running' | 'complete' | 'failed' | 'unknown' = currentProgress?.places
+        ?? (source?.mediaKind === 'WEB_PAGE' ? 'complete'
+          : fallbackStatus === 'complete' ? 'unknown' : fallbackStatus);
+      if (row.timedOutAt) {
+        if (productStatus === 'running') productStatus = 'failed';
+        if (placeStatus === 'running') placeStatus = 'failed';
       }
       out.push({
+        resultVersion: 1,
+        timedOut: Boolean(row.timedOutAt),
+        resultProductCount: uniqueProducts.length,
+        resultProducts: uniqueProducts,
+        placeCount: places.total,
+        resolvedPlaceCount: places.resolved,
+        unverifiedPlaceCount: places.unverified,
+        productStatus,
+        placeStatus,
+        hasInFlight: !row.timedOutAt && (productStatus === 'running' || placeStatus === 'running'
+          || (source?.processingStatus === 'PROCESSING' && currentProgress?.evidenceComplete === false)),
+        canRetry: productStatus !== 'running' && placeStatus !== 'running'
+          && (productStatus === 'failed' || placeStatus === 'failed' || Boolean(row.timedOutAt)),
         importId: row.id,
         state,
         kind: row.platform === 'instagram' || row.platform === 'youtube' ? row.platform : 'web',
@@ -264,9 +306,11 @@ export class UserImportService {
     const source = row.contentSourceId
       ? await this.contentSource.getById(row.contentSourceId)
       : null;
-    if (shareProgressState(source) !== 'looking') return false;
-    await this.repo.markTimedOut(row.id, new Date(this.nowMs()).toISOString());
-    return true;
+    const input = { source, timedOutAt: row.timedOutAt, createdAt: row.createdAt,
+      attemptStartedAt: row.attemptStartedAt, nowMs: this.nowMs() };
+    if (!shouldPersistImportTimeout(input)) return false;
+    const current = await this.repo.markTimedOut(row.id, new Date(this.nowMs()).toISOString(), row.attemptStartedAt ?? null);
+    return Boolean(current?.timedOutAt);
   }
 
   /**
@@ -277,12 +321,10 @@ export class UserImportService {
     if (!userId) throw new UserImportServiceError('userId required', 401);
     if (!importId) throw new UserImportServiceError('importId required', 400);
     const row = await this.repo.findById(importId);
-    if (!row || row.userId !== userId) {
+    if (!row || row.userId !== userId || row.hiddenAt) {
       throw new UserImportServiceError('Import not found', 404);
     }
-    if (row.timedOutAt) {
-      await this.repo.clearTimedOut(row.id);
-    }
+    await this.repo.restart(row.id, new Date(this.nowMs()).toISOString());
     if (row.contentSourceId) {
       const contentSource = await this.contentSource.getById(row.contentSourceId);
       if (contentSource) {

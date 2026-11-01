@@ -1,3 +1,4 @@
+import { assertImportWorkActive, importWorkContext } from '../../user-import/workContext';
 import { promises as fs } from 'node:fs';
 import { getPipelineConfig } from '../../config/pipelineConfig';
 import type { OcrLine } from '../../domain/types';
@@ -25,10 +26,15 @@ export class GoogleVisionOcrProvider implements OCRProvider {
       const lines: OcrLine[] = [];
 
       for (const frame of input.frames) {
+        assertImportWorkActive();
         const path = frame.localPath;
         if (!path) continue;
         const buf = await fs.readFile(path);
-        const [result] = await client.textDetection(buf);
+        assertImportWorkActive();
+        const [result] = importWorkContext.getStore()
+          ? [(await client.batchAnnotateImages({ requests: [{ image: { content: buf }, features: [{ type: 'TEXT_DETECTION' }] }] },
+            { timeout: 10_000, retry: null }))[0].responses?.[0] ?? {}]
+          : await client.textDetection(buf);
         const annotations = result.textAnnotations ?? [];
         const full = annotations[0]?.description?.trim();
         if (full) {

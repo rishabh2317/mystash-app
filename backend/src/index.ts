@@ -19,6 +19,9 @@ import { logger } from './logger';
 import { enqueueIngestPipeline } from './workers/queue';
 import { runProgressiveIngestPipeline } from './stages/orchestrator';
 import { startEmbeddedIngestPipelineWorker } from './workers/ingestPipelineWorker';
+import { getBullmqCommandRedis } from './workers/redisConnection';
+import { ingestionReadiness } from './workers/ingestionRuntime';
+import { trackFreeTestWorker } from './workers/freeTestBudget';
 import { startProductResolveWorker } from './product-intelligence';
 import { getEnv } from './env';
 import { createProductRedirectHandler } from './shopping/productRedirect';
@@ -57,6 +60,16 @@ registerAnalyticsRoutes(app);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+// Liveness stays backward compatible; readiness also checks an ingestion consumer.
+app.get('/ready/ingestion', async (_req, res) => {
+  const redis = getBullmqCommandRedis();
+  const result = await ingestionReadiness({
+    ping: () => redis.ping(), persistence: () => redis.info('persistence'),
+    clients: () => redis.client('LIST') as Promise<string>,
+  });
+  res.status(result.ready ? 200 : 503).json(result);
 });
 
 app.get('/products/:id/redirect', createProductRedirectHandler(createSupabaseAdmin()));
@@ -633,6 +646,7 @@ if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
   void (async () => {
     try {
       const worker = await startEmbeddedIngestPipelineWorker();
+      if (worker) trackFreeTestWorker(worker);
       if (worker) logger.info('embedded ingest-pipeline worker started');
     } catch (e) {
       logger.warn({ err: e }, 'embedded ingest worker failed to start — use npm run worker or fallback path');
@@ -656,16 +670,16 @@ if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
         logger.info('embedded product-resolve worker skipped — redis unavailable');
         return;
       }
-      startProductResolveWorker(createSupabaseAdmin());
+      trackFreeTestWorker(startProductResolveWorker(createSupabaseAdmin()));
       logger.info('embedded product-resolve worker started');
       const { startProductAiReviewWorker } = await import('./ai-review/jobs/productAiReviewQueue');
-      startProductAiReviewWorker(createSupabaseAdmin());
+      trackFreeTestWorker(startProductAiReviewWorker(createSupabaseAdmin()));
       logger.info('embedded product-ai-review worker started');
       const { startContentSourceProcessingWorker } = await import('./content-source/factory');
-      startContentSourceProcessingWorker(createSupabaseAdmin());
+      trackFreeTestWorker(startContentSourceProcessingWorker(createSupabaseAdmin()));
       logger.info('embedded content-source-processing worker started');
       const { startCreatorLibrarySyncWorker } = await import('./creator-library/jobs/librarySyncWorker');
-      startCreatorLibrarySyncWorker(createSupabaseAdmin());
+      trackFreeTestWorker(startCreatorLibrarySyncWorker(createSupabaseAdmin()));
       logger.info('embedded creator-library-sync worker started');
     } catch (e) {
       logger.warn({ err: e }, 'embedded product-resolve worker failed to start');
@@ -673,6 +687,6 @@ if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
   })();
 }
 
-app.listen(PORT, HOST, () => {
+export const httpServer = app.listen(PORT, HOST, () => {
   logger.info({ PORT, HOST }, 'mystash-backend listening');
 });

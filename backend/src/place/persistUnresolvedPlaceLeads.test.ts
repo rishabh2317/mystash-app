@@ -75,7 +75,7 @@ describe('persistUnresolvedPlaceLeads', () => {
     assert.equal(repository.places.size, 0);
   });
 
-  it('removes an unresolved lead that a reprocess no longer extracted', async () => {
+  it('retains saved leads when a later extraction omits a mention', async () => {
     const repository = new InMemoryPlaceRepository();
     const imports = [{ id: IMPORT_A, userId: USER_A }];
     await persistUnresolvedPlaceLeads({
@@ -91,8 +91,8 @@ describe('persistUnresolvedPlaceLeads', () => {
       mentions: [mention({ name: 'Potato Head' })],
     });
     const names = (await repository.listHypotheses(SOURCE)).map((row) => row.extractedName);
-    assert.deepEqual(names, ['Potato Head']);
-    assert.equal((await repository.listSavesByUser(USER_A)).length, 1);
+    assert.deepEqual(names, ['Potato Head', 'Tanah Lot']);
+    assert.equal((await repository.listSavesByUser(USER_A)).length, 2);
     assert.equal(repository.places.size, 0);
   });
 });

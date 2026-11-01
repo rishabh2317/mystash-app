@@ -527,12 +527,13 @@ describe('UserImportService content source relationship', () => {
     assert.equal(repo.imports.size, 1);
   });
 
-  it('deletes only the user import row', async () => {
+  it('hides history while preserving the import identity and referenced source', async () => {
     const { service, repo, sourceRepo } = createHarness();
     const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
     const sourceId = submitted.record.contentSourceId!;
     await service.delete(USER_A, submitted.record.id);
-    assert.equal(repo.imports.size, 0);
+    assert.equal(repo.imports.size, 1);
+    assert.ok(repo.imports.get(submitted.record.id)?.hiddenAt);
     assert.ok(await sourceRepo.findById(sourceId));
     assert.equal((await service.listRecent(USER_A)).length, 0);
   });
@@ -582,6 +583,8 @@ describe('UserImportService content source relationship', () => {
     assert.ok(before);
     assert.equal(before.processingStatus, 'QUEUED');
 
+    const row = repo.imports.get(submitted.record.id)!;
+    repo.imports.set(row.id, { ...row, createdAt: new Date(Date.now() - USER_IMPORT_TIMEOUT_MS - 1000).toISOString() });
     const applied = await service.applyTimeout(submitted.record.id);
     assert.equal(applied, true);
     assert.ok(repo.imports.get(submitted.record.id)?.timedOutAt);

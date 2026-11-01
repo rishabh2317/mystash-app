@@ -13,6 +13,7 @@ export type VideoExtractionPort = {
   extract(params: {
     contentSource: ContentSourceRecord;
     traceId: string;
+    onEvidence?: (snapshot: VideoExtractionPortResult) => void;
   }): Promise<VideoExtractionPortResult>;
 };
 

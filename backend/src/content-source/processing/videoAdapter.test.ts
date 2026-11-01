@@ -55,7 +55,7 @@ describe('createVideoExtractionAdapter', () => {
           description: '',
           descriptionSource: 'cache',
           creator: '',
-          thumbnailUrl: null,
+          thumbnailUrl: 'https://fixture.invalid/source.jpg',
         },
         durationMs: 4,
       } satisfies ProgressiveExtractResult;
@@ -71,6 +71,7 @@ describe('createVideoExtractionAdapter', () => {
     assert.equal(calls[0]?.platform, 'youtube');
     assert.equal(calls[0]?.correlationId, 'src-video-1');
     assert.equal(calls[0]?.sourceUrl, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    assert.deepEqual(result.metadata, { title: 'Review', thumbnailUrl: 'https://fixture.invalid/source.jpg' });
     assert.equal(result.cacheHit, true);
     assert.equal(result.extractionMethod, 'cache');
     assert.equal(result.products[0]?.name, 'Sony WH-1000XM5');

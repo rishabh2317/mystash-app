@@ -1,0 +1,7 @@
+{
+  "backend/src/stages/progressiveExtract.ts": "9bfffa001e08e75152e1fa629d724321a127ba97d4b5cc0cdd6a2a4b251c23df",
+  "backend/src/stages/gate.ts": "22e0de5d0d2ceb929fc5c7981e63c31066ec6475638fbe905d92543715691d83",
+  "backend/src/content-source/processing/ContentSourceProcessor.ts": "a45790e65d65a1d53ab47cfe455fd43ec49d5d1ae0350b00fbbca7814f5f2d9c",
+  "backend/src/place/PlaceResolver.ts": "d6b91223e33ec0d2ca24bebc19e43cd051b5bfa7f96bde99281531503513a0da",
+  "backend/src/place/SupabasePlaceRepository.ts": "9c2a2d0fd66a91afef15d216e7b9b687e6c36ba8c6788243fcaa2b5aa9c99fdc"
+}

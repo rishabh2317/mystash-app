@@ -2,7 +2,7 @@ import { Worker } from 'bullmq';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '../../logger';
 import { getNotificationEmitter, librarySyncFailedEvent } from '../../notifications/producers';
-import { getBullmqConnection } from '../../workers/redisConnection';
+import { duplicateBullmqWorkerRedis } from '../../workers/redisConnection';
 import { createCreatorLibraryService } from '../CreatorLibraryService';
 import { SupabaseCreatorLibraryRepository } from '../SupabaseCreatorLibraryRepository';
 import {
@@ -38,7 +38,7 @@ export function startCreatorLibrarySyncWorker(admin: SupabaseClient): Worker<Cre
         throw e;
       }
     },
-    { connection: getBullmqConnection(), concurrency: 2 },
+    { connection: duplicateBullmqWorkerRedis('creator-library-worker'), concurrency: 2 },
   );
   worker.on('failed', (job, err) => {
     logger.warn(

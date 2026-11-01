@@ -36,6 +36,7 @@ export type ShareProgressInput = {
   /** Durable freeze — late READY must not resurrect UX. */
   timedOutAt: string | null;
   createdAt: string;
+  attemptStartedAt?: string | null;
   nowMs?: number;
 };
 
@@ -48,7 +49,7 @@ export function resolveShareProgressState(input: ShareProgressInput): ShareProgr
   if (input.timedOutAt) return 'couldnt_finish';
   const base = shareProgressState(input.source);
   if (base !== 'looking') return base;
-  const createdMs = Date.parse(input.createdAt);
+  const createdMs = Date.parse(input.attemptStartedAt ?? input.createdAt);
   if (!Number.isFinite(createdMs)) return 'looking';
   const nowMs = input.nowMs ?? Date.now();
   if (nowMs - createdMs >= USER_IMPORT_TIMEOUT_MS) return 'couldnt_finish';

@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '../../logger';
 import {
   getBullmqConnection,
+  duplicateBullmqWorkerRedis,
   REDIS_UNAVAILABLE_ENQUEUE_ERROR,
   resolveRedisAvailability,
   shouldBypassBullmqEnqueue,
@@ -200,7 +201,7 @@ export function startProductResolveWorker(admin: SupabaseClient): Worker<Product
       }
       logger.info({ draftId, result: r?.decision }, 'product.resolve.job.done');
     },
-    { connection: getBullmqConnection().duplicate(), concurrency: 2 },
+    { connection: duplicateBullmqWorkerRedis('product-resolve-worker'), concurrency: 2 },
   );
 
   worker.on('failed', (job, err) => {

@@ -4,6 +4,7 @@ import type {
   InsertPlaceRow,
   InsertUnresolvedHypothesisRow,
   PlaceRecord,
+  PlaceSaveSource,
   UpgradePlaceLeadResult,
   UserPlaceSaveRecord,
 } from './domain/types';
@@ -19,7 +20,17 @@ export class PlaceRepositoryError extends Error {
   }
 }
 
+/** User-scoped projection input. Implementations batch reads; no provider calls. */
+export type PlaceStashSnapshot = {
+  saves: UserPlaceSaveRecord[];
+  hypotheses: ContentSourcePlaceRecord[];
+  places: PlaceRecord[];
+  sources: PlaceSaveSource[];
+  media: Map<string, PlaceSourceMedia>;
+};
+
 export type PlaceRepository = {
+  loadStash(userId: string): Promise<PlaceStashSnapshot>;
   insertPlace(row: InsertPlaceRow): Promise<PlaceRecord>;
   findPlaceById(id: string): Promise<PlaceRecord | null>;
   findPlaceByProviderId(provider: string, providerPlaceId: string): Promise<PlaceRecord | null>;
@@ -37,6 +48,8 @@ export type PlaceRepository = {
    * A resolved row keeps its place id. A missing key is inserted unresolved.
    */
   upsertHypothesis(row: InsertUnresolvedHypothesisRow): Promise<ContentSourcePlaceRecord>;
+  resolveHypothesis(row: InsertUnresolvedHypothesisRow, place: InsertPlaceRow): Promise<ContentSourcePlaceRecord>;
+  listSourcesByUser(userId: string): Promise<PlaceSaveSource[]>;
   markHypothesisResolved(id: string, placeId: string): Promise<ContentSourcePlaceRecord>;
 
   /** Stash card. place_id is copied only when the hypothesis is already resolved. */

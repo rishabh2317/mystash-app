@@ -20,7 +20,6 @@ export async function persistUnresolvedPlaceLeads(input: {
   mentions: ExtractedPlaceMention[];
 }): Promise<PersistUnresolvedPlaceLeadsResult> {
   let discarded = 0;
-  const keptKeys: string[] = [];
   const hypotheses: ContentSourcePlaceRecord[] = [];
   for (const mention of input.mentions) {
     if (!placeNameIsSpecific(mention.name)) {
@@ -41,11 +40,10 @@ export async function persistUnresolvedPlaceLeads(input: {
       evidence: mention.evidence,
       sources: mention.sources,
     });
-    keptKeys.push(hypothesis.hypothesisKey);
     hypotheses.push(hypothesis);
   }
 
-  await input.repository.deleteUnresolvedExcept(input.contentSourceId, keptKeys);
+  // Re-extraction is additive: absence is not evidence to delete a user save.
 
   let leads = 0;
   for (const hypothesis of hypotheses) {

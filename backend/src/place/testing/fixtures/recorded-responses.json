@@ -1,0 +1,716 @@
+{
+  "provenance": "Synthetic repository response fixtures frozen for offline replay; not production captures. Names and payload shapes reuse PlaceResolver/ProductResolver tests; staged/failure combinations extend those fixtures.",
+  "fixtures": [
+    {
+      "id": "product-only",
+      "text": "Sony WH-1000XM5 review",
+      "stages": [
+        {
+          "products": [
+            {
+              "name": "Sony WH-1000XM5",
+              "category": "electronics",
+              "brand": "Sony",
+              "model": "WH-1000XM5",
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text",
+                "frames": [],
+                "frameCount": 0,
+                "logoHits": [],
+                "transcriptMentions": true,
+                "ocrMentions": false
+              },
+              "sources": [
+                "TRANSCRIPT"
+              ]
+            }
+          ],
+          "places": []
+        }
+      ],
+      "expectedProducts": [
+        "Sony WH-1000XM5"
+      ],
+      "expectedPlaces": []
+    },
+    {
+      "id": "place-only",
+      "text": "Visiting Potato Head in Seminyak",
+      "stages": [
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        }
+      ],
+      "expectedProducts": [],
+      "expectedPlaces": [
+        "Potato Head"
+      ]
+    },
+    {
+      "id": "mixed-later-product",
+      "text": "Visiting Potato Head in Seminyak with Sony headphones",
+      "stages": [
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [
+            {
+              "name": "Sony WH-1000XM5",
+              "category": "electronics",
+              "brand": "Sony",
+              "model": "WH-1000XM5",
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text",
+                "frames": [],
+                "frameCount": 0,
+                "logoHits": [],
+                "transcriptMentions": true,
+                "ocrMentions": false
+              },
+              "sources": [
+                "TRANSCRIPT"
+              ]
+            }
+          ],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        }
+      ],
+      "expectedProducts": [
+        "Sony WH-1000XM5"
+      ],
+      "expectedPlaces": [
+        "Potato Head"
+      ]
+    },
+    {
+      "id": "hidden-merchandise-stage3",
+      "text": "Potato Head in Seminyak, a visit with something shown visually",
+      "stages": [
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [
+            {
+              "name": "Sony WH-1000XM5",
+              "category": "electronics",
+              "brand": "Sony",
+              "model": "WH-1000XM5",
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text",
+                "frames": [],
+                "frameCount": 0,
+                "logoHits": [],
+                "transcriptMentions": true,
+                "ocrMentions": false
+              },
+              "sources": [
+                "TRANSCRIPT"
+              ]
+            }
+          ],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        }
+      ],
+      "expectedProducts": [
+        "Sony WH-1000XM5"
+      ],
+      "expectedPlaces": [
+        "Potato Head"
+      ]
+    },
+    {
+      "id": "ambiguous-place",
+      "text": "Potato Head visit",
+      "stages": [
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": null,
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": null,
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": null,
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        }
+      ],
+      "provider": "ambiguous",
+      "expectedProducts": [],
+      "expectedPlaces": [
+        "Potato Head"
+      ]
+    },
+    {
+      "id": "generic-place",
+      "text": "A Cafe in Seminyak",
+      "stages": [
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Cafe",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Cafe",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Cafe",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        }
+      ],
+      "expectedProducts": [],
+      "expectedPlaces": []
+    },
+    {
+      "id": "provider-failure-three-places",
+      "text": "Potato Head, Tanah Lot, Uluwatu Temple in Seminyak",
+      "stages": [
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            },
+            {
+              "name": "Tanah Lot",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            },
+            {
+              "name": "Uluwatu Temple",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            },
+            {
+              "name": "Tanah Lot",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            },
+            {
+              "name": "Uluwatu Temple",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            },
+            {
+              "name": "Tanah Lot",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            },
+            {
+              "name": "Uluwatu Temple",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        }
+      ],
+      "provider": "failed",
+      "expectedProducts": [],
+      "expectedPlaces": [
+        "Potato Head",
+        "Tanah Lot",
+        "Uluwatu Temple"
+      ]
+    },
+    {
+      "id": "duplicate-mention",
+      "text": "Potato Head in Seminyak",
+      "stages": [
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            },
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            },
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        },
+        {
+          "products": [],
+          "places": [
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            },
+            {
+              "name": "Potato Head",
+              "category": null,
+              "locality": "Seminyak",
+              "city": null,
+              "region": null,
+              "country": null,
+              "mentionedAddress": null,
+              "confidence": 0.9,
+              "evidence": {
+                "summary": "Named in recorded test text"
+              },
+              "sources": [
+                "METADATA"
+              ]
+            }
+          ]
+        }
+      ],
+      "expectedProducts": [],
+      "expectedPlaces": [
+        "Potato Head"
+      ]
+    }
+  ]
+}

@@ -6,6 +6,8 @@ export type PlaceListImage = {
 };
 
 export type PlaceSourceMedia = {
+  /** Stored source identity; never reconstructed from a thumbnail or provider ID. */
+  sourceUrl?: string | null;
   sourceThumbnailUrl: string | null;
   frameUrl: string | null;
 };

@@ -252,6 +252,44 @@ function urlPathTokens(url: string | null | undefined): string[] {
   }
 }
 
+/** Space/hyphen variants only: no edit distance, reordered letters, digits,
+ * filler words, or joining across title/model/URL-segment boundaries. */
+function alphabeticModelSpans(tokens: string[]) {
+  const spans: { key: string; start: number; end: number }[] = [];
+  for (let start = 0; start < tokens.length; start++) {
+    let key = '';
+    for (let end = start; end < Math.min(tokens.length, start + 3); end++) {
+      const token = tokens[end]!;
+      if (!/^[a-z]{2,}$/.test(token) || isIdentityFillerToken(token)) break;
+      key += token;
+      if (key.length > 40) break;
+      if (key.length >= 4) spans.push({ key, start, end });
+    }
+  }
+  return spans;
+}
+
+function explicitModelSupported(requested: string[], groups: string[][]): boolean {
+  const literal = new Set(groups.flat());
+  const covered = requested.map(token => literal.has(token));
+  if (covered.every(Boolean)) return true;
+  const candidateSpans = new Set(groups.flatMap(group => alphabeticModelSpans(group).map(s => s.key)));
+  for (const span of alphabeticModelSpans(requested)) {
+    if (!candidateSpans.has(span.key)) continue;
+    for (let i = span.start; i <= span.end; i++) covered[i] = true;
+  }
+  return covered.every(Boolean);
+}
+
+function urlModelGroups(url: string | null | undefined): string[][] {
+  if (!url) return [];
+  try {
+    return new URL(url).pathname.split('/').filter(Boolean).map(part => tokensOf(decodeURIComponent(part)));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Hard identity gate. Quality scores are not an input.
  * A missing requested brand, model, color, or type is not a failure by itself;
@@ -278,10 +316,14 @@ export function assessProductIdentityCompatibility(
   });
 
   const requestedBrand = brandTokensOf(expected.brand);
+  const explicitModel = expected.model?.trim()
+    ? meaningfulModelTokens(expected.model, expected.brand)
+    : [];
   const allowed = new Set<string>([
     ...requestedBrand,
     ...tokensOf(expected.name),
     ...tokensOf(expected.model),
+    ...alphabeticModelSpans(explicitModel).map(span => span.key),
   ]);
   const title = candidate.title ?? '';
   const foreign =
@@ -302,9 +344,6 @@ export function assessProductIdentityCompatibility(
     if (!supported && options?.requireBrandSupport !== false) return fail('brand_unsupported');
   }
 
-  const explicitModel = expected.model?.trim()
-    ? meaningfulModelTokens(expected.model, expected.brand)
-    : [];
   const impliedModel = explicitModel.length ? [] : impliedModelTokens(expected.name);
   const requestedModel = explicitModel.length ? explicitModel : impliedModel;
   if (requestedModel.length) {
@@ -313,8 +352,9 @@ export function assessProductIdentityCompatibility(
       ...tokensOf(candidate.model),
       ...urlPathTokens(candidate.merchantUrl),
     ];
-    const candidateModelSet = new Set(candidateModelTokens);
-    if (explicitModel.length && explicitModel.some((token) => !candidateModelSet.has(token))) {
+    if (explicitModel.length && !explicitModelSupported(explicitModel, [
+      tokensOf(title), tokensOf(candidate.model), ...urlModelGroups(candidate.merchantUrl),
+    ])) {
       return fail('model_missing');
     }
     const requestedSet = new Set(requestedModel);

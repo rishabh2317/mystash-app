@@ -102,3 +102,14 @@ describe('GET /places', () => {
     assert.ok(body.items.some((item) => item.kind === 'unresolved'));
   });
 });
+
+
+it('rejects malformed opt-in pagination without invoking the repository', async () => {
+  const handler = createPlaceListHandler({ authenticate: async () => ({ userId: USER }),
+    service: { listForUser: async () => assert.fail('Invalid query must not reach data') } });
+  for (const query of [{ limit: '0' }, { limit: ['1'] }, { limit: '101' }, { cursor: 'missing-limit' }, { limit: '2', cursor: ['bad'] }]) {
+    const { res, captured } = fakeRes();
+    await handler({ ...fakeReq('Bearer fixture'), query } as unknown as Request, res);
+    assert.equal(captured.status, 400);
+  }
+});

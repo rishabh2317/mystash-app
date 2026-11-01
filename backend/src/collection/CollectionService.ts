@@ -165,13 +165,27 @@ export class CollectionService {
   ) {}
 
   async getAggregate(id: string): Promise<CollectionAggregate | null> {
-    return this.repo.getAggregate(id);
+    const aggregate = await this.repo.getAggregate(id);
+    if (!aggregate) return null;
+    const current = await this.currentCreatorPhoto(aggregate.collection.creatorId);
+    return current ? { ...aggregate, collection: { ...aggregate.collection, creatorAvatar: current.avatar } } : aggregate;
+  }
+
+  /** Avatar is current profile presentation; publication snapshots remain stored
+   * unchanged. A profile lookup failure must not hide otherwise readable content. */
+  private async currentCreatorPhoto(creatorId: string): Promise<{ avatar: string | null } | null> {
+    try {
+      const current = await this.creators.getCreatorSnapshot(creatorId);
+      return current ? { avatar: current.creatorAvatar } : null;
+    } catch {
+      return null;
+    }
   }
 
   async getBySlug(slug: string): Promise<CollectionAggregate | null> {
     const c = await this.repo.getCollectionBySlug(slug);
     if (!c) return null;
-    return this.repo.getAggregate(c.id);
+    return this.getAggregate(c.id);
   }
 
   canRead(collection: Collection, userId: string | null): boolean {
@@ -213,8 +227,12 @@ export class CollectionService {
       hasMore && last?.publishedAt
         ? encodePublishedListCursor({ publishedAt: last.publishedAt, id: last.id })
         : null;
+    // One profile lookup for the whole creator page, not one lookup per card.
+    const current = page.length ? await this.currentCreatorPhoto(creatorIdTrimmed) : null;
     return {
-      collections: page.map(toPublishedCollectionListItem),
+      collections: page.map(c => toPublishedCollectionListItem(
+        current ? { ...c, creatorAvatar: current.avatar } : c,
+      )),
       nextCursor,
     };
   }

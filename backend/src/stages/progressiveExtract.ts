@@ -1,3 +1,8 @@
+import type { ReasonerProvider } from '../providers/reasoner/ReasonerProvider';
+import type { VideoProvider } from '../providers/video/VideoProvider';
+import type { MediaUnderstandingProvider } from '../media/MediaUnderstandingProvider';
+import { abortImportOperation, assertImportWorkActive } from '../user-import/workContext';
+import { placeHypothesisKey } from '../place/domain/hypothesisKey';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -33,7 +38,7 @@ import { gatherYoutubeContext } from '../pipeline/youtubeContext';
 import { USER_IMPORT_EXTRACTION_CACHE_SCOPE, getVideoExtractionCache, setVideoExtractionCache } from '../services/extractionCache';
 import type { ExtractedPlaceMention } from '../place/parseReasonerPayload';
 import { emitPipelineEvent } from '../services/observability';
-import { needsStage2Enrichment, stagePass } from './gate';
+import { discoveryStageDecision, needsStage2Enrichment } from './gate';
 
 export type VideoSourceMetadata = {
   title: string;
@@ -43,7 +48,34 @@ export type VideoSourceMetadata = {
   thumbnailUrl: string | null;
 };
 
+export type ProgressiveEvidence = {
+  products: ProductCandidate[];
+  places: ExtractedPlaceMention[];
+  earlyPlaces?: ExtractedPlaceMention[];
+  finalStage: string;
+  cacheHit: boolean;
+  productsSettled: boolean;
+  placesSettled: boolean;
+  finalEvidence: boolean;
+  productsIncomplete?: boolean;
+};
+
+/** Recorded-response replay ports. Defaults are exactly the production providers. */
+export type ProgressiveExtractRuntime = {
+  context?: () => Promise<VideoSourceMetadata & { transcript: string }>;
+  reasoner?: ReasonerProvider;
+  video?: VideoProvider;
+  media?: MediaUnderstandingProvider;
+  readCache?: typeof getVideoExtractionCache;
+  writeCache?: typeof setVideoExtractionCache;
+  adaptiveFrames?: typeof extractAdaptiveFrames;
+  moreFrames?: typeof extractFramesAtTimestamps;
+  upload?: typeof uploadFramesToStorage;
+  workDir?: () => Promise<string>;
+};
+
 export type ProgressiveExtractInput = {
+  onEvidence?: (snapshot: ProgressiveEvidence) => void;
   admin: SupabaseClient;
   sourceUrl: string;
   platform: string;
@@ -58,6 +90,7 @@ export type ProgressiveExtractInput = {
 export type ProgressiveExtractResult =
   | {
       kind: 'ok';
+      productsIncomplete?: boolean;
       products: ProductCandidate[];
       places: ExtractedPlaceMention[];
       status: 'ready_for_review' | 'review_required' | 'cached';
@@ -82,16 +115,17 @@ async function reasonValidateRank(
   traceId: string,
   stageTag: 's1' | 's2' | 's3',
   includePlaces: boolean,
+  provider?: ReasonerProvider,
 ): Promise<{ products: ProductCandidate[]; places: ExtractedPlaceMention[] }> {
-  const reasoner = new OpenAiReasonerProvider(admin);
+  const reasoner = provider ?? new OpenAiReasonerProvider(admin);
   const validator = new ProductValidator();
   const ranker = new ProductRanker();
-  const reasoned = await reasoner.reason({
+  const reasoned = await abortImportOperation(reasoner.reason({
     context: ctx,
     ingestId: correlationId,
     traceId,
     includePlaces,
-  });
+  }));
   emitPipelineEvent('reasoning.complete', {
     ingestId: correlationId,
     traceId,
@@ -149,18 +183,19 @@ function enrichEvidence(products: ProductCandidate[], frames: FrameRef[]): Produ
 
 /**
  * Shared progressive extraction used by creator ingest and content-source processing.
- * Returns product candidates only — callers persist to their own tables.
+ * Returns product candidates and optional user-import places; callers persist entities.
  * Never writes Catalog, ingest-draft, or Bag rows.
  */
 export async function runProgressiveExtract(
   params: ProgressiveExtractInput,
+  runtime: ProgressiveExtractRuntime = {},
 ): Promise<ProgressiveExtractResult> {
   const tAll = performance.now();
   const { admin, sourceUrl, platform, externalVideoId, correlationId, traceId } = params;
   const cfg = getPipelineConfig();
   const builder = new ContextBuilder();
 
-  const hit = await getVideoExtractionCache(admin, {
+  const hit = await (runtime.readCache ?? getVideoExtractionCache)(admin, {
     platform,
     externalVideoId,
     scope: params.cacheScope,
@@ -194,7 +229,10 @@ export async function runProgressiveExtract(
   let thumbnailUrl: string | null = null;
   let transcript = '';
 
-  if (platform === 'youtube') {
+  if (runtime.context) {
+    const pack = await runtime.context();
+    ({ title, creator, description, descriptionSource, thumbnailUrl, transcript } = pack);
+  } else if (platform === 'youtube') {
     const pack = await gatherYoutubeContext(externalVideoId, {
       ingestId: correlationId,
       traceId,
@@ -255,10 +293,25 @@ export async function runProgressiveExtract(
   });
 
   const includePlaces = params.cacheScope === USER_IMPORT_EXTRACTION_CACHE_SCOPE;
-  let reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's1', includePlaces);
+  let reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's1', includePlaces, runtime.reasoner);
   let products = reasoned.products;
   let places = reasoned.places;
-  let gate = stagePass(products);
+  let decision = discoveryStageDecision(products, places, [title, description, transcript].join(' '));
+  let gate = decision.productGate;
+  let enrichmentFailed = false;
+  const retainedPlaces = new Map<string, ExtractedPlaceMention>();
+  const publish = (stage: string, finalEvidence = false) => {
+    if (!includePlaces) return;
+    assertImportWorkActive();
+    decision = discoveryStageDecision(products, places, [title, description, transcript,
+      ...(ctx.media?.ocr ?? []).map((line) => line.text)].join(' '));
+    gate = decision.productGate;
+    for (const place of decision.earlyPlaces) retainedPlaces.set(placeHypothesisKey({ extractedName: place.name, ...place }), place);
+    params.onEvidence?.({ products, places, earlyPlaces: decision.earlyPlaces,
+      finalStage: stage, cacheHit: false, productsSettled: decision.productsSettled || (finalEvidence && !enrichmentFailed),
+      productsIncomplete: finalEvidence && enrichmentFailed && !decision.productGate.pass, placesSettled: decision.placesSettled || finalEvidence, finalEvidence });
+  };
+  publish('stage1');
   emitPipelineEvent('stage.gate', { ingestId: correlationId, stage: 1, ...gate });
 
   let finalStage = 'stage1';
@@ -268,146 +321,161 @@ export async function runProgressiveExtract(
   let videoLocal: string | null = null;
   let durationMs = 0;
 
-  const mu = new CompositeMediaUnderstanding(
+  const mu = runtime.media ?? new CompositeMediaUnderstanding(
     new OpenAiVisionProvider(admin),
     new GoogleVisionOcrProvider(),
     new GoogleVisionLogoProvider(),
     new OpenAiSceneProvider(admin),
   );
-  const videoProvider = new YtDlpVideoProvider();
+  const videoProvider = runtime.video ?? new YtDlpVideoProvider();
 
-  if (
-    needsStage2Enrichment({
-      stage1Pass: gate.pass,
-      transcriptAvailable: ctx.transcript.available,
-      transcriptLength: ctx.transcript.length,
-    })
-  ) {
-    try {
-      workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mystash-extract-'));
-      const downloaded = await videoProvider.download(sourceUrl, workDir);
-      videoLocal = downloaded.localPath;
-      durationMs = downloaded.durationMs || (await probeDurationMs(videoLocal));
-      const extracted = await extractAdaptiveFrames({
-        videoPath: videoLocal,
-        outDir: path.join(workDir, 'frames_s2'),
-        ingestId: correlationId,
-      });
-      frames = extracted.frames;
-      durationMs = extracted.durationMs || durationMs;
-      const uploaded = await uploadFramesToStorage(admin, {
-        ingestId: correlationId,
-        stage: 'stage2',
-        frames,
-      });
-      frames = uploaded.frames;
-      media = await mu.analyze({ frames, ingestId: correlationId, traceId });
-      ctx = builder.build({
-        platform,
-        externalVideoId,
-        sourceUrl,
-        metadata: ctx.metadata,
-        transcriptText: transcript,
-        media,
-      });
-      reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's2', includePlaces);
-      products = reasoned.products;
-      places = reasoned.places;
-      gate = stagePass(products);
-      finalStage = 'stage2';
-      emitPipelineEvent('stage.gate', { ingestId: correlationId, stage: 2, ...gate });
-    } catch (e) {
-      emitPipelineEvent('stage.gate', {
-        ingestId: correlationId,
-        stage: 2,
-        pass: false,
-        error: (e as Error).message?.slice(0, 200),
-      });
-      gate = { pass: false, productCount: products.length, maxConfidence: 0, reason: 'stage2_error' };
-    }
-  }
-
-  if (!gate.pass && videoLocal) {
-    try {
-      const maxTotal = cfg.stage3MaxFrames;
-      const missingTs = planStage3Timestamps(durationMs || 15_000, frames, maxTotal);
-      let newFrames: FrameRef[] = [];
-      if (missingTs.length > 0 && workDir) {
-        const more = await extractFramesAtTimestamps({
+  try {
+    if (
+      needsStage2Enrichment({
+        stage1Pass: includePlaces ? !decision.needsSharedEnrichment : gate.pass,
+        transcriptAvailable: ctx.transcript.available,
+        transcriptLength: ctx.transcript.length,
+      })
+    ) {
+      try {
+        workDir = await (runtime.workDir ? runtime.workDir() : fs.mkdtemp(path.join(os.tmpdir(), 'mystash-extract-')));
+        const downloaded = await videoProvider.download(sourceUrl, workDir);
+        videoLocal = downloaded.localPath;
+        durationMs = downloaded.durationMs || (await probeDurationMs(videoLocal));
+        const extracted = await (runtime.adaptiveFrames ?? extractAdaptiveFrames)({
           videoPath: videoLocal,
-          timestampsMs: missingTs,
-          outDir: path.join(workDir, 'frames_s3'),
+          outDir: path.join(workDir, 'frames_s2'),
           ingestId: correlationId,
         });
-        const offset = frames.length;
-        const remapped = more.map((f, i) => ({ ...f, index: offset + i }));
-        const uploaded = await uploadFramesToStorage(admin, {
+        frames = extracted.frames;
+        durationMs = extracted.durationMs || durationMs;
+        const uploaded = await (runtime.upload ?? uploadFramesToStorage)(admin, {
           ingestId: correlationId,
-          stage: 'stage3',
-          frames: remapped,
+          stage: 'stage2',
+          frames,
         });
-        newFrames = uploaded.frames;
-        frames = [...frames, ...newFrames];
+        frames = uploaded.frames;
+        media = await abortImportOperation(mu.analyze({ frames, ingestId: correlationId, traceId }));
+        ctx = builder.build({
+          platform,
+          externalVideoId,
+          sourceUrl,
+          metadata: ctx.metadata,
+          transcriptText: transcript,
+          media,
+        });
+        reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's2', includePlaces, runtime.reasoner);
+        products = reasoned.products;
+        places = reasoned.places;
+        gate = discoveryStageDecision(products, places, [title, description, transcript].join(' ')).productGate;
+        enrichmentFailed = false;
+        finalStage = 'stage2';
+        publish(finalStage);
+        emitPipelineEvent('stage.gate', { ingestId: correlationId, stage: 2, ...gate });
+      } catch (e) {
+        enrichmentFailed = true;
+        emitPipelineEvent('stage.gate', {
+          ingestId: correlationId,
+          stage: 2,
+          pass: false,
+          error: (e as Error).message?.slice(0, 200),
+        });
+        gate = { pass: false, productCount: products.length, maxConfidence: 0, reason: 'stage2_error' };
       }
-      if (newFrames.length > 0) {
-        const incremental = await mu.analyze({
-          frames: newFrames,
-          ingestId: correlationId,
-          traceId,
-        });
-        media = mergeMediaUnderstanding(media, incremental);
-      }
-      ctx = builder.build({
-        platform,
-        externalVideoId,
-        sourceUrl,
-        metadata: ctx.metadata,
-        transcriptText: transcript,
-        media,
-      });
-      reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's3', includePlaces);
-      products = reasoned.products;
-      places = reasoned.places;
-      gate = stagePass(products);
-      finalStage = 'stage3';
-      emitPipelineEvent('stage.gate', { ingestId: correlationId, stage: 3, ...gate });
-    } catch (e) {
-      emitPipelineEvent('stage.gate', {
-        ingestId: correlationId,
-        stage: 3,
-        pass: false,
-        error: (e as Error).message?.slice(0, 200),
-      });
     }
+
+    if ((includePlaces ? decision.needsSharedEnrichment : !gate.pass) && videoLocal) {
+      try {
+        const maxTotal = cfg.stage3MaxFrames;
+        const missingTs = planStage3Timestamps(durationMs || 15_000, frames, maxTotal);
+        let newFrames: FrameRef[] = [];
+        if (missingTs.length > 0 && workDir) {
+          const more = await (runtime.moreFrames ?? extractFramesAtTimestamps)({
+            videoPath: videoLocal,
+            timestampsMs: missingTs,
+            outDir: path.join(workDir, 'frames_s3'),
+            ingestId: correlationId,
+          });
+          const offset = frames.length;
+          const remapped = more.map((f, i) => ({ ...f, index: offset + i }));
+          const uploaded = await (runtime.upload ?? uploadFramesToStorage)(admin, {
+            ingestId: correlationId,
+            stage: 'stage3',
+            frames: remapped,
+          });
+          newFrames = uploaded.frames;
+          frames = [...frames, ...newFrames];
+        }
+        if (newFrames.length > 0) {
+          const incremental = await abortImportOperation(mu.analyze({
+            frames: newFrames,
+            ingestId: correlationId,
+            traceId,
+          }));
+          media = mergeMediaUnderstanding(media, incremental);
+        }
+        ctx = builder.build({
+          platform,
+          externalVideoId,
+          sourceUrl,
+          metadata: ctx.metadata,
+          transcriptText: transcript,
+          media,
+        });
+        reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's3', includePlaces, runtime.reasoner);
+        products = reasoned.products;
+        places = reasoned.places;
+        gate = discoveryStageDecision(products, places, [title, description, transcript].join(' ')).productGate;
+        enrichmentFailed = false;
+        finalStage = 'stage3';
+        publish(finalStage);
+        emitPipelineEvent('stage.gate', { ingestId: correlationId, stage: 3, ...gate });
+      } catch (e) {
+        enrichmentFailed = true;
+        emitPipelineEvent('stage.gate', {
+          ingestId: correlationId,
+          stage: 3,
+          pass: false,
+          error: (e as Error).message?.slice(0, 200),
+        });
+      }
+    }
+
+    products = enrichEvidence(products, frames);
+    // Preserve only early text-grounded mentions, plus the final unchanged reasoner output.
+    if (includePlaces) {
+      for (const place of places) retainedPlaces.set(placeHypothesisKey({ extractedName: place.name, ...place }), place);
+      places = [...retainedPlaces.values()];
+      publish(finalStage, true);
+    }
+    const status: 'ready_for_review' | 'review_required' =
+      products.length > 0 ? 'ready_for_review' : 'review_required';
+
+    const productsIncomplete = includePlaces && enrichmentFailed && !gate.pass;
+    if (!productsIncomplete) await (runtime.writeCache ?? setVideoExtractionCache)(admin, {
+      platform,
+      externalVideoId,
+      products,
+      places: includePlaces ? places : [],
+      finalStage,
+      status,
+      youtubeMetadata: { title, description, descriptionSource, creator, thumbnailUrl },
+      scope: params.cacheScope,
+    });
+
+    return {
+      kind: 'ok',
+      productsIncomplete,
+      products,
+      places: includePlaces ? places : [],
+      status,
+      finalStage,
+      cacheHit: false,
+      metadata: { title, description, descriptionSource, creator, thumbnailUrl },
+      durationMs: Math.round(performance.now() - tAll),
+    };
+  } finally {
+    // Includes aborted extraction and failing persistence, not just the success path.
+    if (workDir) await videoProvider.cleanup?.(path.join(workDir, 'x'));
   }
-
-  if (workDir) {
-    await videoProvider.cleanup?.(path.join(workDir, 'x'));
-  }
-
-  products = enrichEvidence(products, frames);
-  const status: 'ready_for_review' | 'review_required' =
-    products.length > 0 ? 'ready_for_review' : 'review_required';
-
-  await setVideoExtractionCache(admin, {
-    platform,
-    externalVideoId,
-    products,
-    places: includePlaces ? places : [],
-    finalStage,
-    status,
-    youtubeMetadata: { title, description, descriptionSource, creator, thumbnailUrl },
-    scope: params.cacheScope,
-  });
-
-  return {
-    kind: 'ok',
-    products,
-    places: includePlaces ? places : [],
-    status,
-    finalStage,
-    cacheHit: false,
-    metadata: { title, description, descriptionSource, creator, thumbnailUrl },
-    durationMs: Math.round(performance.now() - tAll),
-  };
 }

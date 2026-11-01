@@ -1,3 +1,4 @@
+import { importProviderFetch } from '../user-import/workContext';
 import OpenAI from 'openai';
 import { getEnv } from '../env';
 
@@ -6,7 +7,7 @@ export function createOpenAIClient(): OpenAI {
   if (!key) {
     throw new Error('OPENAI_API_KEY is not set');
   }
-  return new OpenAI({ apiKey: key });
+  return new OpenAI({ apiKey: key, fetch: importProviderFetch });
 }
 
 export function defaultOpenAiModel(): string {

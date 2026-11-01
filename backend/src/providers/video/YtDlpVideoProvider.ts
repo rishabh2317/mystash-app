@@ -1,3 +1,4 @@
+import { assertImportWorkActive, importWorkContext } from '../../user-import/workContext';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -6,8 +7,17 @@ import type { DownloadedVideo, VideoProvider } from './VideoProvider';
 
 function run(cmd: string, args: string[]): Promise<{ code: number; stderr: string }> {
   return new Promise((resolve) => {
+    assertImportWorkActive();
     const child = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
+    const signal = importWorkContext.getStore()?.signal;
+    const stop = () => child.kill('SIGKILL');
+    const timer = signal ? setTimeout(stop, 60_000) : undefined;
+    signal?.addEventListener('abort', stop, { once: true });
+    const cleanup = () => { if (timer) clearTimeout(timer); signal?.removeEventListener('abort', stop); };
+    child.once('close', cleanup);
+    child.once('error', cleanup);
+
     child.stderr.on('data', (d) => {
       stderr += String(d);
     });
@@ -26,6 +36,7 @@ export function probeYtDlpJson(
   timeoutMs = 25_000,
 ): Promise<YtDlpJsonProbe> {
   return new Promise((resolve) => {
+    assertImportWorkActive();
     const child = spawn(
       'yt-dlp',
       ['-j', '--skip-download', '--no-playlist', '--no-warnings', sourceUrl],
@@ -33,6 +44,10 @@ export function probeYtDlpJson(
     );
     let stdout = '';
     let stderr = '';
+    const signal = importWorkContext.getStore()?.signal;
+    const stop = () => child.kill('SIGKILL');
+    signal?.addEventListener('abort', stop, { once: true });
+    const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', stop); };
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       resolve({ ok: false, stderr: 'yt-dlp probe timed out', code: 1 });
@@ -44,7 +59,7 @@ export function probeYtDlpJson(
       stderr += String(d);
     });
     child.on('close', (code) => {
-      clearTimeout(timer);
+      cleanup();
       if (code !== 0) {
         resolve({ ok: false, stderr: stderr.slice(0, 800), code: code ?? 1 });
         return;
@@ -56,7 +71,7 @@ export function probeYtDlpJson(
       }
     });
     child.on('error', (err) => {
-      clearTimeout(timer);
+      cleanup();
       resolve({ ok: false, stderr: err.message, code: 1 });
     });
   });

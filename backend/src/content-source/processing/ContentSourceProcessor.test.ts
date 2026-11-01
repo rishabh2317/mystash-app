@@ -997,3 +997,43 @@ describe('ContentSourceProcessor negative scope', () => {
     assert.doesNotMatch(extract, /resolveIngestDrafts|ShoppingResolver/);
   });
 });
+
+
+for (const populated of [false, true]) it(`propagates stored extraction metadata while preserving populated display fields (${populated})`, async () => {
+  const result: VideoExtractionPortResult = { ...videoResult({ products: [] }),
+    metadata: { title: 'Cached source', thumbnailUrl: 'https://fixture.invalid/cached.jpg' } };
+  const { sources, processor } = createHarness({ video: async () => result });
+  const source = await insertQueued(sources, 'VIDEO');
+  if (populated) await sources.patchDisplay(source.id, { title: 'Existing title', thumbnailUrl: 'https://fixture.invalid/existing.jpg' });
+  await processor.process({ contentSourceId: source.id, userImportId: IMPORT_A, traceId: TRACE });
+  const stored = await sources.findById(source.id);
+  assert.equal(stored?.processingStatus, 'READY');
+  assert.equal(stored?.thumbnailUrl, populated ? 'https://fixture.invalid/existing.jpg' : 'https://fixture.invalid/cached.jpg');
+  assert.equal(stored?.title, populated ? 'Existing title' : 'Cached source');
+});
+
+it('a display metadata failure preserves extraction success and adds no extraction calls', async () => {
+  let calls = 0;
+  const { sources, processor } = createHarness({ video: async () => {
+    calls++;
+    return { ...videoResult({ products: [] }), metadata: { title: 'Cached', thumbnailUrl: 'https://fixture.invalid/cached.jpg' } };
+  } });
+  const source = await insertQueued(sources, 'VIDEO');
+  sources.patchDisplay = async () => { throw new Error('display temporarily unavailable'); };
+  await processor.process({ contentSourceId: source.id, userImportId: IMPORT_A, traceId: TRACE });
+  assert.equal((await sources.findById(source.id))?.processingStatus, 'READY');
+  assert.equal(calls, 1);
+});
+
+
+it('invalid thumbnail metadata is not persisted and does not cause a retry/provider call', async () => {
+  for (const thumbnailUrl of ['https://', 'javascript:alert(1)', 'https://user:password@fixture.invalid/image.jpg']) {
+    const { sources, processor } = createHarness({ video: async () => ({
+      ...videoResult({ products: [] }), metadata: { title: '', thumbnailUrl },
+    }) });
+    const source = await insertQueued(sources, 'VIDEO');
+    await processor.process({ contentSourceId: source.id, userImportId: IMPORT_A, traceId: TRACE });
+    const stored = await sources.findById(source.id);
+    assert.equal(stored?.processingStatus, 'READY'); assert.equal(stored?.thumbnailUrl ?? null, null);
+  }
+});

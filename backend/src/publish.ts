@@ -22,29 +22,25 @@ import { resolveSelectedDraftProducts } from './publishResolveDrafts';
 import {
   assertIndependentVideoAndCollectionIds,
   buildVideoProductInserts,
-  resolvePublishVideoId,
   type VideoProductInsertDraft,
 } from './publishVideoProjection';
 import { validHttpUrl } from './shopping/urlValidation';
 import { requireAuthUser } from './auth/requireAuth';
 import { createSupabaseAdmin } from './supabase';
+import { assertPersistedCollectionLink, assertPublishCollectionAccess, createPublishGuard, finalizedPublishResponse, finalizePublication, publishCollectionOnce } from './publishLifecycle';
+import { isPublishSurfaceTag } from './collection/domain/types';
+import { createUserService } from './user/factory';
+import { acquirePublicationLease, type PublicationLease } from './publicationLease';
+
+const beginPublish = createPublishGuard();
 
 export async function handlePublishIngest(req: Request, res: Response): Promise<void> {
   let attempt: { ingestId: string; userId: string; collectionId: string | null } | null = null;
+  let release: (() => void) | null = null;
+  let lease: PublicationLease | null = null;
   try {
     const user = await requireAuthUser(req, res, { requireVerifiedEmail: true });
     if (!user) return;
-
-    const admin = createSupabaseAdmin();
-    const collectionService = createCollectionService(admin);
-    const cartService = createCartService(admin);
-    const catalogService = createCatalogService(
-      admin,
-      composeCollectionTagRemaps(
-        createCollectionTagRemapPort(collectionService),
-        createCartItemRemapPort(cartService),
-      ),
-    );
 
     const body = req.body as {
       ingest_id?: string;
@@ -59,11 +55,28 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       res.status(400).json({ error: 'ingest_id required' });
       return;
     }
+    release = beginPublish(`${user.id}:${ingestId}`);
+    if (!release) {
+      res.status(409).json({ error: 'This draft is already being finalized. Wait, then retry the same draft.' });
+      return;
+    }
+
+    lease = await acquirePublicationLease(createSupabaseAdmin(), ingestId, user.id);
+    const admin = createSupabaseAdmin(lease.fetch);
+    const collectionService = createCollectionService(admin);
+    const cartService = createCartService(admin);
+    const catalogService = createCatalogService(
+      admin,
+      composeCollectionTagRemaps(
+        createCollectionTagRemapPort(collectionService),
+        createCartItemRemapPort(cartService),
+      ),
+    );
 
     const { data: ingest, error: ingErr } = await admin
       .from('ingest_requests')
       .select(
-        'id, user_id, source_url, platform, status, video_title, thumbnail, stash_score, collection_id',
+        'id, user_id, source_url, platform, status, video_title, thumbnail, stash_score, collection_id, video_id',
       )
       .eq('id', ingestId)
       .maybeSingle();
@@ -73,8 +86,9 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       return;
     }
 
-    if (ingest.status === 'published' || ingest.status === 'rejected') {
-      res.json({ ok: true, videoId: null, message: 'Already finalized' });
+    const finalized = finalizedPublishResponse(ingest, Boolean(body.reject_all));
+    if (finalized) {
+      res.status(finalized.status).json(finalized.body);
       return;
     }
 
@@ -85,10 +99,14 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
     };
 
     if (body.reject_all) {
-      await admin
+      const { error: rejectError } = await admin
         .from('ingest_requests')
         .update({ status: 'rejected', updated_at: new Date().toISOString() })
-        .eq('id', ingestId);
+        .eq('id', ingestId).select('id').single();
+      if (rejectError) {
+        res.status(500).json({ error: 'Could not discard the draft. Please retry.' });
+        return;
+      }
 
       if (ingest.collection_id) {
         try {
@@ -195,6 +213,15 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
         existingCollectionId: (ingest.collection_id as string) ?? null,
         statusHint: 'ready_for_review',
       });
+      await assertPersistedCollectionLink(admin, ingestId, collectionId);
+      // Creation+link is atomic in the DB. If a prior request stopped before
+      // attaching media, repair that checkpoint on the same Collection identity.
+      const aggregate = await collectionService.getAggregate(collectionId);
+      if (aggregate && !aggregate.media.some((media) => media.isPrimary) && aggregate.collection.status !== 'published') {
+        await collectionService.attachPrimaryExternalSource({ collectionId, userId: user.id,
+          sourceUrl, embedUrl, thumbnailUrl: thumb, title: (ingest.video_title as string) || first.name,
+          sourceProvider: platform === 'unknown' ? 'web' : platform });
+      }
     } catch (e) {
       logger.error({ err: e, ingestId }, 'publish.collection_ensure_failed');
       res.status(500).json({ error: 'Could not prepare collection', detail: (e as Error).message });
@@ -202,28 +229,29 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
     }
     attempt.collectionId = collectionId;
 
-    // Sync selected drafts into collection tags before publish.
-    try {
-      const { syncCollectionFromIngestDrafts } = await import('./collection/ingestBridge');
-      await syncCollectionFromIngestDrafts(admin, {
-        ingestId,
-        collectionId,
-        status: 'ready_for_review',
-        title: (ingest.video_title as string) || first.name,
-        thumbnailUrl: thumb,
-      });
-    } catch (e) {
-      logger.warn({ err: e, ingestId, collectionId }, 'publish.collection_tag_sync_failed');
-    }
-
     let publishedCollection;
     try {
-      publishedCollection = await collectionService.publish({
-        collectionId,
-        userId: user.id,
-        user: authUser,
-        visibility: 'public',
-        includeExternalIds: selected,
+      publishedCollection = await publishCollectionOnce(drafts.map((d) => d.external_id), {
+        read: async () => {
+          const aggregate = await collectionService.getAggregate(collectionId);
+          if (aggregate) {
+            assertPublishCollectionAccess(aggregate.collection, user.id);
+            if (aggregate.collection.status === 'published') await createUserService(admin).assertCanCreateCollections(user.id);
+          }
+          return aggregate ? { collection: aggregate.collection,
+            selected: aggregate.tags.filter(isPublishSurfaceTag).flatMap((tag) => tag.externalId ? [tag.externalId] : []) } : null;
+        },
+        sync: async () => {
+          try {
+            const { syncCollectionFromIngestDrafts } = await import('./collection/ingestBridge');
+            await syncCollectionFromIngestDrafts(admin, { ingestId, collectionId, status: 'ready_for_review',
+              title: (ingest.video_title as string) || first.name, thumbnailUrl: thumb });
+          } catch (e) {
+            logger.warn({ err: e, ingestId, collectionId }, 'publish.collection_tag_sync_failed');
+          }
+        },
+        publish: () => collectionService.publish({ collectionId, userId: user.id, user: authUser,
+          visibility: 'public', includeExternalIds: selected }),
       });
     } catch (e) {
       const msg = (e as Error).message ?? 'Publish failed';
@@ -342,19 +370,7 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       });
     }
 
-    // Dual-write Home Feed video with independent ID + collection_id FK.
-    const { data: existingVideo } = await admin
-      .from('videos')
-      .select('id')
-      .eq('collection_id', collectionId)
-      .maybeSingle();
-
-    const { videoId, shouldInsertVideo } = resolvePublishVideoId({
-      existingVideoId: existingVideo?.id ?? null,
-      newVideoId,
-    });
-    assertIndependentVideoAndCollectionIds(videoId, collectionId);
-
+    // The database transaction chooses/reuses the feed video identity.
     const videoRow = {
       url: sourceUrl,
       thumbnail: thumb,
@@ -367,58 +383,15 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       collection_id: collectionId,
     };
 
-    if (shouldInsertVideo) {
-      const { error: vErr } = await admin.from('videos').insert({
-        id: videoId,
-        ...videoRow,
-      });
-
-      if (vErr) {
-        logger.error({ err: vErr, videoId, collectionId }, 'publish.video_dual_write_failed');
-        res.status(500).json({
-          error: 'Failed to create video',
-          detail: vErr.message,
-          collectionId,
-        });
-        return;
-      }
-    } else {
-      const { error: vErr } = await admin.from('videos').update(videoRow).eq('id', videoId);
-      if (vErr) {
-        logger.error({ err: vErr, videoId, collectionId }, 'publish.video_dual_write_update_failed');
-        res.status(500).json({
-          error: 'Failed to update video',
-          detail: vErr.message,
-          collectionId,
-        });
-        return;
-      }
-
-      const { error: clearErr } = await admin.from('video_products').delete().eq('video_id', videoId);
-      if (clearErr) {
-        res.status(500).json({
-          error: 'Failed to reset video products',
-          detail: clearErr.message,
-        });
-        return;
-      }
-    }
-
-    const productInserts = buildVideoProductInserts(videoId, productDrafts);
-
-    const { data: inserted, error: vpErr } = await admin
-      .from('video_products')
-      .insert(productInserts)
-      .select('id, catalog_product_id, resolution_status');
-
-    if (vpErr) {
-      res.status(500).json({ error: 'Failed to save video products', detail: vpErr.message });
-      return;
-    }
+    const productInserts = buildVideoProductInserts(newVideoId, productDrafts);
+    const finalizedProjection = await finalizePublication(admin, ingestId, collectionId,
+      { ...videoRow, id: newVideoId }, productInserts);
+    const { videoId, products: inserted } = finalizedProjection;
+    assertIndependentVideoAndCollectionIds(videoId, collectionId);
 
     for (let i = 0; i < drafts.length; i++) {
       const d = drafts[i]!;
-      const row = inserted?.[i];
+      const row = inserted.find((product) => product.sort_order === i);
       if (
         row &&
         (d.resolution_status === 'UNRESOLVED' || !d.catalog_product_id) &&
@@ -436,37 +409,22 @@ export async function handlePublishIngest(req: Request, res: Response): Promise<
       }
     }
 
-    const { error: publishedErr } = await admin
-      .from('ingest_requests')
-      .update({
-        status: 'published',
-        video_id: videoId,
-        collection_id: collectionId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', ingestId);
-    if (!publishedErr) {
-      await getNotificationEmitter().emitSafely(
-        publishSucceededEvent({
-          collectionId,
-          userId: user.id,
-          publishedAt: publishedCollection.publishedAt ?? new Date().toISOString(),
-          collectionTitle: publishedCollection.title ?? (ingest.video_title as string | null),
-        }),
-      );
-    }
-
-    await admin.from('moderation_actions').insert({
-      ingest_request_id: ingestId,
-      user_id: user.id,
-      action: 'publish',
-      meta: { video_id: videoId, collection_id: collectionId, product_count: drafts.length },
-    });
+    await getNotificationEmitter().emitSafely(
+      publishSucceededEvent({
+        collectionId,
+        userId: user.id,
+        publishedAt: publishedCollection.publishedAt ?? new Date().toISOString(),
+        collectionTitle: publishedCollection.title ?? (ingest.video_title as string | null),
+      }),
+    );
 
     res.json({ ok: true, videoId, collectionId });
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message ?? 'Server error' });
+    res.status((e as { statusCode?: number }).statusCode ?? 500).json({ error: (e as Error).message ?? 'Server error' });
   } finally {
+    try { await lease?.release(); }
+    catch (e) { logger.warn({ err: e }, 'publish.lease_release_failed'); }
+    release?.();
     // Client-correctable 4xx responses are shown inline and are not notified.
     if (attempt && res.statusCode >= 500) {
       await getNotificationEmitter().emitSafely(

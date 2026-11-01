@@ -1,4 +1,5 @@
-import { Worker, type Job } from 'bullmq';
+import { ImportWorkBusyError } from '../../user-import/workContext';
+import { DelayedError, Worker, type Job } from 'bullmq';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '../../logger';
 import { createResolvingContentSourceProcessor } from '../processing/createResolvingProcessor';
@@ -6,11 +7,12 @@ import { ContentSourceResolutionService } from '../processing/ContentSourceResol
 import { createCartService } from '../../cart/factory';
 import { createDiscoveredProductService } from '../../discovered/factory';
 import { createProductIntelligence } from '../../product-intelligence/factory';
-import { shareProgressState } from '../../user-import/domain/shareProgress';
+import { shareProgressState, shouldPersistImportTimeout } from '../../user-import/domain/shareProgress';
 import { SupabaseUserImportRepository } from '../../user-import/SupabaseUserImportRepository';
 import { SupabaseUserRepository } from '../../user/SupabaseUserRepository';
 import { SupabaseContentSourceRepository } from '../SupabaseContentSourceRepository';
 import { duplicateBullmqWorkerRedis } from '../../workers/redisConnection';
+import { withFreeTestExtractionSlot } from '../../workers/freeTestBudget';
 import {
   CONTENT_SOURCE_QUEUE,
   type ContentSourceEnrichmentJobData,
@@ -98,7 +100,9 @@ export function startContentSourceProcessingWorker(
           );
           return;
         }
-        await userImports.markTimedOut(row.id, new Date().toISOString());
+        if (!shouldPersistImportTimeout({ source, timedOutAt: row.timedOutAt,
+          createdAt: row.createdAt, attemptStartedAt: row.attemptStartedAt })) return;
+        await userImports.markTimedOut(row.id, new Date().toISOString(), row.attemptStartedAt ?? null);
         logger.info({ userImportId: data.userImportId }, 'user_import.timeout.applied');
         return;
       }
@@ -136,10 +140,14 @@ export function startContentSourceProcessingWorker(
         { contentSourceId, userImportId, traceId, jobId: job.id },
         'content_source.job.start',
       );
-      await processor.process(data, {
-        attemptsMade: job.attemptsMade,
-        maxAttempts: job.opts.attempts ?? 3,
-      });
+      try {
+        await withFreeTestExtractionSlot(() => processor.process(data,
+          { attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts ?? 3 }));
+      } catch (err) {
+        if (!(err instanceof ImportWorkBusyError)) throw err;
+        await job.moveToDelayed(Date.now() + err.retryAfterMs, job.token);
+        throw new DelayedError();
+      }
       logger.info({ contentSourceId, jobId: job.id }, 'content_source.job.done');
     },
     { connection, concurrency: 2 },

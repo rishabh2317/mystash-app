@@ -1,4 +1,5 @@
 import type { PlaceSearchAttempt } from './decidePlaceMention';
+import { abortImportOperation } from '../user-import/workContext';
 
 /** Separate from ProductSearchProvider. Place queries must not go through PDP search. */
 export type PlaceSearchProvider = {
@@ -17,7 +18,9 @@ export async function searchPlacesWithTimeout(
   search: PlaceSearchProvider,
   query: string,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<PlaceSearchAttempt> {
+  signal?.throwIfAborted();
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<PlaceSearchAttempt>((resolve) => {
@@ -27,13 +30,13 @@ export async function searchPlacesWithTimeout(
     }, timeoutMs);
   });
   try {
-    return await Promise.race([
-      search.search(query, controller.signal).catch(() => ({
+    return await abortImportOperation(Promise.race([
+      search.search(query, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal).catch(() => ({
         ok: false as const,
         reason: 'provider_failed' as const,
       })),
       timedOut,
-    ]);
+    ]), signal);
   } finally {
     if (timer) clearTimeout(timer);
   }

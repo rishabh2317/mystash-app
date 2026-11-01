@@ -256,7 +256,7 @@ describe('PlaceResolver', () => {
     assert.deepEqual(search.queries, []);
   });
 
-  it('drops a generic name that replaces a previous unresolved lead', async () => {
+  it('drops the new generic mention without deleting the previously saved specific lead', async () => {
     const repo = new InMemoryPlaceRepository();
     const search = provider(async () => {
       throw new Error('search must not be called');
@@ -272,8 +272,9 @@ describe('PlaceResolver', () => {
       imports: [{ id: IMPORT_A, userId: USER }],
       mentions: [mention({ name: 'Cafe', locality: 'Seminyak' })],
     });
-    assert.equal((await repo.listHypotheses(SOURCE_A)).length, 0);
-    assert.equal((await repo.listSavesByUser(USER)).length, 0);
+    assert.equal((await repo.listHypotheses(SOURCE_A)).length, 1);
+    assert.equal((await repo.listSavesByUser(USER)).length, 1);
+    assert.equal((await repo.listHypotheses(SOURCE_A))[0]?.extractedName, 'Cafe de Flore');
     assert.equal(repo.places.size, 0);
   });
 });

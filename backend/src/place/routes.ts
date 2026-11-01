@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { rethrowUnverifiedEmail, sendAuthError } from '../auth/requireAuth';
 import { assertEmailVerified } from '../auth/emailVerification';
 import { createSupabaseAdmin, createSupabaseUserClient } from '../supabase';
-import { PlaceService } from './PlaceService';
+import { PlaceService, PlacePageError, type PlacePageOptions } from './PlaceService';
 import { SupabasePlaceRepository } from './SupabasePlaceRepository';
 
 export type PlaceAuthenticator = (req: Request) => Promise<{ userId: string } | null>;
@@ -26,7 +26,7 @@ export function supabasePlaceAuthenticator(): PlaceAuthenticator {
 }
 
 export function createPlaceListHandler(deps: {
-  service: { listForUser(userId: string): Promise<{ items: unknown[]; itemCount: number }> };
+  service: { listForUser(userId: string, page?: PlacePageOptions): Promise<{ items: unknown[]; itemCount: number; displayItemCount?: number; nextCursor?: string | null }> };
   authenticate: PlaceAuthenticator;
 }) {
   return async (req: Request, res: Response): Promise<void> => {
@@ -41,9 +41,20 @@ export function createPlaceListHandler(deps: {
         res.status(401).json({ error: 'Unauthorized' });
         return;
       }
-      const view = await deps.service.listForUser(auth.userId);
-      res.json({ items: view.items, itemCount: view.itemCount });
+      const query = req.query ?? {};
+      let page: PlacePageOptions | undefined;
+      if (query.limit !== undefined || query.cursor !== undefined) {
+        if (typeof query.limit !== 'string' || !/^\d{1,3}$/.test(query.limit) ||
+          Number(query.limit) < 1 || Number(query.limit) > 100 ||
+          (query.cursor !== undefined && (typeof query.cursor !== 'string' || query.cursor.length > 300))) {
+          res.status(400).json({ error: 'Invalid Places pagination' }); return;
+        }
+        page = { limit: Number(query.limit), cursor: query.cursor as string | undefined };
+      }
+      const view = await deps.service.listForUser(auth.userId, page);
+      res.json(view);
     } catch (e) {
+      if (e instanceof PlacePageError) { res.status(400).json({ error: e.message }); return; }
       if (sendAuthError(res, e)) return;
       res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
     }

@@ -1,3 +1,4 @@
+import { importProviderFetch, importWorkContext } from '../user-import/workContext';
 /**
  * Instagram source adapter — metadata only.
  * Does not extract products. Downstream: existing reasoner + Product Intelligence + Collection.
@@ -76,7 +77,7 @@ async function fetchOEmbed(
   ];
   for (const endpoint of endpoints) {
     try {
-      const res = await fetchImpl(endpoint, { headers: { 'User-Agent': UA } });
+      const res = await fetchImpl(endpoint, { headers: { 'User-Agent': UA }, signal: importWorkContext.getStore() ? AbortSignal.timeout(8_000) : undefined });
       if (!res.ok) continue;
       return (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string };
     } catch {
@@ -107,7 +108,7 @@ export async function gatherInstagramContext(
   const identity = parseSupportedVideoUrl(sourceUrl);
   const postId = identity?.externalId ?? extractInstagramPostId(sourceUrl) ?? '';
   const canonicalUrl = identity?.canonicalUrl ?? sourceUrl;
-  const fetchImpl = opts?.fetchImpl ?? fetch;
+  const fetchImpl = opts?.fetchImpl ?? importProviderFetch;
   const sources: string[] = [];
 
   const empty = (availability: InstagramAvailability, code: string | null, message: string | null): InstagramContextPack => ({

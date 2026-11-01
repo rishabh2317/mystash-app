@@ -1,0 +1,32 @@
+{
+  "provenance": "Recorded Serper cache from Creator ingest on 2026-10-28; tracking query parameters removed. No fetched merchant content.",
+  "expected": {
+    "brand": "Sg",
+    "name": "Kungfu Pandya Bat",
+    "model": "Kungfu Pandya",
+    "category": "sports"
+  },
+  "candidates": [
+    {
+      "merchant": "cricketmerchant.com",
+      "merchantUrl": "https://www.cricketmerchant.com/shop/sg-kung-fu-pandya-cricket-bat-19325",
+      "title": "SG Kung Fu Pandya Cricket Bat | Grade 1 English Willow",
+      "score": 0.75,
+      "image": null
+    },
+    {
+      "merchant": "bestcricketstore.com",
+      "merchantUrl": "https://bestcricketstore.com/product/sg-kung-fu-pandya-cricket-bat/",
+      "title": "SG Kung Fu Pandya Cricket Bat (2026)",
+      "score": 0.6,
+      "image": null
+    },
+    {
+      "merchant": "aa-sports.com",
+      "merchantUrl": "https://www.aa-sports.com/sg-kung-fu-pandya-english-willow-cricket-bat-2026/",
+      "title": "SG Kung Fu Pandya English Willow Cricket Bat'2026",
+      "score": 0.5499999999999999,
+      "image": null
+    }
+  ]
+}

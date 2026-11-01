@@ -180,3 +180,37 @@ describe('product identity compatibility', () => {
     assert.equal(result.ok, true);
   });
 });
+
+describe('recorded Creator compound-model regression', () => {
+  const expected = { brand: 'Sg', name: 'Kungfu Pandya Bat', model: 'Kungfu Pandya', category: 'sports' };
+  const candidate = { brand: 'SG', title: 'SG Kung Fu Pandya Cricket Bat (2026)',
+    merchantUrl: 'https://bestcricketstore.com/product/sg-kung-fu-pandya-cricket-bat/' };
+  it('accepts spacing/hyphen equivalents in either direction without changing the requested identity', () => {
+    assert.equal(assessProductIdentityCompatibility(expected, candidate).ok, true);
+    assert.equal(assessProductIdentityCompatibility({ ...expected, model: 'Kung Fu Pandya' },
+      { ...candidate, title: 'SG Kungfu Pandya Cricket Bat', merchantUrl: null }).ok, true);
+    assert.equal(assessProductIdentityCompatibility(expected,
+      { ...candidate, title: 'SG Kung-Fu Pandya Cricket Bat', merchantUrl: null }).ok, true);
+    assert.equal(expected.model, 'Kungfu Pandya');
+  });
+  it('still requires every model token and rejects spelling changes and intervening words', () => {
+    for (const title of ['SG Kung Fu Cricket Bat', 'SG Kungfuu Pandya Bat', 'SG Kung Willow Fu Pandya Bat']) {
+      assert.equal(assessProductIdentityCompatibility(expected, { brand: 'SG', title }).ok, false, title);
+    }
+  });
+  it('never manufactures compounds across fields or URL segments', () => {
+    assert.equal(assessProductIdentityCompatibility(expected,
+      { brand: 'SG', title: 'SG Fu Pandya Bat', model: 'Kung' }).ok, false);
+    assert.equal(assessProductIdentityCompatibility(expected,
+      { brand: 'SG', title: 'SG Pandya Bat', merchantUrl: 'https://shop.test/kung/fu-pandya' }).ok, false);
+  });
+  it('does not relax explicit brand, numeric model, color or product-type gates', () => {
+    assert.equal(assessProductIdentityCompatibility(expected, { ...candidate, brand: 'MRF' }).reason, 'brand_conflict');
+    assert.equal(assessProductIdentityCompatibility({ ...expected, model: 'Kungfu Pandya 12' },
+      { ...candidate, title: 'SG Kung Fu Pandya 13', merchantUrl: null }).ok, false);
+    assert.equal(assessProductIdentityCompatibility({ ...expected, name: 'Kungfu Pandya Black Bat' },
+      { ...candidate, title: 'SG Kung Fu Pandya White Bat' }).reason, 'color_conflict');
+    assert.equal(assessProductIdentityCompatibility({ ...expected, name: 'Kungfu Pandya Dress', category: 'fashion' },
+      { ...candidate, title: 'SG Kung Fu Pandya Shoe', merchantUrl: null }).reason, 'type_conflict');
+  });
+});

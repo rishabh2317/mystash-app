@@ -4,9 +4,13 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:api-only": "node scripts/devApiOnly.cjs",
     "worker": "tsx watch src/worker.ts",
+    "worker:ingestion": "tsx src/ingestionWorker.ts",
+    "start:worker:ingestion": "node dist/ingestionWorker.js",
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:render-free-test": "node --max-old-space-size=192 dist/renderFreeTest.js",
     "start:worker": "node dist/worker.js",
     "worker:notifications": "tsx watch src/notificationWorker.ts",
     "start:worker:notifications": "node dist/notificationWorker.js",

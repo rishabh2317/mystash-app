@@ -1,16 +1,27 @@
+import { assertImportWorkActive, importWorkContext } from '../user-import/workContext';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { freeTestFrameThreads } from '../workers/freeTestBudget';
 import { adaptiveFrameCount, getPipelineConfig, uniformTimestampsMs } from '../config/pipelineConfig';
 import type { FrameRef } from '../domain/types';
 import { ingestLog } from '../pipeline/ingestLog';
 
 function run(cmd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
+    assertImportWorkActive();
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    const signal = importWorkContext.getStore()?.signal;
+    const stop = () => child.kill('SIGKILL');
+    const timer = signal ? setTimeout(stop, 60_000) : undefined;
+    signal?.addEventListener('abort', stop, { once: true });
+    const cleanup = () => { if (timer) clearTimeout(timer); signal?.removeEventListener('abort', stop); };
+    child.once('close', cleanup);
+    child.once('error', cleanup);
+
     child.stdout.on('data', (d) => {
       stdout += String(d);
     });
@@ -52,10 +63,12 @@ export async function extractFramesAtTimestamps(params: {
     const file = path.join(params.outDir, `frame_${String(i).padStart(3, '0')}.jpg`);
     const r = await run('ffmpeg', [
       '-y',
+      ...freeTestFrameThreads(),
       '-ss',
       sec,
       '-i',
       params.videoPath,
+      ...freeTestFrameThreads(),
       '-frames:v',
       '1',
       '-q:v',

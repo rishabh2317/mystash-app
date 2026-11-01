@@ -1,3 +1,4 @@
+import { SupabaseImportProgressRepository } from '../../user-import/ImportProgressRepository';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseContentSourceRepository } from '../SupabaseContentSourceRepository';
 import { SupabaseUserImportRepository } from '../../user-import/SupabaseUserImportRepository';
@@ -8,6 +9,7 @@ import { SupabasePlaceRepository } from '../../place/SupabasePlaceRepository';
 
 export function createContentSourceProcessor(admin: SupabaseClient): ContentSourceProcessor {
   return new ContentSourceProcessor({
+    progress: new SupabaseImportProgressRepository(admin),
     sources: new SupabaseContentSourceRepository(admin),
     userImports: new SupabaseUserImportRepository(admin),
     video: createVideoExtractionAdapter(admin),

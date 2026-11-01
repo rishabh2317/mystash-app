@@ -124,7 +124,10 @@ describe('InMemoryPlaceRepository', () => {
     const merged = await repo.upgradeLead(leadB.id, place.id);
     assert.equal(merged.merged, true);
     assert.equal(merged.save.id, leadA.id);
-    assert.equal(await repo.findSaveByUserAndHypothesis(USER, second.id), null);
+    assert.equal((await repo.findSaveByUserAndHypothesis(USER, second.id))?.id, leadA.id);
+    assert.equal((await repo.listSourcesByUser(USER)).length, 2);
+    assert.equal(await repo.countByUserImport(IMPORT_B), 1);
+    assert.equal((await repo.upgradeLead(leadB.id, place.id)).save.id, leadA.id);
     assert.equal((await repo.listSavesByUser(USER)).length, 1);
   });
 

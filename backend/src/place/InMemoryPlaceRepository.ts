@@ -1,3 +1,4 @@
+import { assertImportWorkActive } from '../user-import/workContext';
 import { randomUUID } from 'node:crypto';
 import { placeHypothesisKey } from './domain/hypothesisKey';
 import type {
@@ -6,6 +7,7 @@ import type {
   InsertPlaceRow,
   InsertUnresolvedHypothesisRow,
   PlaceRecord,
+  PlaceSaveSource,
   UpgradePlaceLeadResult,
   UserPlaceSaveRecord,
 } from './domain/types';
@@ -31,7 +33,22 @@ export class InMemoryPlaceRepository implements PlaceRepository {
   places = new Map<string, PlaceRecord>();
   hypotheses = new Map<string, ContentSourcePlaceRecord>();
   saves = new Map<string, UserPlaceSaveRecord>();
+  sources = new Map<string, PlaceSaveSource>();
+  private redirects = new Map<string, string>();
   sourceMedia = new Map<string, PlaceSourceMedia>();
+
+  async loadStash(userId: string) {
+    const saves = await this.listSavesByUser(userId);
+    const sources = await this.listSourcesByUser(userId);
+    const hypothesisIds = new Set([...saves.map(s => s.contentSourcePlaceId), ...sources.map(s => s.contentSourcePlaceId)]);
+    const placeIds = new Set(saves.flatMap(s => s.placeId ? [s.placeId] : []));
+    const sourceIds = new Set([...saves.map(s => s.contentSourceId), ...sources.map(s => s.contentSourceId)]);
+    return { saves, sources,
+      hypotheses: [...this.hypotheses.values()].filter(h => hypothesisIds.has(h.id)),
+      places: [...this.places.values()].filter(p => placeIds.has(p.id)),
+      media: new Map(await Promise.all([...sourceIds].map(async id => [id, await this.findSourceMedia(id)] as const))),
+    };
+  }
 
   async insertPlace(row: InsertPlaceRow): Promise<PlaceRecord> {
     const provider = requireText(row.provider, 'provider');
@@ -59,6 +76,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
       updatedAt: ts,
       schemaVersion: 1,
     };
+    assertImportWorkActive();
     this.places.set(record.id, record);
     return { ...record };
   }
@@ -127,65 +145,78 @@ export class InMemoryPlaceRepository implements PlaceRepository {
       unresolvedReason: existing.resolutionState === 'resolved' ? existing.unresolvedReason : row.unresolvedReason,
       updatedAt: ts,
     };
+    assertImportWorkActive();
     this.hypotheses.set(existing.id, next);
     return this.copyHypothesis(next);
   }
 
+  async resolveHypothesis(row: InsertUnresolvedHypothesisRow, place: InsertPlaceRow): Promise<ContentSourcePlaceRecord> {
+    assertImportWorkActive();
+    // In-memory fixture repository; real atomicity is verified against PostgreSQL RPCs.
+    const hypothesis = await this.upsertHypothesis(row);
+    const existing = await this.findPlaceByProviderId(place.provider, place.providerPlaceId);
+    const canonical = existing ?? await this.insertPlace(place);
+    return this.markHypothesisResolved(hypothesis.id, canonical.id);
+  }
+
   async markHypothesisResolved(id: string, placeId: string): Promise<ContentSourcePlaceRecord> {
+    assertImportWorkActive();
     const existing = this.hypotheses.get(id);
     if (!existing) throw new PlaceRepositoryError('place hypothesis not found', 'not_found');
-    const place = await this.findPlaceById(placeId);
-    if (!place) throw new PlaceRepositoryError('canonical place not found', 'invalid');
+    if (!this.places.has(placeId)) throw new PlaceRepositoryError('canonical place not found', 'invalid');
     if (existing.placeId && existing.placeId !== placeId) {
       throw new PlaceRepositoryError('hypothesis already resolved to a different place', 'invalid');
     }
-    const next: ContentSourcePlaceRecord = {
-      ...existing,
-      resolutionState: 'resolved',
-      unresolvedReason: null,
-      placeId,
-      updatedAt: now(),
-    };
+    const next: ContentSourcePlaceRecord = { ...existing, resolutionState: 'resolved', unresolvedReason: null,
+      placeId, updatedAt: now() };
+    assertImportWorkActive();
     this.hypotheses.set(id, next);
+    for (const save of [...this.saves.values()].filter((row) => row.contentSourcePlaceId === id)) {
+      const survivor = [...this.saves.values()].find((row) => row.userId === save.userId && row.placeId === placeId && row.id !== save.id);
+      if (survivor) {
+        for (const [key, source] of this.sources) if (source.saveId === save.id) this.sources.set(key, { ...source, saveId: survivor.id });
+        for (const [key, target] of this.redirects) if (target === save.id) this.redirects.set(key, survivor.id);
+        this.redirects.set(save.id, survivor.id);
+        this.saves.delete(save.id);
+      } else this.saves.set(save.id, { ...save, placeId, updatedAt: now() });
+    }
     return this.copyHypothesis(next);
   }
 
   async insertLead(row: InsertPlaceLeadRow): Promise<UserPlaceSaveRecord> {
+    assertImportWorkActive();
     const hypothesis = this.hypotheses.get(row.contentSourcePlaceId);
-    if (!hypothesis) throw new PlaceRepositoryError('place hypothesis not found', 'invalid');
-    if (hypothesis.contentSourceId !== row.contentSourceId) {
+    if (!hypothesis || hypothesis.contentSourceId !== row.contentSourceId) {
       throw new PlaceRepositoryError('content source does not match hypothesis', 'invalid');
     }
-    if (await this.findSaveByUserAndHypothesis(row.userId, row.contentSourcePlaceId)) {
-      throw new PlaceRepositoryError('place lead already exists', 'duplicate');
+    let record = [...this.saves.values()].find((save) => save.userId === row.userId &&
+      (hypothesis.placeId ? save.placeId === hypothesis.placeId : save.contentSourcePlaceId === hypothesis.id));
+    if (!record) {
+      const ts = now();
+      record = { id: randomUUID(), userId: row.userId, contentSourcePlaceId: hypothesis.id,
+        placeId: hypothesis.placeId, contentSourceId: row.contentSourceId, userImportId: row.userImportId,
+        createdAt: ts, updatedAt: ts, schemaVersion: 1 };
+      assertImportWorkActive();
+      this.saves.set(record.id, record);
     }
-    if (hypothesis.placeId && (await this.findSaveByUserAndPlace(row.userId, hypothesis.placeId))) {
-      throw new PlaceRepositoryError('canonical place already saved', 'duplicate');
-    }
-    const ts = now();
-    const record: UserPlaceSaveRecord = {
-      id: randomUUID(),
-      userId: row.userId,
-      contentSourcePlaceId: row.contentSourcePlaceId,
-      placeId: hypothesis.placeId,
-      contentSourceId: row.contentSourceId,
-      userImportId: row.userImportId,
-      createdAt: ts,
-      updatedAt: ts,
-      schemaVersion: 1,
-    };
-    this.saves.set(record.id, record);
+    const key = `${row.userId}|${hypothesis.id}|${row.userImportId}`;
+    this.sources.set(key, { saveId: record.id, userId: row.userId, contentSourcePlaceId: hypothesis.id,
+      contentSourceId: row.contentSourceId, userImportId: row.userImportId,
+      createdAt: this.sources.get(key)?.createdAt ?? now() });
     return { ...record };
+  }
+
+  async listSourcesByUser(userId: string): Promise<PlaceSaveSource[]> {
+    return [...this.sources.values()].filter((s) => s.userId === userId).map((s) => ({ ...s }));
   }
 
   async findSaveByUserAndHypothesis(
     userId: string,
     contentSourcePlaceId: string,
   ): Promise<UserPlaceSaveRecord | null> {
-    for (const row of this.saves.values()) {
-      if (row.userId === userId && row.contentSourcePlaceId === contentSourcePlaceId) return { ...row };
-    }
-    return null;
+    const source = [...this.sources.values()].find((s) => s.userId === userId && s.contentSourcePlaceId === contentSourcePlaceId);
+    const save = source ? this.saves.get(source.saveId) : undefined;
+    return save ? { ...save } : null;
   }
 
   async findSaveByUserAndPlace(userId: string, placeId: string): Promise<UserPlaceSaveRecord | null> {
@@ -211,25 +242,17 @@ export class InMemoryPlaceRepository implements PlaceRepository {
   }
 
   async countByUserImport(userImportId: string): Promise<number> {
-    let count = 0;
-    for (const row of this.saves.values()) {
-      if (row.userImportId === userImportId) count += 1;
-    }
-    return count;
+    return new Set([...this.sources.values()].filter((s) => s.userImportId === userImportId).map((s) => s.saveId)).size;
   }
 
   async upgradeLead(saveId: string, placeId: string): Promise<UpgradePlaceLeadResult> {
-    const save = this.saves.get(saveId);
+    assertImportWorkActive();
+    const save = this.saves.get(saveId) ?? this.saves.get(this.redirects.get(saveId) ?? '');
     if (!save) throw new PlaceRepositoryError('place save not found', 'not_found');
     await this.markHypothesisResolved(save.contentSourcePlaceId, placeId);
-    const existing = await this.findSaveByUserAndPlace(save.userId, placeId);
-    if (existing && existing.id !== save.id) {
-      this.saves.delete(save.id);
-      return { save: existing, merged: true };
-    }
-    const next: UserPlaceSaveRecord = { ...save, placeId, updatedAt: now() };
-    this.saves.set(save.id, next);
-    return { save: { ...next }, merged: false };
+    const after = await this.findSaveByUserAndPlace(save.userId, placeId);
+    if (!after) throw new PlaceRepositoryError('place save not found', 'not_found');
+    return { save: after, merged: after.id !== saveId };
   }
 
   async deleteUnresolvedExcept(contentSourceId: string, keepKeys: string[]): Promise<number> {
@@ -282,6 +305,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
       updatedAt: ts,
       schemaVersion: 1,
     };
+    assertImportWorkActive();
     this.hypotheses.set(record.id, record);
     return this.copyHypothesis(record);
   }

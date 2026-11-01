@@ -1,3 +1,4 @@
+import { importProviderFetch } from '../user-import/workContext';
 /**
  * Stage 1 — Context Gatherer ("Researcher")
  * Fetches oEmbed metadata, Innertube description, and transcript when captions exist.
@@ -87,7 +88,7 @@ export function shouldSkipYoutubeSecondaryFetches(input: {
 }
 
 async function youtubeRequest(url: string, init?: RequestInit): Promise<Response> {
-  return fetch(url, {
+  return importProviderFetch(url, {
     ...init,
     signal: init?.signal ?? AbortSignal.timeout(YOUTUBE_REQUEST_TIMEOUT_MS),
   });

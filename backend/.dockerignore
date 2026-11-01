@@ -1,0 +1,19 @@
+# Allow only backend build inputs. Exclude local secrets, databases, backups,
+# installed dependencies and release evidence from the remote build context.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/
+!src/**
+!config/
+!config/shopping.json
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.p8
+**/*credentials*.json

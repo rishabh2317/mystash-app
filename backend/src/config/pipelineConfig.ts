@@ -4,7 +4,7 @@ import { getEnv } from '../env';
 export const EXTRACTION_CONTEXT_VERSION = 'youtube-text-captions-v1';
 
 /** User-import rows only. Keeps creator cache keys on EXTRACTION_CONTEXT_VERSION. */
-export const USER_IMPORT_PLACE_CACHE_VERSION = 'places-v2';
+export const USER_IMPORT_PLACE_CACHE_VERSION = 'places-v3-progressive';
 
 function num(key: string, fallback: number): number {
   const raw = getEnv(key);

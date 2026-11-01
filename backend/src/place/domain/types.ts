@@ -109,3 +109,12 @@ export type UpgradePlaceLeadResult = {
   /** True when this lead was removed because the user already had that canonical place. */
   merged: boolean;
 };
+
+export type PlaceSaveSource = {
+  saveId: string;
+  userId: string;
+  contentSourcePlaceId: string;
+  contentSourceId: string;
+  userImportId: string;
+  createdAt: string;
+};

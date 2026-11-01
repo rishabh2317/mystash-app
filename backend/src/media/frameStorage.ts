@@ -1,3 +1,4 @@
+import { assertImportWorkActive, importWorkContext } from '../user-import/workContext';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -44,7 +45,10 @@ export async function uploadFramesToStorage(
 
     const buf = await fs.readFile(local);
     const sha256 = createHash('sha256').update(buf).digest('hex');
-    const objectPath = `${params.ingestId}/${params.stage}/frame_${String(frame.index).padStart(3, '0')}_${frame.timestampMs}.jpg`;
+    assertImportWorkActive();
+    const attempt = importWorkContext.getStore()?.attemptId;
+    const prefix = attempt ? `${params.ingestId}/${attempt}` : params.ingestId;
+    const objectPath = `${prefix}/${params.stage}/frame_${String(frame.index).padStart(3, '0')}_${frame.timestampMs}.jpg`;
 
     const { error: upErr } = await admin.storage.from(INGEST_FRAMES_BUCKET).upload(objectPath, buf, {
       contentType: 'image/jpeg',

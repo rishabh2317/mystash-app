@@ -1,7 +1,8 @@
+import { assertImportWorkActive, importWorkContext, mapImportConcurrent } from '../user-import/workContext';
 import { logger } from '../logger';
 import { decidePlaceMention } from './decidePlaceMention';
 import { placeHypothesisKey } from './domain/hypothesisKey';
-import type { InsertUnresolvedHypothesisRow, PlaceRecord, PlaceUnresolvedReason } from './domain/types';
+import type { InsertUnresolvedHypothesisRow, PlaceUnresolvedReason } from './domain/types';
 import type { ExtractedPlaceMention } from './parseReasonerPayload';
 import type { PlaceSearchCandidate } from './placeIdentityMatch';
 import { placeNameIsSpecific } from './placeNameIsSpecific';
@@ -34,38 +35,43 @@ export class PlaceResolver {
     contentSourceId: string;
     imports: Array<{ id: string; userId: string }>;
     mentions: ExtractedPlaceMention[];
+    provisional?: boolean;
   }): Promise<PlaceResolutionSummary> {
     const summary: PlaceResolutionSummary = { kept: 0, discarded: 0, leads: 0, resolved: 0 };
-    const keptKeys: string[] = [];
 
-    for (const mention of input.mentions) {
+    const unique = [...new Map(input.mentions.map((mention) => [placeHypothesisKey({
+      extractedName: mention.name, ...mention,
+    }), mention])).values()];
+    await mapImportConcurrent(unique, 2, async (mention) => {
       try {
-        const outcome = await this.resolveMention(input.contentSourceId, input.imports, mention);
+        assertImportWorkActive();
+        const outcome = await this.resolveMention(input.contentSourceId, input.imports, mention, input.provisional);
         if (outcome.discarded) {
           summary.discarded += 1;
-          continue;
+          return;
         }
         summary.kept += 1;
-        keptKeys.push(outcome.hypothesisKey);
         summary.leads += outcome.leads;
         if (outcome.resolved) summary.resolved += 1;
       } catch (err) {
+        assertImportWorkActive();
+        if (err instanceof Error && err.message.includes('IMPORT_WORK_STALE')) throw err;
         logger.warn(
           { err, contentSourceId: input.contentSourceId },
           'place.resolution.failed',
         );
         if (!placeNameIsSpecific(mention.name)) {
           summary.discarded += 1;
-          continue;
+          return;
         }
+        if (input.provisional) return;
         const saved = await this.saveUnresolved(input.contentSourceId, input.imports, mention, 'provider_failed');
         summary.kept += 1;
-        keptKeys.push(saved.hypothesisKey);
         summary.leads += saved.leads;
       }
-    }
+    });
 
-    await this.repository.deleteUnresolvedExcept(input.contentSourceId, keptKeys);
+    // Re-extraction is additive: absence is not evidence to delete a user save.
     return summary;
   }
 
@@ -73,6 +79,7 @@ export class PlaceResolver {
     contentSourceId: string,
     imports: Array<{ id: string; userId: string }>,
     mention: ExtractedPlaceMention,
+    provisional = false,
   ): Promise<{ discarded: boolean; hypothesisKey: string; leads: number; resolved: boolean }> {
     const fields = hypothesisFields(contentSourceId, mention, 'pending_resolution');
     const existing = await this.repository.findHypothesis(contentSourceId, placeHypothesisKey({
@@ -97,7 +104,13 @@ export class PlaceResolver {
     const started = Date.now();
     const decision = await decidePlaceMention(mention, async (query) => {
       logger.info({ contentSourceId, query }, 'place.search.started');
-      const attempt = await searchPlacesWithTimeout(this.search, query, this.timeoutMs);
+      const work = importWorkContext.getStore();
+      const key = `${this.search.name}:${query.trim().toLowerCase()}`;
+      const cached = work?.placeSearches?.get(key);
+      const pending = cached ?? searchPlacesWithTimeout(this.search, query, this.timeoutMs, work?.signal);
+      work?.placeSearches?.set(key, pending);
+      const attempt = await pending;
+      assertImportWorkActive();
       logger.info(
         {
           contentSourceId,
@@ -117,6 +130,7 @@ export class PlaceResolver {
     }
 
     if (decision.outcome === 'unresolved') {
+      if (provisional) return { discarded: false, hypothesisKey: '', leads: 0, resolved: false };
       if (!decision.searched) {
         logger.info({ contentSourceId, reason: decision.reason }, 'place.search.skipped');
       } else if (decision.reason === 'provider_failed') {
@@ -137,12 +151,16 @@ export class PlaceResolver {
       return { discarded: false, hypothesisKey: saved.hypothesisKey, leads: saved.leads, resolved: false };
     }
 
-    const place = await this.findOrInsertPlace(candidate);
-    const hypothesis = await this.repository.upsertHypothesis(fields);
-    const resolved = await this.repository.markHypothesisResolved(hypothesis.id, place.id);
-    const attached = await this.attachImports(imports, resolved.id, contentSourceId, place.id);
+    assertImportWorkActive();
+    const resolved = await this.repository.resolveHypothesis(fields, {
+      provider: this.search.name, providerPlaceId: candidate.providerPlaceId, name: candidate.name,
+      locality: candidate.locality, city: candidate.city, region: candidate.region, country: candidate.country,
+      category: candidate.category, formattedAddress: candidate.formattedAddress, latitude: candidate.latitude,
+      longitude: candidate.longitude, mapsUrl: candidate.mapsUrl,
+    });
+    const attached = await this.attachImports(imports, resolved.id, contentSourceId, resolved.placeId);
     logger.info(
-      { contentSourceId, providerPlaceId: place.providerPlaceId, placeId: place.id },
+      { contentSourceId, providerPlaceId: candidate.providerPlaceId, placeId: resolved.placeId },
       'place.match.accepted',
     );
     return { discarded: false, hypothesisKey: resolved.hypothesisKey, leads: attached.leads, resolved: true };
@@ -167,33 +185,6 @@ export class PlaceResolver {
     return { hypothesisKey: hypothesis.hypothesisKey, leads: attached.leads };
   }
 
-  private async findOrInsertPlace(candidate: PlaceSearchCandidate): Promise<PlaceRecord> {
-    const existing = await this.repository.findPlaceByProviderId(this.search.name, candidate.providerPlaceId);
-    if (existing) return existing;
-    try {
-      return await this.repository.insertPlace({
-        provider: this.search.name,
-        providerPlaceId: candidate.providerPlaceId,
-        name: candidate.name,
-        locality: candidate.locality,
-        city: candidate.city,
-        region: candidate.region,
-        country: candidate.country,
-        category: candidate.category,
-        formattedAddress: candidate.formattedAddress,
-        latitude: candidate.latitude,
-        longitude: candidate.longitude,
-        mapsUrl: candidate.mapsUrl,
-      });
-    } catch (err) {
-      if (err instanceof PlaceRepositoryError && err.code === 'duplicate') {
-        const again = await this.repository.findPlaceByProviderId(this.search.name, candidate.providerPlaceId);
-        if (again) return again;
-      }
-      throw err;
-    }
-  }
-
   private async attachImports(
     imports: Array<{ id: string; userId: string }>,
     contentSourcePlaceId: string,
@@ -203,10 +194,15 @@ export class PlaceResolver {
     let leads = 0;
     for (const userImport of imports) {
       const existing = await this.repository.findSaveByUserAndHypothesis(userImport.userId, contentSourcePlaceId);
+      // A canonical card/hypothesis may already exist for another URL imported by
+      // this user. The current import still needs its own attribution edge.
+      const attach = () => this.repository.insertLead({ userId: userImport.userId,
+        contentSourcePlaceId, contentSourceId, userImportId: userImport.id });
       if (placeId) {
-        if (existing?.placeId === placeId) continue;
+        if (existing?.placeId === placeId) { await attach(); continue; }
         if (existing) {
           const upgraded = await this.repository.upgradeLead(existing.id, placeId);
+          await attach();
           logger.info(
             {
               contentSourceId,
@@ -239,7 +235,7 @@ export class PlaceResolver {
         continue;
       }
 
-      if (existing) continue;
+      if (existing) { await attach(); continue; }
       try {
         const save = await this.repository.insertLead({
           userId: userImport.userId,

@@ -110,6 +110,13 @@ export type InsertContentSourceProductRow = Omit<
 };
 
 export type VideoExtractionPortResult = {
+  /** Existing source metadata, independent of product/place extraction results. */
+  metadata?: { title: string; thumbnailUrl: string | null };
+  earlyPlaces?: ExtractedPlaceMention[];
+  productsIncomplete?: boolean;
+  productsSettled?: boolean;
+  placesSettled?: boolean;
+  finalEvidence?: boolean;
   products: Array<{
     name: string;
     category?: string | null;

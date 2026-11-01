@@ -1,3 +1,4 @@
+import { importProviderFetch } from '../user-import/workContext';
 import { getEnv } from '../env';
 
 const TAVILY_EXTRACT_URL = 'https://api.tavily.com/extract';
@@ -35,7 +36,7 @@ export async function tavilyExtractCanonicalUrl(canonicalUrl: string): Promise<T
   const timer = setTimeout(() => ac.abort(), EXTRACT_FETCH_MS);
 
   try {
-    const res = await fetch(TAVILY_EXTRACT_URL, {
+    const res = await importProviderFetch(TAVILY_EXTRACT_URL, {
       method: 'POST',
       signal: ac.signal,
       headers: {

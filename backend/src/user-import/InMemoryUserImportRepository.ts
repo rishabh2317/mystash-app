@@ -59,7 +59,7 @@ export class InMemoryUserImportRepository implements UserImportRepository {
 
   async listByUser(userId: string, limit = 20): Promise<UserImportRecord[]> {
     return [...this.imports.values()]
-      .filter((row) => row.userId === userId)
+      .filter((row) => row.userId === userId && !row.hiddenAt)
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id.localeCompare(b.id)))
       .slice(0, Math.max(1, limit))
       .map((row) => ({ ...row }));
@@ -72,10 +72,10 @@ export class InMemoryUserImportRepository implements UserImportRepository {
       .map((row) => ({ ...row }));
   }
 
-  async markTimedOut(id: string, timedOutAt: string): Promise<UserImportRecord | null> {
+  async markTimedOut(id: string, timedOutAt: string, expectedStartedAt?: string | null): Promise<UserImportRecord | null> {
     const row = this.imports.get(id);
     if (!row) return null;
-    if (row.timedOutAt) return { ...row };
+    if (row.timedOutAt || (expectedStartedAt !== undefined && (row.attemptStartedAt ?? null) !== expectedStartedAt)) return { ...row };
     const next: UserImportRecord = {
       ...row,
       timedOutAt,
@@ -98,11 +98,18 @@ export class InMemoryUserImportRepository implements UserImportRepository {
     return { ...next };
   }
 
+  async restart(id: string, startedAt: string): Promise<UserImportRecord | null> {
+    const row = this.imports.get(id);
+    if (!row) return null;
+    const next = { ...row, timedOutAt: null, hiddenAt: null, attemptStartedAt: startedAt, updatedAt: startedAt };
+    this.imports.set(id, next);
+    return { ...next };
+  }
+
   async deleteForUser(id: string, userId: string): Promise<boolean> {
     const row = this.imports.get(id);
     if (!row || row.userId !== userId) return false;
-    this.imports.delete(id);
-    this.byUserDedupe.delete(this.key(row.userId, row.dedupeKey));
+    this.imports.set(id, { ...row, hiddenAt: now(), updatedAt: now() });
     return true;
   }
 }

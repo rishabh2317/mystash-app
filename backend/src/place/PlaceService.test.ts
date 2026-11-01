@@ -13,6 +13,20 @@ const IMPORT_A = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const IMPORT_B = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
 describe('PlaceService listForUser', () => {
+  it('adds the actual associated source URL without changing legacy source IDs or fetching providers', async () => {
+    const repo = new InMemoryPlaceRepository();
+    const sourceUrl = 'https://www.youtube.com/shorts/dQw4w9WgXcQ';
+    repo.setSourceMedia(SOURCE_A, { sourceUrl, sourceThumbnailUrl: 'https://fixture.invalid/source.jpg', frameUrl: null });
+    const hypothesis = await repo.insertHypothesis({ contentSourceId: SOURCE_A, extractedName: 'Cafe', unresolvedReason: 'ambiguous' });
+    await repo.insertLead({ userId: USER, contentSourcePlaceId: hypothesis.id, contentSourceId: SOURCE_A, userImportId: IMPORT_A });
+    const item = (await new PlaceService(repo).listForUser(USER)).items[0];
+    assert.deepEqual(item.source, { contentSourceId: SOURCE_A, userImportId: IMPORT_A });
+    assert.deepEqual(item.sourceVideo, { url: sourceUrl, thumbnailUrl: 'https://fixture.invalid/source.jpg' });
+    repo.sourceMedia.delete(SOURCE_A);
+    const missing = (await new PlaceService(repo).listForUser(USER)).items[0];
+    assert.equal(missing.sourceVideo, null);
+    assert.equal(missing.name, 'Cafe', 'source metadata failure must not hide a saved place');
+  });
   it('returns a resolved item with google_search from canonical name and location', async () => {
     const repo = new InMemoryPlaceRepository();
     const place = await repo.insertPlace({
@@ -141,7 +155,7 @@ describe('PlaceService listForUser', () => {
       userImportId: IMPORT_A,
     });
     const view = await new PlaceService(repo).listForUser(USER);
-    assert.deepEqual(view, { items: [], itemCount: 0 });
+    assert.deepEqual(view, { items: [], itemCount: 0, displayItemCount: 0 });
   });
 
   it('exposes an existing source thumbnail, and a video frame when the thumbnail is absent', async () => {

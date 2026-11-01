@@ -1,3 +1,5 @@
+import { SupabaseImportProgressRepository } from './ImportProgressRepository';
+import { sourcePlaceCounts, syncImportPlaces } from '../place/syncImportPlaces';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createContentSourceService } from '../content-source/factory';
 import { createUserImportBagSync } from '../content-source/processing/userImportBagSync';
@@ -32,6 +34,11 @@ export function createUserImportService(
     undefined,
     undefined,
     (userImportId) => places.countByUserImport(userImportId),
+    {
+      progress: new SupabaseImportProgressRepository(admin),
+      placeCounts: (sourceId) => sourcePlaceCounts(places, sourceId),
+      syncPlaces: (row) => syncImportPlaces(places, row),
+    },
   );
 }
 

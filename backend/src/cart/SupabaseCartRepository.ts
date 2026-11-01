@@ -40,13 +40,16 @@ export class SupabaseCartRepository implements CartRepository {
   constructor(private readonly admin: SupabaseClient) {}
 
   async listByUser(userId: string): Promise<CartItemRecord[]> {
-    const { data, error } = await this.admin
-      .from('cart_items')
-      .select('*')
-      .eq('user_id', userId)
-      .order('added_at', { ascending: false });
-    if (error) throw error;
-    return ((data ?? []) as CartItemRow[]).map(mapRow);
+    const rows: CartItemRecord[] = [];
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await this.admin.from('cart_items').select('*').eq('user_id', userId)
+        .order('added_at', { ascending: false }).order('id').range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      const page = (data ?? []) as CartItemRow[];
+      rows.push(...page.map(mapRow));
+      if (page.length < pageSize) return rows;
+    }
   }
 
   async findByUserAndProduct(

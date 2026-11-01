@@ -1,3 +1,4 @@
+import { assertImportWorkActive } from '../user-import/workContext';
 import { randomUUID } from 'node:crypto';
 import type { ContentSourceRepository } from './ContentSourceRepository';
 import { ENQUEUEABLE_STATUSES, PROCESSING_CLAIM_STATUSES, REPROCESSABLE_STATUSES } from './domain/lifecycle';
@@ -61,6 +62,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       updatedAt: ts,
       schemaVersion: 1,
     };
+    assertImportWorkActive();
     this.sources.set(record.id, record);
     this.byIdentity.set(key, record.id);
     return { ...record };
@@ -79,6 +81,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       publishedAt: patch.publishedAt === undefined ? record.publishedAt ?? null : patch.publishedAt,
       updatedAt: now(),
     };
+    assertImportWorkActive();
     this.sources.set(id, next);
     return { ...next };
   }
@@ -93,6 +96,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       queuedAt,
       updatedAt: now(),
     };
+    assertImportWorkActive();
     this.sources.set(id, next);
     return { ...next };
   }
@@ -108,6 +112,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       failureReason: null,
       updatedAt: now(),
     };
+    assertImportWorkActive();
     this.sources.set(id, next);
     return { ...next };
   }
@@ -122,6 +127,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       queuedAt: null,
       updatedAt: now(),
     };
+    assertImportWorkActive();
     this.sources.set(id, next);
     return { ...next };
   }
@@ -136,6 +142,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       failureReason: null,
       updatedAt: now(),
     };
+    assertImportWorkActive();
     this.sources.set(id, next);
     return { ...next };
   }
@@ -155,6 +162,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       failureReason: null,
       updatedAt: now(),
     };
+    assertImportWorkActive();
     this.sources.set(id, next);
     return { ...next };
   }
@@ -175,6 +183,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       failureReason: params.reason.slice(0, 200),
       updatedAt: now(),
     };
+    assertImportWorkActive();
     this.sources.set(id, next);
     return { ...next };
   }
@@ -185,7 +194,8 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
   ): Promise<ContentSourceProductRecord[]> {
     for (const [id, product] of [...this.products.entries()]) {
       if (product.contentSourceId === contentSourceId && !product.attachmentSource) {
-        this.products.delete(id);
+        assertImportWorkActive();
+    this.products.delete(id);
       }
     }
     const ts = now();
@@ -216,7 +226,8 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
         updatedAt: row.updatedAt ?? ts,
         schemaVersion: row.schemaVersion ?? 1,
       };
-      this.products.set(record.id, record);
+      assertImportWorkActive();
+    this.products.set(record.id, record);
       stored.push({ ...record, sources: [...record.sources], evidence: { ...record.evidence } });
     }
     return stored.sort((a, b) => a.position - b.position);
@@ -259,6 +270,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       updatedAt: row.updatedAt ?? ts,
       schemaVersion: row.schemaVersion ?? 1,
     };
+    assertImportWorkActive();
     this.products.set(record.id, record);
     return { ...record, sources: [...record.sources], evidence: { ...record.evidence } };
   }
@@ -266,6 +278,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
   async deleteProduct(contentSourceId: string, productId: string): Promise<boolean> {
     const row = this.products.get(productId);
     if (!row || row.contentSourceId !== contentSourceId) return false;
+    assertImportWorkActive();
     this.products.delete(productId);
     return true;
   }
@@ -296,6 +309,7 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
       image,
       updatedAt: now(),
     };
+    assertImportWorkActive();
     this.products.set(productId, next);
     return { ...next, sources: [...next.sources], evidence: { ...next.evidence } };
   }

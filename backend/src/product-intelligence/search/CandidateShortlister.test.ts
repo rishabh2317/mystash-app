@@ -67,3 +67,10 @@ describe('CandidateShortlister', () => {
     assert.equal(officialProduct?.capabilities.commerce, true);
   });
 });
+
+it('admits the three recorded SG merchant hits previously discarded as model_missing', async () => {
+  const fixture = await import('./testing/creatorBatCandidates.json');
+  const shortlisted = shortlistPdpCandidates(fixture.candidates, fixture.expected, 5);
+  assert.equal(shortlisted.length, 3);
+  assert.deepEqual(new Set(shortlisted.map(c => c.merchantUrl)), new Set(fixture.candidates.map(c => c.merchantUrl)));
+});

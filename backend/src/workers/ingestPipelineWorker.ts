@@ -3,8 +3,10 @@ import { logger } from '../logger';
 import { createSupabaseAdmin } from '../supabase';
 import { runProgressiveIngestPipeline } from '../stages/orchestrator';
 import { getIngestQueue, INGEST_QUEUE_NAME, type IngestPipelineJobData } from './queue';
+import { runClaimedIngest } from './ingestJobGate';
+import { withFreeTestExtractionSlot } from './freeTestBudget';
 import {
-  getBullmqCommandRedis,
+  duplicateBullmqWorkerRedis,
   resolveRedisAvailability,
   shouldBypassBullmqEnqueue,
 } from './redisConnection';
@@ -12,16 +14,23 @@ import {
 export function startIngestPipelineWorker(): Worker<IngestPipelineJobData> {
   const worker = new Worker<IngestPipelineJobData>(
     INGEST_QUEUE_NAME,
-    async (job) => {
+    async (job) => withFreeTestExtractionSlot(async () => {
       const admin = createSupabaseAdmin();
       const { ingestRequestId, traceId } = job.data;
       logger.info({ ingestRequestId, traceId, jobId: job.id }, 'ingest.worker.start');
-      const result = await runProgressiveIngestPipeline(admin, ingestRequestId, traceId);
+      const result = await runClaimedIngest(ingestRequestId, {
+        readStatus: async id => {
+          const { data, error } = await admin.from('ingest_requests').select('status').eq('id', id).maybeSingle();
+          if (error) throw error;
+          return data?.status ?? null;
+        },
+        run: id => runProgressiveIngestPipeline(admin, id, traceId),
+      });
       logger.info({ ingestRequestId, result }, 'ingest.worker.done');
       return result;
-    },
+    }),
     {
-      connection: getBullmqCommandRedis().duplicate(),
+      connection: duplicateBullmqWorkerRedis('ingest-pipeline-worker'),
       concurrency: 2,
     },
   );
