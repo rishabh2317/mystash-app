@@ -18,6 +18,9 @@ type UserImportRow = {
   created_at: string;
   updated_at: string;
   schema_version: number;
+  interest_kind?: 'product' | 'place' | 'both' | null;
+  interest_note?: string | null;
+  intent_revision?: number;
 };
 
 function mapRow(row: UserImportRow): UserImportRecord {
@@ -37,6 +40,9 @@ function mapRow(row: UserImportRow): UserImportRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     schemaVersion: row.schema_version,
+    interestKind: row.interest_kind ?? null,
+    interestNote: row.interest_note ?? null,
+    intentRevision: row.intent_revision ?? 0,
   };
 }
 

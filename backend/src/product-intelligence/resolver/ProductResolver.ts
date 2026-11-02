@@ -171,7 +171,7 @@ export class ProductResolver {
     const promoteOnMiss = opts.promoteOnMiss !== false;
     const out: ResolveDraftResult[] = [];
     for (const d of drafts) {
-      out.push(await this.resolveOne(d, promoteOnMiss));
+      out.push(await this.resolveOne(d, promoteOnMiss, opts.onSearchCandidates));
     }
     return out;
   }
@@ -179,13 +179,14 @@ export class ProductResolver {
   /**
    * User-import resolve: same matcher/enrichment, no catalog write on miss.
    */
-  async resolveForUserImport(drafts: AiDraftInput[]): Promise<ResolveDraftResult[]> {
-    return this.resolveIngest(drafts, { promoteOnMiss: false });
+  async resolveForUserImport(drafts: AiDraftInput[], onSearchCandidates?: ResolveIngestOptions['onSearchCandidates']): Promise<ResolveDraftResult[]> {
+    return this.resolveIngest(drafts, { promoteOnMiss: false, onSearchCandidates });
   }
 
   private async resolveOne(
     draft: AiDraftInput,
     promoteOnMiss = true,
+    onSearchCandidates?: ResolveIngestOptions['onSearchCandidates'],
   ): Promise<ResolveDraftResult> {
     const norm = this.normalizer.normalize(draft);
     const specificity = scoreProductSpecificity(draft, norm, this.cfg.specificityMin);
@@ -380,6 +381,7 @@ export class ProductResolver {
           : userImportHints,
     );
 
+    if (!promoteOnMiss && searchResult.kind === 'Succeeded') onSearchCandidates?.(draft.draftId, searchResult.candidates);
     if (searchResult.kind === 'Failed') {
       emitPiEvent('search.failed', {
         draftId: draft.draftId,

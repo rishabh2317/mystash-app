@@ -303,6 +303,8 @@ export type DiscoveredProductDraft = {
 };
 
 export type ResolveIngestOptions = {
+  /** User-import observation only; never performs additional discovery. */
+  onSearchCandidates?: (draftId: string, candidates: SearchCandidate[]) => void;
   /**
    * Creator default true: miss writes UNVERIFIED/UNRESOLVED catalog_products.
    * User import false: miss returns `discovered` and never writes catalog.

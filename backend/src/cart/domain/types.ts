@@ -8,6 +8,7 @@ export type CartSourceSurface =
   | 'USER_IMPORT';
 
 export type CartItemSource = {
+  matchKind?: 'similar';
   collectionId?: string | null;
   creatorId?: string | null;
   collectionProductTagId?: string | null;

@@ -1,4 +1,6 @@
 import { SupabaseImportProgressRepository } from '../../user-import/ImportProgressRepository';
+import { createReviewAssessment } from '../../user-import/share/assessment';
+import type { SearchCandidate } from '../../product-intelligence/domain/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createCartService } from '../../cart/factory';
 import { createDiscoveredProductService } from '../../discovered/factory';
@@ -26,12 +28,17 @@ export function createResolvingContentSourceProcessor(
   const userImports = new SupabaseUserImportRepository(admin);
   const users = new SupabaseUserRepository(admin);
   const pi = createProductIntelligence(admin, 'content-source', null, 'content-source');
+  const reviewEnabled = getEnv('SHARE_SUGGESTIONS_ENABLED') === 'true';
+  const observed = new Map<string, SearchCandidate[]>();
   const resolution = pi
     ? new ContentSourceResolutionService(
         sources,
         createDiscoveredProductService(admin),
         {
-          resolveForUserImport: (drafts) => pi.resolver.resolveForUserImport(drafts),
+          resolveForUserImport: (drafts) => pi.resolver.resolveForUserImport(drafts, reviewEnabled ? (id, candidates) => {
+            if(observed.size>=100){const oldest=observed.keys().next().value;if(oldest)observed.delete(oldest);}
+            observed.set(id,candidates);
+          } : undefined),
           getCatalogProduct: (id) => pi.catalog.getById(id),
         },
         userImports,
@@ -42,6 +49,7 @@ export function createResolvingContentSourceProcessor(
             return user?.country ?? null;
           },
         },
+        reviewEnabled ? createReviewAssessment(admin, observed) : undefined,
       )
     : null;
 

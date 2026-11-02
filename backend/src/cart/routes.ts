@@ -3,6 +3,7 @@ import { requireAuthUserId } from '../auth/requireAuth';
 import { createSupabaseAdmin } from '../supabase';
 import { CartServiceError, createCartService } from './factory';
 import type { CartItemSource, RemoveCartItemReason } from './domain/types';
+import { getEnv } from '../env';
 
 async function requireUserId(req: Request, res: Response): Promise<string | null> {
   return requireAuthUserId(req, res, { requireVerifiedEmail: true });
@@ -37,6 +38,14 @@ export function registerCartRoutes(app: Express): void {
       const userId = await requireUserId(req, res);
       if (!userId) return;
       const view = await cart.getCart(userId);
+      if (getEnv('SHARE_SUGGESTIONS_ENABLED') === 'true') {
+        const ids = [...new Set(view.items.map(i=>i.source?.userImportId).filter((id):id is string=>Boolean(id)))];
+        for(let n=0;n<ids.length;n+=100){
+          const reviews=await admin.from('user_import_product_reviews').select('import_id,product_id').eq('user_id',userId).eq('state','accepted').in('import_id',ids.slice(n,n+100));
+          if(reviews.error)throw new Error('Share attribution unavailable');
+          for(const item of view.items)if(item.source && reviews.data.some(r=>r.import_id===item.source?.userImportId && r.product_id===(item.catalogProductId??item.discoveredProductId)))item.source={...item.source,matchKind:'similar'};
+        }
+      }
       res.json({
         items: view.items.map(mapItemJson),
         itemCount: view.itemCount,

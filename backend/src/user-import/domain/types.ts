@@ -26,6 +26,9 @@ export type UserImportRecord = {
   createdAt: string;
   updatedAt: string;
   schemaVersion: number;
+  interestKind?: 'product' | 'place' | 'both' | null;
+  interestNote?: string | null;
+  intentRevision?: number;
 };
 
 export type SubmitUserImportInput = {

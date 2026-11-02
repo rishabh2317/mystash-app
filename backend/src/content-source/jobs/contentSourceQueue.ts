@@ -7,6 +7,7 @@ import {
   withTimeout,
 } from '../../workers/redisConnection';
 import { USER_IMPORT_TIMEOUT_MS } from '../../user-import/domain/shareProgress';
+import { retireTerminalJob } from './terminalJob';
 import {
   CONTENT_SOURCE_QUEUE,
   contentSourceEnrichmentJobId,
@@ -67,6 +68,10 @@ export async function enqueueContentSourceProcessing(
 
   const add = () =>
     withTimeout(q.add('process', data, { jobId }), 5_000, 'content_source.enqueue');
+
+  // BullMQ returns an existing id on duplication; it normally does not throw.
+  // Only terminal work may be removed. A competing retry may already have removed it.
+  await retireTerminalJob(() => q.getJob(jobId));
 
   try {
     const job = await add();

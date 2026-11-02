@@ -3,6 +3,7 @@ import { getPipelineConfig } from '../../config/pipelineConfig';
 import { getProductIntelligenceConfig } from '../../product-intelligence/config';
 import type { DiscoveredProductService } from '../../discovered/DiscoveredProductService';
 import { logger } from '../../logger';
+import { assertImportWorkActive } from '../../user-import/workContext';
 import { resolveCountryCode } from '../../merchant-pricing/country';
 import type { AiDraftInput, CatalogProduct, ResolveDraftResult } from '../../product-intelligence/domain/types';
 import { ProductNormalizer } from '../../product-intelligence/normalizer/ProductNormalizer';
@@ -62,6 +63,7 @@ export class ContentSourceResolutionService {
     private readonly userImports: UserImportLookupPort,
     private readonly cart: CartService,
     private readonly userCountry: UserCommerceCountryPort | null = null,
+    private readonly reviewAssessment?: (product: ContentSourceProductRecord, result?: ResolveDraftResult) => Promise<void>,
   ) {}
 
   /**
@@ -152,6 +154,7 @@ export class ContentSourceResolutionService {
       const expectation = userIdentityExpectation(draft);
       const lineTokens = lineTokensForDraft(draft);
       if (!hypothesisMayResolve(product)) {
+        await this.assessReview(product);
         if (product.catalogProductId || product.discoveredProductId) {
           await this.sources.bindProductResolution(product.id, {
             catalogProductId: null,
@@ -196,6 +199,7 @@ export class ContentSourceResolutionService {
       }
 
       const result = await this.resolveDraft(draft);
+      await this.assessReview(product, result);
       if (!result || !isAttachableUserDecision(result.decision)) continue;
 
       if (result.catalogProductId) {
@@ -223,6 +227,11 @@ export class ContentSourceResolutionService {
         image: httpImageUrl(product.image) ?? httpImageUrl(saved.record.imageUrl),
       });
     }
+  }
+
+  private async assessReview(product: ContentSourceProductRecord, result?: ResolveDraftResult): Promise<void> {
+    try { await this.reviewAssessment?.(product, result); }
+    catch { assertImportWorkActive(); logger.warn({ event: 'share.assessment.deferred', sourceProductId: product.id }, 'share.assessment.deferred'); }
   }
 
   private async copyBoundImage(

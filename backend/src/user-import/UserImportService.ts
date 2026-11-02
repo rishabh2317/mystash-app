@@ -1,4 +1,6 @@
 import type { ImportProgressRepository } from './ImportProgressRepository';
+import { rankForIntent } from './share/intentRanking';
+import { getEnv } from '../env';
 import { enqueueUserImportTimeout } from '../content-source/jobs/contentSourceQueue';
 import { buildUserImportEventPayload } from './domain/events';
 import {
@@ -252,8 +254,11 @@ export class UserImportService {
         state === 'ready' && source && source.processingStatus === 'READY'
           ? source.candidateCount
           : 0;
-      const resultProducts = row.contentSourceId
+      const discoveredResults = row.contentSourceId
         ? mapBoundProducts(await this.contentSource.listProducts(row.contentSourceId)) : [];
+      const resultProducts = getEnv('SHARE_INTENT_ENABLED') === 'true'
+        ? rankForIntent(discoveredResults,{kind:row.interestKind??null,note:row.interestNote??null},p=>p.title)
+        : discoveredResults;
       const products = state === 'ready' && productCount > 0 ? resultProducts : [];
       // New consumers get persisted discoveries even while the sibling branch is
       // running or failed. Legacy fields above deliberately retain their old contract.

@@ -1,4 +1,5 @@
 import { ImportWorkBusyError } from '../../user-import/workContext';
+import { startShareRecovery } from '../../user-import/share/recovery';
 import { DelayedError, Worker, type Job } from 'bullmq';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '../../logger';
@@ -153,6 +154,8 @@ export function startContentSourceProcessingWorker(
     { connection, concurrency: 2 },
   );
 
+  const stopShareRecovery = startShareRecovery(admin, () => Boolean(worker.closing));
+  worker.on('closed', stopShareRecovery);
   worker.on('ready', () => {
     logger.info(
       { queue: CONTENT_SOURCE_QUEUE, running: worker.isRunning() },
