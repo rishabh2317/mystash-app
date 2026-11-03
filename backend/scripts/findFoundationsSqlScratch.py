@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 
-def main(verify_queries=False, verify_images=False, verify_delivery=False):
+def main(verify_queries=False, verify_images=False, verify_delivery=False, verify_readiness=False):
     root = Path(__file__).resolve().parents[2]
     binaries = Path('/opt/homebrew/opt/postgresql@17/bin')
     for name in ('initdb', 'pg_ctl', 'psql'):
@@ -180,6 +180,16 @@ INSERT INTO users(id) SELECT id FROM auth.users;
                                     f"SELECT analytics_set_preferences('{owner}',false,false);"]))
             print(sql(f"SELECT find_test_assert(NOT EXISTS(SELECT 1 FROM analytics_events WHERE actor_id='{owner}') AND (SELECT find_measurement_revision IS NULL FROM user_imports WHERE id='dddddddd-8888-4888-8888-888888888888'),'concurrent withdrawal fences operational measurement');"))
             print('PASS concurrent consent withdrawal and terminal reconciliation')
+
+        if verify_readiness:
+            assert verify_queries and verify_images and verify_delivery
+            integrated = subprocess.run(['node', '--import', './backend/node_modules/tsx/dist/loader.mjs',
+                                         'scripts/findReadinessIntegration.cjs'], cwd=root,
+                                        env={**env, 'FIND_TEST_PG_SOCKET': str(work)},
+                                        text=True, capture_output=True, timeout=120)
+            if integrated.returncode:
+                raise RuntimeError(integrated.stderr[-6000:] or integrated.stdout[-6000:])
+            print(integrated.stdout.strip())
 
 
 

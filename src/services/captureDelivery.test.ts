@@ -27,6 +27,16 @@ test('a history refresh failure cannot downgrade an accepted capture or require 
   const f=setup();f.api.exists=async()=>{throw Error('offline');};const d=f.delivery();d.configure(owner);await d.pump();assert.equal(f.rows.get(id)?.state,'accepted');assert.equal(f.pixels.size,0);
   f.api.exists=async()=>true;await d.pump();assert.equal(f.rows.size,0);assert.equal(f.counts().uploads,1);
 });
+test('an accepted capture with unavailable history does not block later pending uploads',async()=>{
+  const f=setup(),acceptedId='55555555-5555-4555-8555-555555555555';
+  const pending=f.rows.get(id)!;f.rows.clear();
+  f.rows.set(acceptedId,{...pending,id:acceptedId,state:'accepted',importId});f.rows.set(id,pending);
+  f.api.exists=async()=>{throw Error('history unavailable');};
+  const d=f.delivery();d.configure(owner);await d.pump();
+  assert.equal(f.counts().uploads,1);assert.equal(f.counts().receipts,1);
+  assert.equal(f.rows.get(acceptedId)?.state,'accepted');assert.equal(f.rows.get(id)?.state,'accepted');
+  assert.equal(f.pixels.size,0);
+});
 test('account switch while awaiting allocation prevents pixel reads/upload and keeps old owner records',async()=>{
   const f=setup(),d=f.delivery();let finish!:(value:Awaited<ReturnType<ImageTransport['initialize']>>)=>void;
   f.api.initialize=()=>new Promise(resolve=>{finish=resolve;});d.configure(owner);const pending=d.pump();await new Promise(resolve=>setImmediate(resolve));

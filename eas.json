@@ -59,6 +59,20 @@
         "EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED": "true"
       }
     },
+    "universal-find-qa": {
+      "extends": "android-share-validation",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://womdeohfpvzmhomgqwig.supabase.co",
+        "EXPO_PUBLIC_FIND_MEASUREMENT_ENABLED": "true",
+        "MYSTASH_QA_FIREBASE_PROJECT_ID": "mystash-496009"
+      }
+    },
+    "universal-find-qa-core": {
+      "extends": "universal-find-qa",
+      "env": {
+        "EXPO_PUBLIC_PUSH_ENABLED": "false"
+      }
+    },
     "production": {
       "autoIncrement": true
     }

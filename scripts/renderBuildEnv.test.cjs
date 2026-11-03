@@ -27,7 +27,7 @@ function compile(profile, source = 'const endpoint = process.env.EXPO_PUBLIC_MYS
 }
 
 test('Render release embeds its profile endpoint despite stale shared preview environment', () => {
-  for (const profile of ['render-test', 'android-share-validation']) {
+  for (const profile of ['render-test', 'android-share-validation', 'universal-find-qa', 'universal-find-qa-core']) {
     const code = compile(profile);
     assert.ok(code.includes(target));
     assert.ok(!code.includes('api-dev.mystash.in'));

@@ -21,7 +21,10 @@ export function createCaptureDelivery(store:ImageOutbox,api:ImageTransport,chang
       if(!current(account,token))return;
       if(row.owner!==account)continue;
       if(row.state==='accepted'){
-        if(row.importId&&await api.exists(row.importId,account)&&current(account,token)){await store.remove(row.id,account);changed();}continue;
+        try{
+          if(row.importId&&await api.exists(row.importId,account)&&current(account,token)){await store.remove(row.id,account);changed();}
+        }catch{/* Keep the accepted receipt; a history outage must not block later uploads. */}
+        continue;
       }
       if(!force&&(row.state==='needs_review'||row.notBefore>now()))continue;
       let accepted=false;
