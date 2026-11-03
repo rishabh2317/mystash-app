@@ -153,6 +153,8 @@ GRANT USAGE ON SCHEMA storage TO anon,authenticated,service_role; GRANT ALL ON s
 INSERT INTO users(id) SELECT id FROM auth.users;
 """)
             sql((root / 'supabase/migrations/20261103150000_find_private_images.sql').read_text())
+            sql((root / 'supabase/migrations/20261103170000_find_import_work_assert_fix.sql').read_text())
+            print(sql((root / 'backend/scripts/sql/find_import_work_assert_fix_checks.sql').read_text()))
             print(sql((root / 'backend/scripts/sql/find_images_checks.sql').read_text()))
             image_test = subprocess.run(['node', '--import', './backend/node_modules/tsx/dist/loader.mjs',
                                          'backend/src/user-import/media/integrationRunner.ts'], cwd=root,
