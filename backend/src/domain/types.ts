@@ -59,6 +59,7 @@ export type MediaUnderstandingResult = {
   ocr: OcrLine[];
   frames: FrameRef[];
   providerMeta: {
+    failed?: string[];
     vision?: string;
     ocr?: string;
     logo?: string;

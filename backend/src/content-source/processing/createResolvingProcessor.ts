@@ -11,6 +11,7 @@ import { SupabaseContentSourceRepository } from '../SupabaseContentSourceReposit
 import { ContentSourceProcessor } from './ContentSourceProcessor';
 import { ContentSourceResolutionService } from './ContentSourceResolutionService';
 import { createVideoExtractionAdapter } from './videoAdapter';
+import { createImageExtractionAdapter } from './imageAdapter';
 import { createWebEnrichmentAdapter } from './webAdapter';
 import { getEnv } from '../../env';
 import { GooglePlacesTextSearchProvider } from '../../place/GooglePlacesTextSearchProvider';
@@ -59,6 +60,7 @@ export function createResolvingContentSourceProcessor(
     sources,
     userImports,
     video: createVideoExtractionAdapter(admin),
+    image: createImageExtractionAdapter(admin),
     web: createWebEnrichmentAdapter(admin),
     resolution,
     places,

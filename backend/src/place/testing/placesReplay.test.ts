@@ -33,8 +33,8 @@ async function replay(fixture: Fixture, baseline: boolean) {
   const imports = new InMemoryUserImportRepository();
   const source = await sources.insert({ platform: 'youtube', externalId: 'recorded-id', canonicalUrl: 'https://example.invalid/video',
     mediaKind: 'VIDEO', processingStatus: 'QUEUED', pipelineVersion: 'replay' });
-  const userImport = await imports.insert({ userId: '11111111-1111-4111-8111-111111111111', rawInput: 'fixture', sourceUrl: source.canonicalUrl,
-    normalizedUrl: source.canonicalUrl, dedupeKey: fixture.id, platform: 'youtube', contentSourceId: source.id, status: 'RECEIVED' });
+  const userImport = await imports.insert({ userId: '11111111-1111-4111-8111-111111111111', rawInput: 'fixture', sourceUrl: source.canonicalUrl!,
+    normalizedUrl: source.canonicalUrl!, dedupeKey: fixture.id, platform: 'youtube', contentSourceId: source.id, status: 'RECEIVED' });
   const attach = places.insertLead.bind(places);
   places.insertLead = async (row) => { const saved = await attach(row); firstPlaceMs ??= performance.now() - started; return saved; };
   const runtime: ProgressiveExtractRuntime = {
@@ -92,7 +92,7 @@ async function replay(fixture: Fixture, baseline: boolean) {
     : (await places.findHypothesisById(s.contentSourcePlaceId))!.extractedName));
   const cold = { ...calls };
   await (baseline ? baselineExtract : runProgressiveExtract)({ admin: {} as SupabaseClient, platform: 'youtube', externalVideoId: 'recorded-id',
-    sourceUrl: source.canonicalUrl, correlationId: source.id, traceId: 'replay', cacheScope: 'user-import' }, runtime);
+    sourceUrl: source.canonicalUrl!, correlationId: source.id, traceId: 'replay', cacheScope: 'user-import' }, runtime);
   assert.deepEqual(calls, cold, 'warm extraction cache must make no AI/provider calls');
   return { productNames, placeNames: placeNames.sort(), calls: cold, peak, totalMs, firstPlaceMs, firstProductMs };
 }

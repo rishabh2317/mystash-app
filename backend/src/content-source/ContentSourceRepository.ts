@@ -67,7 +67,7 @@ export type ContentSourceRepository = {
       image?: string | null;
     },
   ): Promise<ContentSourceProductRecord | null>;
-  /** Content sources that already bound this catalogue or discovered product. */
+  /** Public URL sources for product related media. Private image sources are excluded. */
   listBoundSourceIds(bind: {
     catalogProductId?: string | null;
     discoveredProductId?: string | null;

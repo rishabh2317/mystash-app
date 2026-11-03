@@ -280,7 +280,7 @@ describe('ContentSourceProcessor web', () => {
   it('calls the existing enrichment path and persists one candidate', async () => {
     const harness = createHarness({
       web: async ({ contentSource }) => {
-        assert.equal(contentSource.canonicalUrl, 'https://shop.example.com/p/mug');
+        assert.equal(contentSource.canonicalUrl!, 'https://shop.example.com/p/mug');
         return {
           empty: false,
           candidate: {
@@ -355,12 +355,12 @@ describe('ContentSourceProcessor global reuse', () => {
     await addImport(harness.imports, {
       userId: USER_A,
       contentSourceId: source.id,
-      url: source.canonicalUrl,
+      url: source.canonicalUrl!,
     });
     await addImport(harness.imports, {
       userId: USER_B,
       contentSourceId: source.id,
-      url: source.canonicalUrl,
+      url: source.canonicalUrl!,
     });
 
     await harness.processor.process({

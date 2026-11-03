@@ -44,12 +44,17 @@ export class CartService {
     private readonly repo: CartRepository,
     private readonly catalog: CatalogCartPort,
     private readonly discovered: DiscoveredCartPort | null = null,
+    private readonly imageAttribution?: (owner:string,ids:string[])=>Promise<Map<string,import('../user-import/media/attribution').ImageAttribution>>,
   ) {}
 
   async getCart(userId: string): Promise<CartView> {
     if (!userId) throw new CartServiceError('userId required', 401);
     const rows = await this.repo.listByUser(userId);
     const items = await Promise.all(rows.map((row) => this.toItemView(row)));
+    if(this.imageAttribution){
+      const images=await this.imageAttribution(userId,rows.flatMap(row=>row.sourceContentSourceId?[row.sourceContentSourceId]:[]));
+      items.forEach(item=>{const image=item.source?.contentSourceId?images.get(item.source.contentSourceId):null;if(image&&item.source)item.source={...item.source,image};});
+    }
     return { items, itemCount: items.length };
   }
 

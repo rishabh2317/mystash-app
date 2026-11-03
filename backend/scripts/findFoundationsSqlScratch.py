@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 
-def main(verify_queries=False):
+def main(verify_queries=False, verify_images=False):
     root = Path(__file__).resolve().parents[2]
     binaries = Path('/opt/homebrew/opt/postgresql@17/bin')
     for name in ('initdb', 'pg_ctl', 'psql'):
@@ -143,6 +143,23 @@ INSERT INTO cart_items(user_id,catalog_product_id) VALUES('11111111-1111-4111-81
             if integration.returncode:
                 raise RuntimeError(integration.stderr[-5000:] or integration.stdout[-5000:])
             print(integration.stdout.strip())
+
+
+        if verify_images:
+            sql("""CREATE TABLE public.users(id uuid PRIMARY KEY,deleted_at timestamptz,account_status text DEFAULT 'ACTIVE');
+CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+CREATE TABLE storage.objects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),bucket_id text,name text); ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+GRANT USAGE ON SCHEMA storage TO anon,authenticated,service_role; GRANT ALL ON storage.objects TO anon,authenticated,service_role;
+INSERT INTO users(id) SELECT id FROM auth.users;
+""")
+            sql((root / 'supabase/migrations/20261103150000_find_private_images.sql').read_text())
+            print(sql((root / 'backend/scripts/sql/find_images_checks.sql').read_text()))
+            image_test = subprocess.run(['node', '--import', './backend/node_modules/tsx/dist/loader.mjs',
+                                         'backend/src/user-import/media/integrationRunner.ts'], cwd=root,
+                                        env={**env, 'FIND_TEST_PG_SOCKET': str(work)},text=True,capture_output=True,timeout=60)
+            if image_test.returncode:
+                raise RuntimeError(image_test.stderr[-5000:] or image_test.stdout[-5000:])
+            print(image_test.stdout.strip())
 
 
 

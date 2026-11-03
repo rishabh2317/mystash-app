@@ -10,23 +10,32 @@ import { useAuth } from '@/contexts/AuthContext';
 import { typeStyle } from '@/src/theme/typography';
 import { useFindCapture } from '@/src/hooks/useFindCapture';
 import { FIND_COPY, FIND_ROUTES, findDetailPath } from '@/src/ui/find';
+import {useFindImageCapture} from '@/src/hooks/useFindImageCapture';
+import {ImageCaptureFeedback} from '@/components/find/ImageCaptureFeedback';
 export default function FindCaptureScreen() {
   const router = useRouter(), { tokens } = useThemeMode(), { user, loading } = useAuth();
   const insets = useSafeAreaInsets();
   const capture = useFindCapture();
+  const image=useFindImageCapture();
   const { input: visibleInput,error,busy,ack: accepted } = capture;
   const submit = () => { Keyboard.dismiss(); void capture.submit(); };
   return <View style={{ flex: 1, backgroundColor: tokens.color.canvasSoft, paddingLeft: insets.left, paddingRight: insets.right }}>
-    <TopBar mode="page" title="Capture a link" showBack onBack={() => router.canGoBack() ? router.back() : router.replace(FIND_ROUTES.home as Href)} />
+    <TopBar mode="page" title="Capture a Find" showBack onBack={() => router.canGoBack() ? router.back() : router.replace(FIND_ROUTES.home as Href)} />
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: tokens.space.md, paddingBottom: tokens.space.xxl, gap: tokens.space.lg }}>
         <Text style={typeStyle(tokens,'sectionTitle')}>What caught your eye?</Text>
         <Text style={typeStyle(tokens,'bodyMuted')}>Paste an Instagram Reel, YouTube Short, or supported web link.</Text>
         <Text style={typeStyle(tokens,'caption')}>{FIND_COPY.automatic} No selection step is required.</Text>
+        {user?<View style={{gap:tokens.space.sm}}>
+          <ActionButton wrapLabel label="Screenshot / Gallery" leadingIcon="images-outline" minTouchHeight={48} variant="secondary" disabled={!image.supported||image.busy||busy} onPress={()=>void image.capture('gallery')}/>
+          <ActionButton wrapLabel label="Take a photo" leadingIcon="camera-outline" minTouchHeight={48} variant="secondary" disabled={!image.supported||image.busy||busy} onPress={()=>void image.capture('camera')}/>
+          {!image.supported?<Text style={typeStyle(tokens,'caption')}>Images need an updated native Mystash installation.</Text>:null}
+          <ImageCaptureFeedback result={image.result} openSettings={()=>void image.openSettings()}/>
+        </View>:null}
         {loading ? <Text style={typeStyle(tokens,'bodyMuted')}>Checking your account…</Text> : !user ? <><Text style={typeStyle(tokens,'body')}>Sign in before capturing a link.</Text><ActionButton wrapLabel minTouchHeight={48} label="Sign in" onPress={() => router.push(FIND_ROUTES.profile)} /></> : accepted ? <View accessibilityLiveRegion="polite" style={{ gap: tokens.space.md }}>
-          <Text style={typeStyle(tokens,'sectionTitle')}>{accepted.created ? 'Link received' : 'This link is already in your Finds'}</Text>
-          <Text style={typeStyle(tokens,'bodyMuted')}>You can leave this screen while we find products and places in the background.</Text>
-          <ActionButton wrapLabel minTouchHeight={48} label="Open Find" onPress={() => router.replace(findDetailPath(accepted.id) as Href)} />
+          <Text style={typeStyle(tokens,'sectionTitle')}>{accepted.local?'Link securely queued':accepted.created ? 'Link received' : 'This link is already in your Finds'}</Text>
+          <Text style={typeStyle(tokens,'bodyMuted')}>{accepted.local?'Saved on this device. We’ll send it when you’re connected, then find products and places automatically.':'You can leave this screen while we find products and places in the background.'}</Text>
+          <ActionButton wrapLabel minTouchHeight={48} label={accepted.local?'View your Finds':'Open Find'} onPress={() => router.replace((accepted.local?FIND_ROUTES.home:findDetailPath(accepted.id)) as Href)} />
           <ActionButton wrapLabel minTouchHeight={48} label="Capture another link" variant="quiet" onPress={capture.clearAck} />
         </View> : <>
           <TextInput accessibilityLabel="Link to capture" placeholder="Paste a URL or shared text" placeholderTextColor={tokens.color.textMuted} value={visibleInput} editable={!busy}
@@ -35,7 +44,7 @@ export default function FindCaptureScreen() {
               backgroundColor: tokens.color.surface, color: tokens.color.text, fontFamily: tokens.fontFamily.regular, fontSize: tokens.fontSize.body }} />
           {error ? <Text accessibilityRole="alert" style={[typeStyle(tokens,'bodyMuted'), { color: tokens.color.danger }]}>{error}</Text> : null}
           <ActionButton wrapLabel minTouchHeight={48} label="Find from this link" leadingIcon="sparkles-outline" pending={busy} disabled={!visibleInput.trim()} onPress={() => { void submit(); }} />
-          <Text style={typeStyle(tokens,'caption')}>Sending needs a connection. If receipt can’t be confirmed, your text stays here so you can try again.</Text>
+          <Text style={typeStyle(tokens,'caption')}>Supported mobile installations queue links securely, even offline. Other installations need a connection and confirm receipt before clearing your text.</Text>
         </>}
       </ScrollView>
     </KeyboardAvoidingView>

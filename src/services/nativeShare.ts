@@ -5,6 +5,7 @@ export const nativeSharingEnabled = () => process.env.EXPO_PUBLIC_NATIVE_SHARE_E
 let generation = 0;
 let serial: Promise<void> = Promise.resolve();
 const listeners=new Set<()=>void>();
+export function notifyPendingShares(){for(const listener of listeners)listener();}
 export function subscribePendingShares(listener:()=>void):()=>void{listeners.add(listener);return()=>{listeners.delete(listener);};}
 /** Only access tokens cross this boundary. Superseded identity writes are dropped. */
 export function syncNativeShareSession(session: Session | null): Promise<void> {

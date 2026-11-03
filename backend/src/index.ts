@@ -1,4 +1,5 @@
 import { registerFindRoutes } from './user-import/find/routes';
+import { registerPrivateImageRoutes } from './user-import/media/routes';
 import { assertFindSchema } from './user-import/find/schema';
 import { analyticsContextMiddleware } from './analytics/context';
 import { registerAnalyticsRoutes } from './analytics/routes';
@@ -98,6 +99,7 @@ registerSearchRoutes(app);
 registerCartRoutes(app);
 registerPlaceRoutes(app);
 registerUserImportRoutes(app);
+registerPrivateImageRoutes(app);
 registerFindRoutes(app);
 registerShareAcceptanceRoutes(app);
 registerShareReviewRoutes(app);

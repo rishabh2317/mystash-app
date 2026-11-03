@@ -6,6 +6,9 @@ export type PlaceListImage = {
 };
 
 export type PlaceSourceMedia = {
+  /** Internal lookup discriminator; bytes/URLs still require the media service. */
+  privateImage?: boolean;
+  imageAttribution?: import('../user-import/media/attribution').ImageAttribution;
   /** Stored source identity; never reconstructed from a thumbnail or provider ID. */
   sourceUrl?: string | null;
   sourceThumbnailUrl: string | null;

@@ -28,6 +28,8 @@ import type { ContentSourceProductRecord } from '../domain/types';
 import { enqueueContentSourceEnrichment } from '../jobs/contentSourceQueue';
 import type { UserCommerceCountryPort, UserImportLookupPort } from '../ports';
 import { hypothesisMayResolve, isAttachableUserDecision } from './userAttachPolicy';
+import { privateImageContext } from '../../user-import/media/privacy';
+import { publicMerchantIdentity } from '../../user-import/media/publicIdentity';
 
 const lineNormalizer = new ProductNormalizer();
 
@@ -72,6 +74,8 @@ export class ContentSourceResolutionService {
    * Returns the number of bound products.
    */
   async resolveAndFanOut(contentSourceId: string, userImportId?: string): Promise<number> {
+    const source=await this.sources.findById(contentSourceId);
+    if(source?.mediaKind==='IMAGE'&&!privateImageContext.getStore())return privateImageContext.run(true,()=>this.resolveAndFanOut(contentSourceId,userImportId));
     await this.validateAndAttach(contentSourceId, userImportId);
     await this.fanOutAll(contentSourceId);
     const products = await this.sources.listProducts(contentSourceId);
@@ -115,6 +119,7 @@ export class ContentSourceResolutionService {
     userImportId?: string;
     commerceCountry?: string | null;
   }): Promise<void> {
+    if ((await this.sources.findById(input.contentSourceId))?.mediaKind==='IMAGE') return;
     const product = (await this.sources.listProducts(input.contentSourceId)).find(
       (row) => row.id === input.contentSourceProductId,
     );
@@ -219,7 +224,9 @@ export class ContentSourceResolutionService {
       }
 
       if (!result.discovered || !discoveredDraftMatchesExpectation(result.discovered, expectation, lineTokens)) continue;
-      const saved = await this.discovered.getOrCreate(result.discovered, processorVersion);
+      const shared = source.mediaKind==='IMAGE' ? publicMerchantIdentity(result.discovered) : result.discovered;
+      if (!shared || !discoveredDraftMatchesExpectation(shared,expectation,lineTokens)) continue;
+      const saved = await this.discovered.getOrCreate(shared, processorVersion);
       if (!discoveredRecordMatchesExpectation(saved.record, expectation, lineTokens)) continue;
       await this.sources.bindProductResolution(product.id, {
         catalogProductId: null,
@@ -230,6 +237,7 @@ export class ContentSourceResolutionService {
   }
 
   private async assessReview(product: ContentSourceProductRecord, result?: ResolveDraftResult): Promise<void> {
+    if (privateImageContext.getStore()) return;
     try { await this.reviewAssessment?.(product, result); }
     catch { assertImportWorkActive(); logger.warn({ event: 'share.assessment.deferred', sourceProductId: product.id }, 'share.assessment.deferred'); }
   }
@@ -262,6 +270,9 @@ export class ContentSourceResolutionService {
     commerceCountry?: string | null,
   ): Promise<AiDraftInput> {
     const draft = toDraft(product);
+    if (privateImageContext.getStore()) {
+      draft.evidence={}; draft.image=null; draft.merchantUrl=null; draft.price=null; draft.currency=null;
+    }
     draft.commerceCountry = await this.resolveCommerceCountry({
       userImportId,
       commerceCountry,
@@ -363,6 +374,8 @@ export class ContentSourceResolutionService {
     contentSourceId: string | null;
   }): Promise<void> {
     if (!row.contentSourceId || !row.userId) return;
+    const source=await this.sources.findById(row.contentSourceId);
+    if(source?.ownerId&&source.ownerId!==row.userId)throw new Error('Private image ownership mismatch');
     if (this.userImports.findById) {
       const current = await this.userImports.findById(row.id);
       if (!current || current.userId !== row.userId || current.hiddenAt) return;

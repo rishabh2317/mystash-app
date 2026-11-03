@@ -13,6 +13,7 @@ import type {
   UserPlaceSaveRecord,
 } from './domain/types';
 import type { PlaceSourceMedia } from './placeListImage';
+import { imageAttributions } from '../user-import/media/attribution';
 import { PlaceRepositoryError, type PlaceRepository, type PlaceStashSnapshot } from './PlaceRepository';
 
 type Row = Record<string, unknown>;
@@ -191,6 +192,8 @@ export class SupabasePlaceRepository implements PlaceRepository {
       readIds('places', saves.flatMap(s => s.placeId ? [s.placeId] : [])),
       this.findSourceMediaBatch([...saves.map(s => s.contentSourceId), ...sources.map(s => s.contentSourceId)]),
     ]);
+    const imageSources=await imageAttributions(this.admin,userId,[...media].filter(([,value])=>value.privateImage).map(([id])=>id));
+    imageSources.forEach((imageAttribution,id)=>media.set(id,{sourceUrl:null,sourceThumbnailUrl:null,frameUrl:null,imageAttribution}));
     return { saves, sources, hypotheses: hypotheses.map(mapHypothesis), places: places.map(mapPlace), media };
   }
 
@@ -200,7 +203,7 @@ export class SupabasePlaceRepository implements PlaceRepository {
     for (const batch of chunks([...new Set(sourceIds)])) {
       const rows = await readAll((from, to) => this.admin.from('content_sources')
         .select('id,platform,external_id,canonical_url,thumbnail_url').in('id', batch).order('id').range(from, to));
-      const missing = rows.filter(r => !mediaUrl(r.thumbnail_url));
+      const missing = rows.filter(r => r.platform!=='image' && !mediaUrl(r.thumbnail_url));
       const cached = new Map<string, string>();
       // Prefer the newest available metadata for the exact platform/video identity.
       // Select only metadata, never the large product/evidence payload.
@@ -223,6 +226,7 @@ export class SupabasePlaceRepository implements PlaceRepository {
         .select('id,url,embed_url,thumbnail').or(`url.in.(${urls.map(url => JSON.stringify(url)).join(',')}),embed_url.in.(${urls.map(url => JSON.stringify(url)).join(',')})`)
         .order('id').range(from, to)).catch(() => []) : [];
       for (const row of rows) {
+        if(row.platform==='image'){media.set(String(row.id),{sourceUrl:null,sourceThumbnailUrl:null,frameUrl:null,privateImage:true});continue;}
         const sourceUrl = mediaUrl(row.canonical_url);
         const video = videos.find(v => (v.url === sourceUrl || v.embed_url === sourceUrl) && mediaUrl(v.thumbnail));
         media.set(String(row.id), { sourceUrl,

@@ -1,4 +1,5 @@
-import { abortImportOperation, assertImportWorkActive, importWorkContext, StaleImportWorkError } from '../../user-import/workContext';
+import { abortImportOperation, assertImportWorkActive, importWorkContext, StaleImportWorkError, ImportWorkBusyError } from '../../user-import/workContext';
+import { privateImageContext } from '../../user-import/media/privacy';
 import { importExtractionVersion, runImportWork } from '../../user-import/ImportProgressRepository';
 import type { ImportProgressRepository, ImportProgress } from '../../user-import/ImportProgressRepository';
 import { syncImportPlaces } from '../../place/syncImportPlaces';
@@ -36,6 +37,7 @@ export type ContentSourceProcessorDeps = {
   progress?: ImportProgressRepository;
   userImports: UserImportLookupPort;
   video: VideoExtractionPort;
+  image?: VideoExtractionPort;
   web: WebEnrichmentPort;
   now?: () => Date;
   processorVersion?: string;
@@ -66,8 +68,18 @@ export class ContentSourceProcessor {
     data: ContentSourceProcessingJobData,
     ctx: ContentSourceProcessContext = { attemptsMade: 0, maxAttempts: 3 },
   ): Promise<void> {
+    const privateSource=await this.deps.sources.findById(data.contentSourceId);
+    if(privateSource?.mediaKind==='IMAGE') {
+      const owners=await this.deps.userImports.listByContentSourceId(privateSource.id);
+      if(!owners.length)return;
+      if(!privateSource.ownerId||owners.some(row=>row.userId!==privateSource.ownerId))throw new Error('Private image ownership mismatch');
+      if(!privateImageContext.getStore())return privateImageContext.run(true,()=>this.process(data,ctx)).catch(error=>{
+        if(error instanceof ImportWorkBusyError||error instanceof StaleImportWorkError)throw error;
+        throw new Error('Private image processing failed');
+      });
+    }
     if (this.deps.progress) {
-      const source = await this.deps.sources.findById(data.contentSourceId);
+      const source = privateSource;
       if (!source || !shouldClaimForProcessing(source.processingStatus)) return;
       await runImportWork(this.deps.progress, data.contentSourceId,
         (reporting, previous) => this.processOwned(data, ctx, reporting, previous));
@@ -262,7 +274,7 @@ export class ContentSourceProcessor {
     imports: Array<{ id: string; userId: string }>;
     mentions: ExtractedPlaceMention[];
   }): Promise<void> {
-    if (input.mediaKind !== 'VIDEO' || (!this.deps.placeResolver && !this.deps.places)) return;
+    if (!['VIDEO','IMAGE'].includes(input.mediaKind) || (!this.deps.placeResolver && !this.deps.places)) return;
     if (this.deps.placeResolver) {
       const saved = await this.deps.placeResolver.resolveMentions({
         contentSourceId: input.contentSourceId,
@@ -364,8 +376,10 @@ export class ContentSourceProcessor {
       this.deps.processorVersion ??
       `${CONTENT_SOURCE_PROCESSOR_VERSION}/${getPipelineConfig().pipelineVersion}`;
 
-    if (source.mediaKind === 'VIDEO') {
-      const extracted = await this.deps.video.extract({ contentSource: source, traceId, onEvidence });
+    if (source.mediaKind === 'VIDEO' || source.mediaKind === 'IMAGE') {
+      const adapter=source.mediaKind==='IMAGE'?this.deps.image:this.deps.video;
+      if(!adapter)throw new Error('Image extraction adapter unavailable');
+      const extracted = await adapter.extract({ contentSource: source, traceId, onEvidence });
       emitContentSourceEvent(
         extracted.cacheHit ? 'ContentSourceExtractionCacheHit' : 'ContentSourceExtractionCacheMiss',
         buildContentSourceEventPayload({
@@ -496,7 +510,7 @@ export class ContentSourceProcessor {
       importCount: number;
     },
   ): Promise<void> {
-    const message = err instanceof Error ? err.message.slice(0, 200) : 'processing_failed';
+    const message = privateImageContext.getStore() ? 'Private image processing failed' : err instanceof Error ? err.message.slice(0, 200) : 'processing_failed';
     const terminal = err instanceof ContentSourceTerminalError;
     const lastAttempt = ctx.attemptsMade + 1 >= ctx.maxAttempts;
     const durationMs = Date.now() - started.getTime();

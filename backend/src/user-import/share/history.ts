@@ -21,7 +21,7 @@ export async function shareHistory(db: SupabaseClient, userId: string, cursor: u
   let query = db.from('user_imports').select('*').eq('user_id',userId).is('hidden_at',null)
     .order('created_at',{ascending:false}).order('id',{ascending:false}).limit(limit+1);
   if (after) query = query.or(`created_at.lt.${after.created_at},and(created_at.eq.${after.created_at},id.lt.${after.id})`);
-  const rows = await query;
+  const rows = await query.neq('platform','image');
   if (rows.error) throw new ShareError('share_history_unavailable',503);
   const page = (rows.data ?? []).slice(0,limit), ids = [...new Set(page.map(r => r.content_source_id).filter(Boolean))];
   const [sources, products] = ids.length ? await Promise.all([

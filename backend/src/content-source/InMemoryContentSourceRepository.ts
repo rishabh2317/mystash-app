@@ -322,6 +322,8 @@ export class InMemoryContentSourceRepository implements ContentSourceRepository 
     const discoveredId = bind.discoveredProductId?.trim() || null;
     const ids = new Set<string>();
     for (const product of this.products.values()) {
+      const source=this.sources.get(product.contentSourceId);
+      if(!source||source.ownerId||source.mediaKind==='IMAGE')continue;
       if (catalogId && product.catalogProductId === catalogId) ids.add(product.contentSourceId);
       if (discoveredId && product.discoveredProductId === discoveredId) {
         ids.add(product.contentSourceId);

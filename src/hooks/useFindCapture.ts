@@ -4,10 +4,12 @@ import { useFocusEffect } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { createFindCaptureController } from '@/src/state/findCaptureController';
 import { submitUserImport } from '@/src/services/userImportApi';
+import {captureCapabilities,enqueueFindUrl} from '@/src/services/captureRuntime';
 export function useFindCapture() {
   const { user } = useAuth(), owner = user?.id ?? null;
   const ref = useRef<ReturnType<typeof createFindCaptureController> | null>(null);
-  if (!ref.current) ref.current = createFindCaptureController(submitUserImport);
+  if (!ref.current) ref.current = createFindCaptureController(async(text,account)=>
+    (await captureCapabilities()).urls?enqueueFindUrl(text,account):submitUserImport(text,account));
   const controller = ref.current, state = useSyncExternalStore(controller.subscribe,controller.getState,controller.getState);
   useEffect(() => { controller.configure(owner); }, [controller,owner]);
   useFocusEffect(useCallback(() => {

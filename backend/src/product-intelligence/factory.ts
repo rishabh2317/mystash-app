@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { privateImageContext,imageSafeSearchCache } from '../user-import/media/privacy';
+import type { SearchCandidateCache } from './interfaces/CatalogRepository';
 import { getProductIntelligenceConfig } from './config';
 import {
   SupabaseMatchHistoryWriter,
@@ -27,7 +29,7 @@ export type ProductIntelligenceBundle = {
 
 function createDiscoveryProvider(
   cfg: ReturnType<typeof getProductIntelligenceConfig>,
-  cache: SupabaseSearchCandidateCache,
+  cache: SearchCandidateCache,
 ): ProductSearchProvider {
   if (cfg.searchProvider === 'google_cse') {
     return new GoogleCustomSearchProvider(
@@ -52,7 +54,8 @@ export function createProductIntelligence(
   if (!cfg.enabled) return null;
 
   const catalog = createCatalogService(admin, tagRemap);
-  const cache = new SupabaseSearchCandidateCache(admin);
+  const persistentCache = new SupabaseSearchCandidateCache(admin);
+  const cache = imageSafeSearchCache(persistentCache);
   const discovery = createDiscoveryProvider(cfg, cache);
   const enrichment = new MerchantEnrichmentService(new TavilyMerchantExtractor(admin));
   const search = new TavilyEnrichedPdpSearchStrategy(
@@ -68,8 +71,8 @@ export function createProductIntelligence(
   const resolver = new ProductResolver(
     catalog,
     search,
-    drafts,
-    history,
+    { updateResolution: input => privateImageContext.getStore() ? Promise.resolve() : drafts.updateResolution(input) },
+    { write: input => privateImageContext.getStore() ? Promise.resolve() : history.write(input) },
     cfg,
     cfg.backgroundResolve ? background : null,
     ingestId,

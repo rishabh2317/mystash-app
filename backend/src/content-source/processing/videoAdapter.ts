@@ -23,7 +23,7 @@ export function createVideoExtractionAdapter(
       onEvidence?: (snapshot: VideoExtractionPortResult) => void;
     }): Promise<VideoExtractionPortResult> {
       const lookup = videoExtractionCacheLookup(params.contentSource);
-      if (!lookup) {
+      if (!lookup || !params.contentSource.canonicalUrl) {
         throw new ContentSourceTerminalError(
           'Video source is missing a usable extraction identity',
           'MALFORMED_IDENTITY',

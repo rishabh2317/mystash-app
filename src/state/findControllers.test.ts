@@ -89,3 +89,8 @@ test('offline capture keeps its text and account/foreground changes cannot claim
   const offline = createFindCaptureController(async () => { throw Error('offline'); }); offline.configure('A'); offline.setActive(true);
   offline.setInput('https://example.com/product'); await offline.submit(); assert.equal(offline.getState().input,'https://example.com/product'); assert.equal(offline.getState().ack,null);
 });
+test('durably queued URL acknowledgement remains distinct from server acceptance and repeated taps enqueue once',async()=>{
+  const {createFindCaptureController}=await import('./findCaptureController');let calls=0;
+  const controller=createFindCaptureController(async()=>{calls++;return{captureId:findFixture().id,created:true};});controller.configure('owner');controller.setActive(true);controller.setInput('https://example.com/product');
+  await Promise.all([controller.submit(),controller.submit()]);assert.equal(calls,1);assert.equal(controller.getState().ack?.local,true);assert.equal(controller.getState().input,'');
+});

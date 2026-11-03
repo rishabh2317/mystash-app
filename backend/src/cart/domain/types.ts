@@ -8,6 +8,7 @@ export type CartSourceSurface =
   | 'USER_IMPORT';
 
 export type CartItemSource = {
+  image?: import('../../user-import/media/attribution').ImageAttribution;
   matchKind?: 'similar';
   collectionId?: string | null;
   creatorId?: string | null;

@@ -1,7 +1,8 @@
 import { createStashSyncPort, reconcileStashSync } from '../find/stashSync';
+import { createPrivateImageService } from '../media/factory';
 import { randomUUID } from 'node:crypto';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { getEnv } from '../../env';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '../../logger';
 import { createContentSourceService } from '../../content-source/factory';
 import { createUserImportBagSync } from '../../content-source/processing/userImportBagSync';
@@ -12,9 +13,9 @@ import { syncImportPlaces } from '../../place/syncImportPlaces';
 import { SupabasePlaceRepository } from '../../place/SupabasePlaceRepository';
 
 /** Runs only inside an existing consumer. Atomic bounded claims fence API replicas. */
-export async function dispatchAcceptedShares(db: SupabaseClient): Promise<number> {
+export async function dispatchAcceptedShares(db: SupabaseClient, imagesOnly=false): Promise<number> {
   const lease = randomUUID();
-  const { data, error } = await db.rpc('share_claim_dispatch', { p_lease: lease, p_limit: 25 });
+  const { data, error } = await db.rpc(imagesOnly?'find_claim_image_dispatch':'share_claim_dispatch', { p_lease: lease, p_limit: 25 });
   if (error) throw new Error('share_dispatch_storage_unavailable');
   const imports = new SupabaseUserImportRepository(db), sources = createContentSourceService(db);
   let dispatched = 0;
@@ -68,11 +69,14 @@ export function startShareRecovery(db: SupabaseClient, stopped: () => boolean): 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const tick = async () => {
     if (stopped()) return;
-    if (getEnv('SHARE_ACCEPT_ENABLED') === 'true') {
-      try { await dispatchAcceptedShares(db); } catch { logger.warn({ event: 'share.dispatch.unavailable' }, 'share.dispatch.unavailable'); }
+    // Previously accepted image receipts must drain independently of URL acceptance gates.
+    {
+      try { await dispatchAcceptedShares(db,getEnv('SHARE_ACCEPT_ENABLED')!=='true'); } catch { logger.warn({ event: 'share.dispatch.unavailable' }, 'share.dispatch.unavailable'); }
     }
     try { await reconcileStashSync(createStashSyncPort(db)); }
     catch { logger.warn({ event: 'find.stash_sync.deferred' }, 'find.stash_sync.deferred'); }
+    try { await createPrivateImageService(db).reconcile(); }
+    catch { logger.warn({ event:'find.image_cleanup.deferred' },'find.image_cleanup.deferred'); }
     if (!stopped()) { timer = setTimeout(() => void tick(), 30_000); timer.unref(); }
   };
   void tick();

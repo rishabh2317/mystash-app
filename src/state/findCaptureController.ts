@@ -1,6 +1,6 @@
 import { extractSharedLink, sharedLinkMessage } from '@/src/ui/shareImport';
-export type FindCaptureState = { owner: string | null; input: string; busy: boolean; error: string | null; ack: { id: string; created: boolean } | null };
-export function createFindCaptureController(submit: (text: string, owner: string) => Promise<{ importId: string; created: boolean }>) {
+export type FindCaptureState = { owner: string | null; input: string; busy: boolean; error: string | null; ack: { id: string; created: boolean; local?:boolean } | null };
+export function createFindCaptureController(submit: (text: string, owner: string) => Promise<{ importId?: string; captureId?:string; created: boolean }>) {
   let state: FindCaptureState = { owner: null,input: '',busy: false,error: null,ack: null }, active = false, epoch = 0;
   const listeners = new Set<() => void>();
   const publish = (patch: Partial<FindCaptureState>) => { state = { ...state,...patch }; listeners.forEach(fn => fn()); };
@@ -18,7 +18,8 @@ export function createFindCaptureController(submit: (text: string, owner: string
       const owner = state.owner, token = ++epoch; publish({ busy: true,error: null });
       try {
         const result = await submit(parsed.rawInput,owner);
-        if (active && token === epoch && owner === state.owner) publish({ ack: { id: result.importId,created: result.created },input: '' });
+        if(!result.importId&&!result.captureId)throw Error('Could not securely save this capture. Please try again.');
+        if (active && token === epoch && owner === state.owner) publish({ ack: { id: (result.importId??result.captureId)!,created: result.created,...(result.captureId?{local:true}:{}) },input: '' });
       } catch (error) { if (active && token === epoch && owner === state.owner) publish({ error: error instanceof Error ? error.message : 'Couldn’t confirm receipt. Your text is still here; try again.' }); }
       finally { if (active && token === epoch && owner === state.owner) publish({ busy: false }); }
     },

@@ -8,6 +8,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.security.KeyStore
 import java.util.UUID
+import android.net.Uri
+import android.util.Base64
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -81,4 +84,47 @@ object ShareStore {
     all(c).filter { it.optString("owner") == owner && it.optString("state") in listOf("needs_review", "needs_auth") }
       .forEach { save(c, it.put("state", "pending").put("notBefore", 0)) }
   }
+  // Versioned image envelopes are separate from .share; old URL records are untouched.
+  private fun image(c: Context, id: String, owner: String): JSONObject {
+    check(UUID.fromString(id).toString() == id && session(c)?.optString("accountId") == owner) { "Account changed" }
+    return read(c, "$id.image")?.also { check(it.optString("owner") == owner) { "Account changed" } } ?: error("Capture unavailable")
+  }
+  private fun imageRows(c: Context) = directory(c).listFiles()?.filter { it.name.endsWith(".image") }?.mapNotNull { file -> read(c,file.name)?.let { imageSummary(it) } } ?: emptyList()
+  private fun imageSummary(record: JSONObject) = JSONObject(record.toString()).apply { remove("bytes") }
+  @Synchronized fun enqueueUrl(c: Context, raw: String, owner: String): JSONObject {
+    check(session(c)?.optString("accountId") == owner) { "Account changed" }
+    val url = ShareActivity.validatedUrl(raw) ?: error("Invalid link")
+    all(c).find { it.optString("owner") == owner && it.optString("url") == url && it.optString("state") != "intent_conflict" }?.let { return it }
+    return capture(c,url,null)
+  }
+  @Synchronized fun enqueueImage(c: Context, uri: String, origin: String, owner: String): JSONObject {
+    check(session(c)?.optString("accountId") == owner && origin in listOf("camera","gallery")) { "Account changed" }
+    val parsed = Uri.parse(uri); check(parsed.scheme == "file") { "Invalid image" }
+    val file = File(parsed.path ?: error("Invalid image")).canonicalFile
+    check(file.path.startsWith(c.cacheDir.canonicalPath + File.separator) && file.length() in 1..5242880) { "Invalid image" }
+    val bytes = file.readBytes(); check(bytes.size <= 5242880 && bytes.size >= 3 && bytes[0] == 0xff.toByte() && bytes[1] == 0xd8.toByte()) { "Invalid image" }
+    val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+    val rows = imageRows(c)
+    rows.find { it.optString("owner") == owner && it.optString("sha256") == digest && it.optString("state") != "accepted" }?.let { return imageSummary(it) }
+    check(rows.size < 20) { "Pending image storage full" }
+    val id = UUID.randomUUID().toString()
+    val record = JSONObject().put("version",1).put("id",id).put("owner",owner).put("origin",origin).put("mime","image/jpeg")
+      .put("sha256",digest).put("size",bytes.size).put("bytes",Base64.encodeToString(bytes,Base64.NO_WRAP)).put("state","pending").put("createdAt",System.currentTimeMillis()).put("attempts",0).put("notBefore",0)
+    write(c,"$id.image",record); return imageSummary(record)
+  }
+  @Synchronized fun listImages(c: Context, owner: String): List<JSONObject> {
+    check(session(c)?.optString("accountId") == owner) { "Account changed" }
+    return imageRows(c).filter { it.optString("owner") == owner }.map { imageSummary(it) }
+  }
+  @Synchronized fun imageBytes(c: Context, id: String, owner: String) = image(c,id,owner).getString("bytes")
+  @Synchronized fun updateImage(c: Context, id: String, owner: String, patch: JSONObject) {
+    val record = image(c,id,owner)
+    check(patch.keys().asSequence().all { it in listOf("state","attempts","notBefore","uploadId","importId") }) { "Invalid capture update" }
+    if (patch.has("state")) check(patch.getString("state") in listOf("pending","uploading","needs_auth","needs_review","accepted"))
+    for (key in listOf("uploadId","importId")) if (patch.has(key)) UUID.fromString(patch.getString(key))
+    patch.keys().forEach { record.put(it,patch.get(it)) }
+    if (record.optString("state") == "accepted") { check(record.optString("importId").isNotEmpty()); record.remove("bytes") }
+    write(c,"$id.image",record)
+  }
+  @Synchronized fun removeImage(c: Context, id: String, owner: String) { image(c,id,owner); check(File(directory(c),"$id.image").delete()) }
 }

@@ -207,7 +207,8 @@ export class UserImportService {
     const rows = await this.repo.listByUser(userId, 20);
     if (!this.results) throw new UserImportServiceError('Find status unavailable', 503);
     const memberships = await this.results.memberships(userId, rows.map(r => r.id));
-    return Promise.all(rows.map(async row => {
+    return Promise.all(rows.filter(row=>row.platform!=='image').map(async row => {
+      if(!row.sourceUrl)throw new UserImportServiceError('URL source unavailable',503);
       const membership = memberships.get(row.id);
       if (!membership) throw new UserImportServiceError('Find status unavailable', 503);
       const outcome = membership.outcome;

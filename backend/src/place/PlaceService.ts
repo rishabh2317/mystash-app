@@ -15,6 +15,7 @@ import type { PlaceRepository } from './PlaceRepository';
 export type PlaceUncertainty = 'insufficient_detail' | 'ambiguous' | 'unconfirmed';
 
 type PlaceListAttribution = {
+  imageAttribution?: import('../user-import/media/attribution').ImageAttribution;
   sourceVideo?: { url: string; thumbnailUrl: string | null } | null;
   sourceVideos?: { url: string; thumbnailUrl: string | null }[];
   presentationGroupId?: string;
@@ -111,6 +112,7 @@ export class PlaceService {
       }).find(Boolean) ?? null;
       const sourceVideo = sourceVideos[0] ?? null;
       const attribution = { sourceVideo, sourceVideos, saveId: save.id, sources, extractedCategory: hypothesis.category,
+        ...(mediaBySource.get(save.contentSourceId)?.imageAttribution?{imageAttribution:mediaBySource.get(save.contentSourceId)!.imageAttribution}:{}),
         ...(groups.has(save.id) ? { presentationGroupId: groups.get(save.id) } : {}) };
       if (save.placeId) {
         const place = places.get(save.placeId);

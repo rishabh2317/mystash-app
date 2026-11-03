@@ -16,8 +16,8 @@ test('recent/history share one mandatory outcome and ignore historical timeout m
   await sources.markQueued(source.id, new Date('2026-11-03T00:00:00Z').toISOString());
   await sources.markProcessing(source.id);
   await sources.markReady(source.id, { candidateCount: 0, lastProcessedAt: '2026-11-03T00:01:00Z' });
-  const record = await imports.insert({ userId: 'owner', rawInput: source.canonicalUrl, sourceUrl: source.canonicalUrl,
-    normalizedUrl: source.canonicalUrl, dedupeKey: 'fixture', platform: 'youtube', contentSourceId: source.id, status: 'RECEIVED' });
+  const record = await imports.insert({ userId: 'owner', rawInput: source.canonicalUrl!, sourceUrl: source.canonicalUrl!,
+    normalizedUrl: source.canonicalUrl!, dedupeKey: 'fixture', platform: 'youtube', contentSourceId: source.id, status: 'RECEIVED' });
   await imports.markTimedOut(record.id, '2026-11-03T00:00:00Z');
   const progress = new InMemoryImportProgressRepository(() => Date.parse('2026-11-03T00:00:30Z'));
   const attempt = await progress.begin(source.id);
@@ -38,7 +38,7 @@ test('recent/history share one mandatory outcome and ignore historical timeout m
   assert.equal(result.findOutcome.category, 'completed'); assert.equal(result.findOutcome.foundPlaces, 1);
   const tables: Record<string, Record<string, unknown>[]> = {
     user_imports: [{ id: record.id, user_id: 'owner', content_source_id: source.id, hidden_at: null, created_at: record.createdAt,
-      timed_out_at: '2026-11-03T00:00:00Z', source_url: source.canonicalUrl, platform: 'youtube' }],
+      timed_out_at: '2026-11-03T00:00:00Z', source_url: source.canonicalUrl!, platform: 'youtube' }],
     content_sources: [{ id: source.id, processing_status: 'READY', media_kind: 'VIDEO', candidate_count: 0, queued_at: '2026-11-03T00:00:00Z' }],
     content_source_products: [], user_place_save_sources: [],
     content_source_places: [{ id: 'lead', content_source_id: source.id, place_id: null, retired_at: null }],
@@ -50,6 +50,7 @@ test('recent/history share one mandatory outcome and ignore historical timeout m
       let rows = tables[table];
       const query = { select() { return query; }, order() { return query; }, limit() { return query; },
         eq(k: string, v: unknown) { rows = rows.filter(r => r[k] === v); return query; },
+        neq(k: string, v: unknown) { rows = rows.filter(r => r[k] !== v); return query; },
         is(k: string, v: unknown) { rows = rows.filter(r => (r[k] ?? null) === v); return query; },
         in(k: string, ids: unknown[]) { rows = rows.filter(r => ids.includes(r[k])); return query; },
         then(resolve: (r: unknown) => unknown) { return Promise.resolve({ data: rows, error: null }).then(resolve); },
@@ -64,8 +65,8 @@ test('retrying a save-only failure does not restart capture or extraction', asyn
   const imports = new InMemoryUserImportRepository(), sources = new InMemoryContentSourceRepository();
   const service = new ContentSourceService(sources, { enqueue: async () => 'fixture' });
   const source = (await service.getOrCreate('https://example.invalid/product')).record;
-  const record = await imports.insert({ userId: 'owner', rawInput: source.canonicalUrl, sourceUrl: source.canonicalUrl,
-    normalizedUrl: source.canonicalUrl, dedupeKey: 'save-fixture', platform: 'web', contentSourceId: source.id, status: 'RECEIVED' });
+  const record = await imports.insert({ userId: 'owner', rawInput: source.canonicalUrl!, sourceUrl: source.canonicalUrl!,
+    normalizedUrl: source.canonicalUrl!, dedupeKey: 'save-fixture', platform: 'web', contentSourceId: source.id, status: 'RECEIVED' });
   let products = 0, places = 0;
   const boundary = new UserImportService(imports, {
     getOrCreate: service.getOrCreate.bind(service), getById: sources.findById.bind(sources), listProducts: sources.listProducts.bind(sources),

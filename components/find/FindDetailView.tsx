@@ -1,6 +1,7 @@
 import React from 'react';
 import { FlatList, Pressable, View } from 'react-native';
 import { FindImage } from './FindImage';
+import {PrivateFindPreview} from './PrivateFindImage';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/Text';
 import { ActionButton } from '@/components/ui/ActionButton';
@@ -29,7 +30,7 @@ export function FindDetailView(props: FindDetailViewProps) {
   if (!data) return <View accessibilityRole="alert" style={{ padding: tokens.space.lg, gap: tokens.space.md }}><Text style={typeStyle(tokens,'body')}>{props.error ?? 'This find is unavailable.'}</Text><ActionButton wrapLabel minTouchHeight={48} label="Try refreshing" variant="secondary" onPress={props.onRefresh} /></View>;
   const image = safeFindUrl(data.thumbnailUrl), status = findStatus(data), rows = findDetailRows(data, data.capabilities.suggestions ? props.options : []);
   const header = <View style={{ gap: tokens.space.md }}>
-    {image ? <FindImage url={image} cacheKey={data.id} style={{ width: '100%', aspectRatio: 1.8, borderRadius: tokens.radius.xxl }} /> : null}
+    {data.sourceType==='image'?<PrivateFindPreview key={data.id} id={data.id}/>:image ? <FindImage url={image} cacheKey={data.id} style={{ width: '100%', aspectRatio: 1.8, borderRadius: tokens.radius.xxl }} /> : null}
     <Text style={typeStyle(tokens,'caption')}>{findSourceLabel(data.sourceType)}</Text>
     <Text accessibilityRole="header" style={[typeStyle(tokens,'sectionTitle'), { fontFamily: tokens.fontFamily.bold }]}>{data.title || 'Your captured link'}</Text>
     <Text style={typeStyle(tokens,'body')}>{findResultLabel(data)}</Text>
@@ -40,7 +41,7 @@ export function FindDetailView(props: FindDetailViewProps) {
       {data.outcome.canRetrySaving ? <ActionButton wrapLabel minTouchHeight={48} label="Retry saving to My Stash" variant="secondary" disabled={Boolean(pending)} pending={pending === 'retry:saving'} onPress={() => props.onRetry('saving')} /> : null}
     </View>
     {props.error || props.actionError ? <View accessibilityRole="alert" style={{ gap: tokens.space.sm }}><Text style={[typeStyle(tokens,'bodyMuted'), { color: tokens.color.danger }]}>{props.actionError ?? props.error}</Text><ActionButton wrapLabel minTouchHeight={48} label="Refresh current status" variant="quiet" onPress={props.onRefresh} /></View> : null}
-    <ActionButton wrapLabel minTouchHeight={48} label="Open original link" leadingIcon="open-outline" variant="secondary" onPress={props.onOriginal} disabled={!safeFindUrl(data.sourceUrl)} />
+    {data.sourceType!=='image'?<ActionButton wrapLabel minTouchHeight={48} label="Open original link" leadingIcon="open-outline" variant="secondary" onPress={props.onOriginal} disabled={!safeFindUrl(data.sourceUrl)} />:null}
     <ActionButton wrapLabel minTouchHeight={48} label="Open My Stash" leadingIcon="layers-outline" variant="quiet" onPress={() => props.onStash()} />
     <Text style={typeStyle(tokens,'caption')}>{data.outcome.savedProducts} product{data.outcome.savedProducts === 1 ? '' : 's'} · {data.outcome.savedPlaces} place{data.outcome.savedPlaces === 1 ? '' : 's'} from this find currently in My Stash.</Text>
     {data.capabilities.intent ? <FindIntentEditor key={data.id} intent={data.intent} busy={Boolean(pending)} onSave={props.onSaveIntent} /> : data.intent.note ? <Text style={typeStyle(tokens,'bodyMuted')}>{data.intent.note}</Text> : null}

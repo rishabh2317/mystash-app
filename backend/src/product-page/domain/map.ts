@@ -19,6 +19,7 @@ export function mapContentSourceToPageSource(
   source: ContentSourceRecord,
   userImportId: string | null,
 ): ProductPageSource {
+  if(!source.canonicalUrl||source.ownerId||source.mediaKind==='IMAGE')throw new Error('Private images are not public source media');
   const kind = productPageSourceKind(source.platform);
   return {
     contentSourceId: source.id,

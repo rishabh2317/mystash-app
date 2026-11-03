@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { imageAttributions } from '../user-import/media/attribution';
 import { createCatalogService } from '../catalog/factory';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
 import { CartService } from './CartService';
@@ -38,6 +39,7 @@ export function createCartService(
     new SupabaseCartRepository(admin),
     catalogPort ?? createCatalogCartPort(admin),
     discovered,
+    (owner,ids)=>imageAttributions(admin,owner,ids),
   );
 }
 

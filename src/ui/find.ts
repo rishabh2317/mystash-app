@@ -2,10 +2,10 @@ import type { FindItem, FindDetail } from '@/src/services/findClient';
 export type FindViewFilter = 'all' | 'processing' | 'completed' | 'attention';
 export const FIND_ROUTES = { home: '/(tabs)/find', history: '/(tabs)/find?filter=all', capture: '/(tabs)/find/capture', studio: '/(tabs)/create', profile: '/(tabs)/profile' } as const;
 export const findDetailPath = (id: string) => `/find/${encodeURIComponent(id)}` as const;
-export const FIND_COPY = { title: 'Your Finds', subtitle: 'Capture a link. Find what caught your eye.', recent: 'Recently Found',
+export const FIND_COPY = { title: 'Your Finds', subtitle: 'Capture anything. Find what caught your eye.', recent: 'Recently Found',
   automatic: 'Products and places are saved to My Stash automatically.', capture: 'Paste URL', unavailable: 'Not available yet' } as const;
 export function findMatchesFilter(item: FindItem, filter: FindViewFilter) { return filter === 'all' || item.outcome.category === filter; }
-export function findSourceLabel(source: FindItem['sourceType']) { return source === 'instagram' ? 'Instagram Reel' : source === 'youtube' ? 'YouTube Short' : 'Shared link'; }
+export function findSourceLabel(source: FindItem['sourceType']) { return source==='image'?'Your image':source === 'instagram' ? 'Instagram Reel' : source === 'youtube' ? 'YouTube Short' : 'Shared link'; }
 export function findResultLabel(item: FindItem) {
   const o = item.outcome, parts = [o.foundProducts ? `${o.foundProducts} product${o.foundProducts === 1 ? '' : 's'}` : '', o.foundPlaces ? `${o.foundPlaces} place${o.foundPlaces === 1 ? '' : 's'}` : ''].filter(Boolean);
   return parts.length ? `${parts.join(' · ')} found` : o.extractionActive ? 'Finding products and places…' : o.result === 'empty' ? 'No products or places identified' : 'No identified results yet';

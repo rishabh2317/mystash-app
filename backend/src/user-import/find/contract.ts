@@ -27,7 +27,9 @@ export function readFindOutcome(value: unknown): FindOutcome {
   return r as FindOutcome;
 }
 
-export type FindItem = { id: string; createdAt: string; sourceUrl: string; sourceType: 'instagram' | 'youtube' | 'web';
+export type FindItem = { id: string; createdAt: string; sourceUrl: string | null; sourceType: 'instagram' | 'youtube' | 'web' | 'image';
+  captureOrigin?: 'camera' | 'gallery' | null;
+  privateMedia?: {state:'available';original:string;thumbnail:string} | null;
   contentSourceId: string | null; title: string | null; thumbnailUrl: string | null; outcome: FindOutcome;
   intent: { kind: 'product' | 'place' | 'both' | null; note: string | null; revision: number } };
 export type FindCounts = { all: number; processing: number; completed: number; attention: number; saved: number };

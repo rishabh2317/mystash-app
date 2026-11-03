@@ -17,7 +17,9 @@ type ContentSourceRow = {
   id: string;
   platform: string;
   external_id: string;
-  canonical_url: string;
+  canonical_url: string | null;
+  owner_id?: string | null;
+  private_media_id?: string | null;
   media_kind: string;
   processing_status: string;
   pipeline_version: string;
@@ -36,6 +38,8 @@ function mapRow(row: ContentSourceRow): ContentSourceRecord {
     platform: row.platform as ContentSourcePlatform,
     externalId: row.external_id,
     canonicalUrl: row.canonical_url,
+    ownerId: row.owner_id ?? null,
+    privateMediaId: row.private_media_id ?? null,
     mediaKind: row.media_kind as ContentMediaKind,
     processingStatus: row.processing_status as ContentProcessingStatus,
     pipelineVersion: row.pipeline_version,
@@ -363,7 +367,8 @@ export class SupabaseContentSourceRepository implements ContentSourceRepository 
     if (catalogId) {
       const { data, error } = await this.admin
         .from('content_source_products')
-        .select('content_source_id')
+        .select('content_source_id,content_sources!inner(owner_id,media_kind)')
+        .is('content_sources.owner_id',null).neq('content_sources.media_kind','IMAGE')
         .eq('catalog_product_id', catalogId);
       if (error) throw error;
       for (const row of data ?? []) {
@@ -373,7 +378,8 @@ export class SupabaseContentSourceRepository implements ContentSourceRepository 
     if (discoveredId) {
       const { data, error } = await this.admin
         .from('content_source_products')
-        .select('content_source_id')
+        .select('content_source_id,content_sources!inner(owner_id,media_kind)')
+        .is('content_sources.owner_id',null).neq('content_sources.media_kind','IMAGE')
         .eq('discovered_product_id', discoveredId);
       if (error) throw error;
       for (const row of data ?? []) {

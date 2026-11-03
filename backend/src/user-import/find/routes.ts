@@ -42,10 +42,13 @@ export function registerFindHandlers(app: Pick<Express, 'get' | 'post' | 'patch'
   app.get('/finds', route((user, req) => deps.queries.list(user, req.query)));
   app.get('/finds/counts', route(user => deps.queries.counts(user)));
   app.post('/finds/batch', route((user, req) => deps.queries.batch(user, body(req, ['ids']).ids)));
-  app.get('/finds/:findId', route(async (user, req) => ({ ...await deps.queries.detail(user, findId(req.params.findId)),
-    capabilities: { intent: deps.intentEnabled(), suggestions: deps.suggestionsEnabled() } })));
+  app.get('/finds/:findId', route(async (user, req) => {
+    const detail=await deps.queries.detail(user, findId(req.params.findId));
+    return {...detail,capabilities:{intent:deps.intentEnabled(),suggestions:deps.suggestionsEnabled()&&detail.sourceType!=='image'}};
+  }));
   app.delete('/finds/:findId', route(async (user, req) => {
-    body(req, []); await deps.imports.delete(user, findId(req.params.findId)); return { ok: true };
+    body(req, []); const id=findId(req.params.findId),detail=await deps.queries.detail(user,id);
+    await deps.imports.delete(user,id); return { ok: true,...(detail.sourceType==='image'?{mediaDeletion:'pending'}:{}) };
   }));
   app.post('/finds/:findId/retry', route(async (user, req) => {
     const { kind } = body(req, ['kind']);

@@ -73,7 +73,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Mystash uses your photos to set a profile picture."
+          "photosPermission": "Mystash uses selected photos for your profile picture and to find products and places in screenshots and images.",
+          "cameraPermission": "Mystash uses your camera to find products and places in photos you choose to capture.",
+          "microphonePermission": false
         }
       ],
       "./plugins/withAndroidShareIntent",

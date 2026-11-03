@@ -9,5 +9,14 @@ export type ShareNativeModule = {
   claim(id: string, expectedAccountId: string): Promise<void>;
   discard(id: string, expectedAccountId: string | null): Promise<void>;
   retry(expectedAccountId: string): Promise<void>;
+  captureCapabilities?(): Promise<{version:number;urls:boolean;images:boolean}>;
+  enqueueUrl?(url:string, owner:string): Promise<{id:string}>;
+  enqueueImage?(uri:string, origin:'camera'|'gallery', owner:string): Promise<PendingImage|string>;
+  listImages?(owner:string): Promise<(PendingImage|string)[]>;
+  imageBytes?(id:string,owner:string): Promise<string>;
+  updateImage?(id:string,owner:string,patch:Partial<PendingImage>): Promise<void>;
+  removeImage?(id:string,owner:string): Promise<void>;
 };
+export type PendingImage = {version:1;id:string;owner:string;origin:'camera'|'gallery';mime:'image/jpeg';sha256:string;size:number;
+  state:'pending'|'uploading'|'needs_auth'|'needs_review'|'accepted';createdAt:number;attempts:number;notBefore:number;uploadId?:string;importId?:string};
 export default requireOptionalNativeModule<ShareNativeModule>('MystashShare');

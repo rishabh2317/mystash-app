@@ -171,14 +171,14 @@ export class ProductPageService {
     const preferred = input.query.contentSourceId?.trim();
     if (preferred) {
       const record = await this.contentSources.getById(preferred);
-      if (record && isUsableMediaUrl(record.canonicalUrl)) {
+      if (record && !record.ownerId && record.mediaKind!=='IMAGE' && isUsableMediaUrl(record.canonicalUrl)) {
         source = mapContentSourceToPageSource(record, userImportId);
       }
     }
     if (!source) {
       for (const id of boundIds) {
         const record = await this.contentSources.getById(id);
-        if (record && isUsableMediaUrl(record.canonicalUrl)) {
+        if (record && !record.ownerId && record.mediaKind!=='IMAGE' && isUsableMediaUrl(record.canonicalUrl)) {
           source = mapContentSourceToPageSource(record, userImportId);
           break;
         }
@@ -207,14 +207,14 @@ export class ProductPageService {
     for (const id of boundIds) {
       if (id === source?.contentSourceId) continue;
       const record = await this.contentSources.getById(id);
-      if (!record || !isUsableMediaUrl(record.canonicalUrl)) continue;
+      if (!record || record.ownerId || record.mediaKind==='IMAGE' || !isUsableMediaUrl(record.canonicalUrl)) continue;
       otherSources.push(record);
     }
     if (otherSources.length > 0) {
       try {
         gathered.push(
           ...(await this.relatedMedia.listMatchingUrls(
-            otherSources.map((row) => row.canonicalUrl),
+            otherSources.map((row) => row.canonicalUrl!),
             RELATED_MEDIA_LIMIT,
           )),
         );

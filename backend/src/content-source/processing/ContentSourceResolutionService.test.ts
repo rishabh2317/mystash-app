@@ -208,8 +208,8 @@ describe('ContentSourceResolutionService', () => {
         merchantUrl: 'https://shop.example/xm5',
       }),
     ]);
-    const importA = await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
-    const importB = await addImport(harness.imports, USER_B, source.id, source.canonicalUrl);
+    const importA = await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
+    const importB = await addImport(harness.imports, USER_B, source.id, source.canonicalUrl!);
 
     await harness.service.resolveAndFanOut(source.id);
 
@@ -246,7 +246,7 @@ describe('ContentSourceResolutionService', () => {
         merchantUrl: 'https://shop.example/rejected',
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
 
     const attached = await harness.service.resolveAndFanOut(source.id);
 
@@ -272,7 +272,7 @@ describe('ContentSourceResolutionService', () => {
         merchantUrl: 'https://www.amazon.com/dp/B0FAKEHALLUC',
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     assert.equal(await harness.service.resolveAndFanOut(source.id), 0);
     assert.equal(harness.searched(), 0);
     assertNoStashRows(harness);
@@ -293,7 +293,7 @@ describe('ContentSourceResolutionService', () => {
         merchantUrl: 'https://www.zara.com/us/en/satin-midi-dress-p1.html',
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     assert.equal(await harness.service.resolveAndFanOut(source.id), 0);
     assert.equal(harness.searched(), 0);
     assertNoStashRows(harness);
@@ -325,7 +325,7 @@ describe('ContentSourceResolutionService', () => {
         merchantUrl: neudisUrl,
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     assert.equal(await harness.service.resolveAndFanOut(source.id), 0);
     const products = await harness.sources.listProducts(source.id);
     assert.equal(products[0]?.catalogProductId, null);
@@ -357,7 +357,7 @@ describe('ContentSourceResolutionService', () => {
         category: 'headphones',
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     assert.equal(await harness.service.resolveAndFanOut(source.id), 0);
     assertNoStashRows(harness);
   });
@@ -376,7 +376,7 @@ describe('ContentSourceResolutionService', () => {
         category: 'electronics',
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     await harness.service.resolveAndFanOut(source.id);
     assert.equal(seen?.brand, 'Bose');
     assert.match(seen?.name ?? '', /bose soundlink max/i);
@@ -406,7 +406,7 @@ describe('ContentSourceResolutionService', () => {
         sources: ['TRANSCRIPT'],
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     assert.equal(await harness.service.resolveAndFanOut(source.id), 1);
     const products = await harness.sources.listProducts(source.id);
     assert.equal(products[0]?.catalogProductId, CATALOG_XM5);
@@ -429,8 +429,8 @@ describe('ContentSourceResolutionService', () => {
     };
     await harness.sources.replaceProducts(first.id, [candidate(first.id, row)]);
     await harness.sources.replaceProducts(second.id, [candidate(second.id, { ...row, externalId: 'p2' })]);
-    await addImport(harness.imports, USER_A, first.id, first.canonicalUrl);
-    await addImport(harness.imports, USER_A, second.id, second.canonicalUrl);
+    await addImport(harness.imports, USER_A, first.id, first.canonicalUrl!);
+    await addImport(harness.imports, USER_A, second.id, second.canonicalUrl!);
     await harness.service.resolveAndFanOut(first.id);
     await harness.service.resolveAndFanOut(second.id);
     assert.equal(harness.discoveredRepo.products.size, 0);
@@ -452,7 +452,7 @@ describe('ContentSourceResolutionService', () => {
     ]);
     for (let i = 0; i < 100; i += 1) {
       const userId = `11111111-1111-4111-8111-${String(i).padStart(12, '0')}`;
-      await addImport(harness.imports, userId, source.id, source.canonicalUrl);
+      await addImport(harness.imports, userId, source.id, source.canonicalUrl!);
     }
     assert.equal(await harness.service.resolveAndFanOut(source.id), 1);
     assert.equal(harness.discoveredRepo.products.size, 0);
@@ -472,7 +472,7 @@ describe('ContentSourceResolutionService', () => {
         merchantUrl: 'https://shop.example/xm5',
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     await harness.service.resolveAndFanOut(source.id);
     await harness.service.resolveAndFanOut(source.id);
     assert.equal(harness.discoveredRepo.products.size, 0);
@@ -543,7 +543,7 @@ describe('ContentSourceResolutionService', () => {
           sources: ['TRANSCRIPT'],
         }),
       ]);
-      await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+      await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
       assert.equal(await harness.service.resolveAndFanOut(source.id), 0, key);
       assertNoStashRows(harness);
     }
@@ -584,7 +584,7 @@ describe('ContentSourceResolutionService', () => {
           sources: ['OCR'],
         }),
       ]);
-      await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+      await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
       assert.equal(await harness.service.resolveAndFanOut(source.id), 0, mode);
       assertNoStashRows(harness);
     }
@@ -603,7 +603,7 @@ describe('ContentSourceResolutionService', () => {
         sources: ['METADATA'],
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     assert.equal(await harness.service.resolveAndFanOut(source.id), 0);
     assert.equal(harness.searched(), 0);
     assertNoStashRows(harness);
@@ -638,7 +638,7 @@ describe('ContentSourceResolutionService', () => {
       catalogProductId: wrongId,
       discoveredProductId: null,
     });
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     assert.equal(await harness.service.resolveAndFanOut(source.id), 1);
     const products = await harness.sources.listProducts(source.id);
     assert.equal(products[0]?.catalogProductId, CATALOG_XM5);
@@ -684,7 +684,7 @@ describe('ContentSourceResolutionService', () => {
       catalogProductId: null,
       discoveredProductId: saved.record.id,
     });
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     assert.equal(await harness.service.resolveAndFanOut(source.id), 0);
     const products = await harness.sources.listProducts(source.id);
     assert.equal(products[0]?.discoveredProductId, null);
@@ -744,7 +744,7 @@ describe('ContentSourceResolutionService', () => {
         ...extra,
       }),
     ]);
-    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(harness.imports, USER_A, source.id, source.canonicalUrl!);
     const attached = await harness.service.resolveAndFanOut(source.id);
     return { harness, attached, hints };
   }
@@ -902,8 +902,8 @@ describe('ContentSourceResolutionService', () => {
 it('Find foundations defer one importer save failure without failing extraction or repeating search', async () => {
     const h = createHarness();
     const source = await insertSource(h.sources, 'find-fixture');
-    const imported = await addImport(h.imports, USER_A, source.id, source.canonicalUrl);
-    await addImport(h.imports, USER_B, source.id, source.canonicalUrl);
+    const imported = await addImport(h.imports, USER_A, source.id, source.canonicalUrl!);
+    await addImport(h.imports, USER_B, source.id, source.canonicalUrl!);
     await h.sources.replaceProducts(source.id, [candidate(source.id, {
       name: 'Sony WH-1000XM5', brand: 'Sony', model: 'WH-1000XM5', externalId: 'fixture', position: 0,
       catalogProductId: CATALOG_XM5,

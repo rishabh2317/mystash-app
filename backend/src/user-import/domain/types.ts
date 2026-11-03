@@ -14,9 +14,9 @@ export type UserImportRecord = {
   stashSyncAttemptId?: string | null;
   id: string;
   userId: string;
-  rawInput: string;
-  sourceUrl: string;
-  normalizedUrl: string;
+  rawInput: string | null;
+  sourceUrl: string | null;
+  normalizedUrl: string | null;
   dedupeKey: string;
   platform: string;
   /** Global content identity. NULL only for pre-Phase-2 rows. */

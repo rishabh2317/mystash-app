@@ -17,6 +17,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { FeedbackHost } from '@/components/chrome/FeedbackAnchor';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { CaptureDeliveryLifecycle } from '@/components/find/CaptureDeliveryLifecycle';
 import { AuthRecoveryGate } from '@/src/auth/AuthRecoveryGate';
 import { CartProvider } from '@/contexts/CartContext';
 import { CommerceCountryProvider } from '@/contexts/CommerceCountryContext';
@@ -50,6 +51,7 @@ export default function RootLayout() {
   return (
     <ThemeModeProvider>
       <AuthProvider>
+        <CaptureDeliveryLifecycle />
         <AuthRecoveryGate />
         <AnalyticsHost />
         <NotificationsProvider>

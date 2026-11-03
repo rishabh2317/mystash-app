@@ -6,9 +6,9 @@ import type { UserImportRepository } from './UserImportRepository';
 type UserImportRow = {
   id: string;
   user_id: string;
-  raw_input: string;
-  source_url: string;
-  normalized_url: string;
+  raw_input: string | null;
+  source_url: string | null;
+  normalized_url: string | null;
   dedupe_key: string;
   platform: string;
   content_source_id: string | null;
@@ -102,6 +102,7 @@ export class SupabaseUserImportRepository implements UserImportRepository {
       .select('*')
       .eq('user_id', userId)
       .is('hidden_at', null)
+      .neq('platform','image')
       .order('created_at', { ascending: false })
       .limit(Math.max(1, limit));
     if (error) throw error;

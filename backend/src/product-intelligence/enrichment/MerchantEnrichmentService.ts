@@ -1,4 +1,5 @@
 import { ingestLog } from '../../pipeline/ingestLog';
+import { privateImageContext } from '../../user-import/media/privacy';
 import type { MerchantExtractor } from './MerchantExtractor';
 import { MerchantMetadataNormalizer } from './MerchantMetadataNormalizer';
 import { MerchantMetadataValidator } from './MerchantMetadataValidator';
@@ -30,7 +31,13 @@ export class MerchantEnrichmentService {
     });
 
     try {
-      const raw = await this.extractor.extract(input);
+      const privateImage = privateImageContext.getStore() === true;
+      // Image-derived hints may select a public PDP, but cannot fill missing
+      // merchant facts or gain merchant provenance through normalization.
+      const merchantInput = privateImage
+        ? { ...input, titleHint: null, brandHint: null, categoryHint: null }
+        : input;
+      const raw = await this.extractor.extract(merchantInput);
       if (!raw) {
         const message = 'extractor returned empty';
         ingestLog('warn', 'merchant.enrichment.failed', {
@@ -42,10 +49,16 @@ export class MerchantEnrichmentService {
         return { kind: 'failed', message, provider };
       }
 
-      const metadata = this.normalizer.normalize(raw, {
-        brandHint: input.brandHint,
-        categoryHint: input.categoryHint,
-        productName: input.titleHint,
+      if (privateImage && raw.identitySource !== 'merchant_html') {
+        return { kind: 'failed', message: 'independent_merchant_identity_required', provider };
+      }
+      const merchantFacts = privateImage && raw.priceSource === 'ai'
+        ? { ...raw, price: null, currency: null, priceSource: null }
+        : raw;
+      const metadata = this.normalizer.normalize(merchantFacts, {
+        brandHint: merchantInput.brandHint,
+        categoryHint: merchantInput.categoryHint,
+        productName: merchantInput.titleHint,
       });
       const validation = this.validator.validate(metadata);
       if (!validation.ok) {

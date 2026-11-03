@@ -81,6 +81,7 @@ export class CompositeMediaUnderstanding implements MediaUnderstandingProvider {
         storagePath: f.storagePath,
       })),
       providerMeta: {
+        failed: [visionR,ocrR,logoR,sceneR].flatMap((result,index)=>result.status==='rejected'?[['vision','ocr','logo','scene'][index]]:[]),
         vision: this.vision.name,
         ocr: this.ocr.name,
         logo: this.logo.name,

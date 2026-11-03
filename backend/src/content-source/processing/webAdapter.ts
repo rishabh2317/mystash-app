@@ -17,6 +17,7 @@ function webPort(enrich: MerchantEnrichFn): WebEnrichmentPort {
     }): Promise<WebEnrichmentPortResult> {
       let canonical: string;
       try {
+        if(!params.contentSource.canonicalUrl)throw new Error('Missing URL');
         canonical = canonicalizeProductUrl(params.contentSource.canonicalUrl);
       } catch {
         throw new ContentSourceTerminalError(

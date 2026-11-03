@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import type {SupabaseClient} from '@supabase/supabase-js';
+import {createImageExtractionAdapter} from '../../content-source/processing/imageAdapter';
+import {ContentSourceProcessor} from '../../content-source/processing/ContentSourceProcessor';
+import {ContentSourceResolutionService} from '../../content-source/processing/ContentSourceResolutionService';
+import {InMemoryContentSourceRepository} from '../../content-source/InMemoryContentSourceRepository';
+import {InMemoryImportProgressRepository} from '../ImportProgressRepository';
+import {InMemoryCatalogRepository} from '../../catalog/InMemoryCatalogRepository';
+import {CatalogService} from '../../catalog/CatalogService';
+import {CartService} from '../../cart/CartService';
+import {InMemoryCartRepository} from '../../cart/InMemoryCartRepository';
+import {DiscoveredProductService} from '../../discovered/DiscoveredProductService';
+import {InMemoryDiscoveredProductRepository} from '../../discovered/InMemoryDiscoveredProductRepository';
+import {InMemoryPlaceRepository} from '../../place/InMemoryPlaceRepository';
+import {PlaceService} from '../../place/PlaceService';
+import {privateImageContext} from './privacy';
+import {imageDigest} from './contracts';
+import type {PrivateImageService} from './service';
+import type {CatalogProduct} from '../../product-intelligence/domain/types';
+import {ProductPageService} from '../../product-page/ProductPageService';
+import {emptyRelatedMediaPort} from '../../product-page/relatedMedia';
+import {LibraryToCollectionService} from '../../creator-library/LibraryToCollectionService';
+import {InMemoryCreatorLibraryRepository} from '../../creator-library/InMemoryCreatorLibraryRepository';
+import {CollectionService} from '../../collection/CollectionService';
+import {InMemoryCollectionRepository} from '../../collection/InMemoryCollectionRepository';
+const owner='11111111-1111-4111-8111-111111111111',imported='22222222-2222-4222-8222-222222222222',productId='33333333-3333-4333-8333-333333333333';
+test('image fixture uses the leased worker, strict product resolution and automatic product/place saving without shared private evidence',async()=>{
+  const sources=new InMemoryContentSourceRepository(),progress=new InMemoryImportProgressRepository(),places=new InMemoryPlaceRepository();
+  const source=await sources.insert({platform:'image',externalId:'opaque',canonicalUrl:null,mediaKind:'IMAGE',processingStatus:'QUEUED',pipelineVersion:'fixture'});
+  source.ownerId=owner;source.privateMediaId=imported;sources.sources.set(source.id,source);
+  let hidden=false,ocr=true,extractions=0;
+  const imports={listByContentSourceId:async()=>hidden?[]:[{id:imported,userId:owner}],findById:async()=>({id:imported,userId:owner,hiddenAt:hidden?'hidden':null})};
+  const catalogRepo=new InMemoryCatalogRepository();
+  const catalogProduct={id:productId,name:'Sony WH-1000XM5',normalizedName:'sony wh 1000xm5',brand:'Sony',model:'WH-1000XM5',category:'headphones',status:'ACTIVE',verificationStatus:'VERIFIED',preferredShoppingUrl:'https://shop.example/sony-wh1000xm5',merchantUrl:'https://shop.example/sony-wh1000xm5',metadata:{},canonicalSlug:'sony-xm5',imageUrl:null,price:null,currency:null} as CatalogProduct;
+  catalogRepo.seed(catalogProduct);const catalog=new CatalogService(catalogRepo),cartRepo=new InMemoryCartRepository();
+  const cart=new CartService(cartRepo,{resolveActiveProduct:id=>catalog.resolveActiveProduct(id),getById:id=>catalog.getById(id),getProductsByIds:async()=>new Map([[productId,catalogProduct]])});
+  const discoveredRepo=new InMemoryDiscoveredProductRepository(),discovered=new DiscoveredProductService(discoveredRepo);
+  const resolution=new ContentSourceResolutionService(sources,discovered,{getCatalogProduct:id=>catalog.getById(id),resolveForUserImport:async drafts=>{
+    assert.equal(privateImageContext.getStore(),true);assert.deepEqual(drafts[0].evidence,{});assert.equal(drafts[0].image,null);
+    return [{draftId:drafts[0].draftId,catalogProductId:productId,decision:'local_hit',resolutionStatus:'VERIFIED',merchantUrl:catalogProduct.merchantUrl,affiliateUrl:null,aiConfidence:0.95,matchConfidence:1,reason:'catalog',enqueueBackground:false}];
+  }},imports,cart);
+  const bytes=Buffer.from('verified-normalized-fixture');
+  const images={store:{command:async()=>({state:'accepted',source_id:source.id,import_id:imported,normalized_digest:imageDigest(bytes)})},media:async()=>bytes} as unknown as PrivateImageService;
+  const adapter=createImageExtractionAdapter(null as unknown as SupabaseClient,{images,media:{name:'fixture',analyze:async input=>{
+    extractions++;assert.equal(input.frames.length,1);assert.equal(input.frames[0].storagePath,'');assert.ok(input.frames[0].localPath);assert.equal(privateImageContext.getStore(),true);
+    return{objects:[],logos:[],scene:{label:'desk',confidence:1},activities:[],ocr:ocr?[{text:'Sony WH-1000XM5',confidence:1,frameIndex:0,timestampMs:0}]:[],frames:[],providerMeta:{}};
+  }},reasoner:{name:'fixture',reason:async input=>{
+    assert.equal(input.inputKind,'image');assert.equal(input.context.transcript.available,false);assert.doesNotMatch(JSON.stringify(input.context),/base64Jpeg|localPath|file:\/\//);
+    return{meta:{provider:'fixture',durationMs:0},products:[{name:'Sony WH-1000XM5',brand:'Sony',model:'WH-1000XM5',category:'headphones',confidence:0.95,evidence:'PRIVATE OCR CANARY',sources:['OCR']}],places:[{name:'Cafe River',category:'cafe',locality:null,region:null,mentionedAddress:null,city:'Jaipur',country:'India',confidence:0.95,evidence:{summary:'Private venue mention'},sources:['OCR']}]};
+  }}});
+  const processor=new ContentSourceProcessor({sources,progress,userImports:imports,image:adapter,video:{extract:async()=>{throw Error('Video adapter forbidden');}},web:{enrich:async()=>{throw Error('Web adapter forbidden');}},resolution,places});
+  await processor.process({contentSourceId:source.id,userImportId:imported});
+  assert.equal((await sources.findById(source.id))?.processingStatus,'READY');assert.equal((await cart.getCart(owner)).itemCount,1);
+  const saved=await places.listSavesByUser(owner);assert.equal(saved.length,1);assert.equal(saved[0].userImportId,imported);assert.equal(saved[0].contentSourceId,source.id);
+  assert.equal((await cartRepo.listByUser(owner))[0].sourceUserImportId,imported);assert.equal(discoveredRepo.products.size,0);assert.doesNotMatch(JSON.stringify(await catalog.getById(productId)),/PRIVATE OCR CANARY/);
+  assert.deepEqual(await sources.listBoundSourceIds({catalogProductId:productId}),[]);
+  const publicPage=new ProductPageService({resolveActiveProduct:id=>catalog.resolveActiveProduct(id)},
+    {getById:id=>discovered.getById(id)},{getById:id=>sources.findById(id),listBoundSourceIds:async()=>[source.id]},
+    {canShopCatalog:()=>false},emptyRelatedMediaPort);
+  const page=await publicPage.getPage(productId,{contentSourceId:source.id});
+  assert.equal(page.source,null);assert.deepEqual(page.relatedMedia,[]);
+  const library=new InMemoryCreatorLibraryRepository(sources.sources),collections=new CollectionService(new InMemoryCollectionRepository());
+  await library.upsertMembership({userId:owner,connectedAccountId:'fixture',contentSourceId:source.id,availability:'available',lastSeenAt:new Date().toISOString()});
+  const publication=new LibraryToCollectionService(library,sources,collections);
+  await assert.rejects(publication.addLibraryItem({user:{id:owner},contentSourceId:source.id}),/Private images cannot be published/);
+  assert.deepEqual(await publication.listCollections(owner),[]);
+  await cart.removeItem(owner,productId);await sources.markRequeue(source.id,new Date().toISOString());await processor.process({contentSourceId:source.id,userImportId:imported});assert.equal((await cart.getCart(owner)).itemCount,0);
+  await cart.addItem(owner,{catalogProductId:productId});assert.equal((await cart.getCart(owner)).itemCount,1);
+  places.setSourceMedia(source.id,{sourceUrl:null,sourceThumbnailUrl:null,frameUrl:null,imageAttribution:{findId:null,originalAvailable:false,label:'Original image removed'}});
+  assert.equal((await new PlaceService(places).listForUser(owner)).items[0].imageAttribution?.label,'Original image removed');
+  ocr=false;const unsupported=await privateImageContext.run(true,()=>adapter.extract({contentSource:source,traceId:'fixture'}));assert.deepEqual(unsupported.products[0].sources,[]);
+  hidden=true;const before=extractions;await processor.process({contentSourceId:source.id,userImportId:imported});assert.equal(extractions,before);
+});

@@ -49,6 +49,7 @@ export class LibraryToCollectionService {
     if (!owns) throw new LibraryToCollectionError('Library item not found', 404);
     const source = await this.sources.findById(params.contentSourceId);
     if (!source) throw new LibraryToCollectionError('Library item not found', 404);
+    if(source.mediaKind==='IMAGE'||source.ownerId)throw new LibraryToCollectionError('Private images cannot be published',409);
 
     let createdCollection = false;
     let collectionId = params.collectionId?.trim() || '';
@@ -90,6 +91,7 @@ export class LibraryToCollectionService {
   }
 
   private async attachMedia(collectionId: string, userId: string, source: ContentSourceRecord) {
+    if(source.mediaKind==='IMAGE'||source.ownerId||!source.canonicalUrl)throw new LibraryToCollectionError('Private images cannot be published',409);
     const existing = (await this.ownedAggregate(collectionId, userId)).media;
     const match = existing.find(
       (row) => row.sourceProvider === source.platform && row.externalId === source.externalId,

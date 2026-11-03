@@ -7,6 +7,7 @@ export type ReasonerInput = {
   traceId: string;
   /** User-import video extraction also asks for places. Creator leaves this unset. */
   includePlaces?: boolean;
+  inputKind?: 'image';
 };
 
 export type ReasonerOutput = {

@@ -2,16 +2,16 @@
  * Content Source domain types — global identity of shared content.
  *
  * A content source answers "this URL/content has been or is being processed". It is
- * globally reusable and never user-scoped: User Import owns submissions, Catalog owns
- * product identity, Cart owns Bag membership.
+ * reusable for URLs. Private IMAGE sources are owner-scoped and never published:
+ * User Import owns submissions, Catalog owns product identity, Cart owns membership.
  */
 
 import type { ExtractedPlaceMention } from '../../place/parseReasonerPayload';
 
 /** Lowercase to match `detectPlatform` and `video_extraction_cache.platform`. */
-export type ContentSourcePlatform = 'youtube' | 'instagram' | 'web';
+export type ContentSourcePlatform = 'youtube' | 'instagram' | 'web' | 'image';
 
-export type ContentMediaKind = 'VIDEO' | 'WEB_PAGE';
+export type ContentMediaKind = 'VIDEO' | 'WEB_PAGE' | 'IMAGE';
 
 export type ContentProcessingStatus =
   | 'RECEIVED'
@@ -23,11 +23,13 @@ export type ContentProcessingStatus =
 export type ContentSourceIdentity = {
   platform: ContentSourcePlatform;
   externalId: string;
-  canonicalUrl: string;
+  canonicalUrl: string | null;
   mediaKind: ContentMediaKind;
 };
 
 export type ContentSourceRecord = ContentSourceIdentity & {
+  ownerId?: string | null;
+  privateMediaId?: string | null;
   id: string;
   processingStatus: ContentProcessingStatus;
   pipelineVersion: string;

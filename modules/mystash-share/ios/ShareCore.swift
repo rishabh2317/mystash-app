@@ -213,6 +213,64 @@ final class ShareCore: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate 
       }
     }
   }
+  // New encrypted envelopes do not rewrite or reinterpret legacy .share records.
+  private func ownedImage(_ id: String, _ owner: String) throws -> [String: Any] {
+    guard UUID(uuidString: id) != nil, try read("session")?["accountId"] as? String == owner,
+      let record = try read("\(id).image"), record["owner"] as? String == owner else { throw ShareFailure.authentication }
+    return record
+  }
+  private func images() throws -> [[String: Any]] {
+    try FileManager.default.contentsOfDirectory(at: directory(), includingPropertiesForKeys: nil)
+      .filter { $0.pathExtension == "image" }.compactMap { try read($0.lastPathComponent).map(imageSummary) }
+  }
+  private func imageSummary(_ record: [String: Any]) -> [String: Any] { var result = record; result.removeValue(forKey: "bytes"); return result }
+  func enqueueUrl(_ raw: String, _ owner: String) throws -> [String: Any] {
+    let record: [String: Any] = try locked {
+      guard try read("session")?["accountId"] as? String == owner, let url = Self.validatedURL(raw) else { throw ShareFailure.authentication }
+      if let previous = try all().first(where: { $0["owner"] as? String == owner && $0["url"] as? String == url && $0["state"] as? String != "intent_conflict" }) { return previous }
+      guard try all().count < 500 else { throw ShareFailure.capacity }
+      let row: [String: Any] = ["id": UUID().uuidString.lowercased(), "url": url, "owner": owner, "state": "pending", "createdAt": Date().timeIntervalSince1970 * 1000]
+      try write("\(row["id"]!).share",row); return row
+    }
+    try? deliver(); return ["id": record["id"]!]
+  }
+  func enqueueImage(_ uri: String, _ origin: String, _ owner: String) throws -> [String: Any] {
+    try locked {
+      guard try read("session")?["accountId"] as? String == owner, ["camera","gallery"].contains(origin),
+        let url = URL(string: uri), url.isFileURL,
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
+        url.resolvingSymlinksInPath().path.hasPrefix(cache.resolvingSymlinksInPath().path + "/") else { throw ShareFailure.authentication }
+      let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+      guard let size = attributes[.size] as? NSNumber, (1...5242880).contains(size.intValue) else { throw ShareFailure.invalid }
+      let bytes = try Data(contentsOf: url)
+      guard bytes.count <= 5242880, bytes.starts(with: [0xff,0xd8,0xff]) else { throw ShareFailure.invalid }
+      let digest = SHA256.hash(data: bytes).map { String(format: "%02x",$0) }.joined()
+      let existing = try images()
+      if let row = existing.first(where: { $0["owner"] as? String == owner && $0["sha256"] as? String == digest && $0["state"] as? String != "accepted" }) { return imageSummary(row) }
+      guard existing.count < 20 else { throw ShareFailure.capacity }
+      let row: [String: Any] = ["version":1,"id":UUID().uuidString.lowercased(),"owner":owner,"origin":origin,"mime":"image/jpeg","sha256":digest,"size":bytes.count,"bytes":bytes.base64EncodedString(),"state":"pending","createdAt":Date().timeIntervalSince1970 * 1000,"attempts":0,"notBefore":0]
+      try write("\(row["id"]!).image",row); return imageSummary(row)
+    }
+  }
+  func listImages(_ owner: String) throws -> [[String: Any]] {
+    try locked { guard try read("session")?["accountId"] as? String == owner else { throw ShareFailure.authentication }
+      return try images().filter { $0["owner"] as? String == owner }.map(imageSummary) }
+  }
+  func imageBytes(_ id: String, _ owner: String) throws -> String {
+    try locked { guard let bytes = try ownedImage(id,owner)["bytes"] as? String else { throw ShareFailure.invalid }; return bytes }
+  }
+  func updateImage(_ id: String, _ owner: String, _ patch: [String: Any]) throws {
+    try locked {
+      var row = try ownedImage(id,owner)
+      guard patch.keys.allSatisfy({ ["state","attempts","notBefore","uploadId","importId"].contains($0) }) else { throw ShareFailure.invalid }
+      if let state = patch["state"] as? String, !["pending","uploading","needs_auth","needs_review","accepted"].contains(state) { throw ShareFailure.invalid }
+      for key in ["uploadId","importId"] { if let value = patch[key], UUID(uuidString: value as? String ?? "") == nil { throw ShareFailure.invalid } }
+      row.merge(patch) { _, new in new }
+      if row["state"] as? String == "accepted" { guard row["importId"] is String else { throw ShareFailure.invalid }; row.removeValue(forKey: "bytes") }
+      try write("\(id).image",row)
+    }
+  }
+  func removeImage(_ id: String, _ owner: String) throws { try locked { _ = try ownedImage(id,owner); try FileManager.default.removeItem(at: directory().appendingPathComponent("\(id).image")) } }
   func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
     responseLock.lock(); defer { responseLock.unlock() }
     let responseKey = "\(session.configuration.identifier ?? ""):\(dataTask.taskIdentifier)"
