@@ -63,13 +63,13 @@ export type StashLayout = {
 
 export type BagShareState = ImportShare['state'];
 
-export type BagShare = Pick<ImportShare, 'importId' | 'state' | 'kind'>;
+export type BagShare = Pick<ImportShare, 'importId' | 'state' | 'kind' | 'hasInFlight'>;
 
 export const BAG_PROGRESS_COPY = {
-  looking: 'Finding products from your link…',
-  lookingReel: 'Finding products from your Reel…',
-  lookingShort: 'Finding products from your Short…',
-  lookingMany: 'Finding products from your links…',
+  looking: 'Processing your link…',
+  lookingReel: 'Finding products and places from your Reel…',
+  lookingShort: 'Finding products and places from your Short…',
+  lookingMany: 'Processing your links…',
   nothingYet: "We couldn't find products in that link yet.",
   couldntFinish: "We couldn't finish that link. Try sharing it again.",
   emptyHint: "See something you love? Stash it here and we'll remember it for you.",
@@ -79,7 +79,7 @@ export const OTHER_BAG_CATEGORY = 'Other';
 
 const RECENT_STASH_LIMIT = 8;
 
-function bagCategoryKey(category: string | null | undefined): string {
+export function bagCategoryKey(category: string | null | undefined): string {
   const raw = category?.trim();
   if (!raw || /^unknown$/i.test(raw) || /^n\/?a$/i.test(raw)) return OTHER_BAG_CATEGORY;
   return raw;
@@ -358,7 +358,7 @@ export function bagProgressBanners(shares: BagShare[]): {
 }
 
 export function bagHasInFlightShares(shares: BagShare[]): boolean {
-  return shares.some((share) => share.state === 'looking');
+  return shares.some((share) => share.hasInFlight ?? share.state === 'looking');
 }
 
 export function uniqueBagProductIds(items: BagItemView[]): string[] {

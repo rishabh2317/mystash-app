@@ -1,3 +1,5 @@
+import type { ImportShare } from '@/src/services/importShareMap';
+
 /** One list refresh while any share is still looking. */
 export const IMPORT_SHARE_POLL_MS = 1500;
 
@@ -64,4 +66,15 @@ export function createImportSharePoller(deps: {
       return handle != null;
     },
   };
+}
+
+/** Committed branch results may arrive before overall READY (or alongside failure). */
+export function importResultsChanged(previous: ImportShare[], next: ImportShare[]): boolean {
+  const fingerprint = (share: ImportShare) => JSON.stringify([
+    share.state, share.resultProductCount ?? share.productCount, share.placeCount ?? 0,
+    share.resolvedPlaceCount ?? 0, share.unverifiedPlaceCount ?? 0,
+    share.productStatus, share.placeStatus,
+  ]);
+  const before = new Map(previous.map((share) => [share.importId, fingerprint(share)]));
+  return next.some((share) => before.get(share.importId) !== fingerprint(share));
 }

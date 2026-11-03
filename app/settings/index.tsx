@@ -1,6 +1,6 @@
 import { AnalyticsPrivacyControls } from '@/src/analytics/PrivacyControls';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -70,7 +70,7 @@ export default function SettingsScreen() {
     }
   };
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     if (!user || loading) {
       setMe(null);
       setConnected(null);
@@ -94,7 +94,7 @@ export default function SettingsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [user, loading]);
+  }, [user, loading]));
 
   useEffect(() => {
     if (!snapshot?.country || !me) return;

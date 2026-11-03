@@ -19,6 +19,9 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 interface InstagramReelItemProps {
+  /** Optional host UI feedback; no tracking or player protocol changes. */
+  onReady?: () => void;
+  onLoadError?: () => void;
   video: Video;
   isActive: boolean;
   fadeMs?: number;
@@ -35,6 +38,8 @@ export default function InstagramReelItem({
   isActive,
   fadeMs: _fadeMs = 300,
   webViewRef: externalWebViewRef,
+  onReady,
+  onLoadError,
 }: InstagramReelItemProps) {
   const [revealedUrl, setRevealedUrl] = useState<string | null>(null);
   const internalWebViewRef = useRef<WebView>(null);
@@ -100,18 +105,22 @@ export default function InstagramReelItem({
                 const trace = traceRef.current;
                 if (!trace) return;
                 if (message === 'playerVisible') {
+                  onReady?.();
                   logPlayback(trace, 'playerVisible', playbackPlayerCount());
                   setRevealedUrl(embedUrl);
                 }
                 if (shouldRevealFeedFrame(message)) {
+                  onReady?.();
                   recordPlaybackMark(trace, 'firstFrame');
                   logPlayback(trace, 'firstFrame', playbackPlayerCount());
                   setRevealedUrl(embedUrl);
                 }
               }}
               onError={(error) => {
+                onLoadError?.();
                 if (__DEV__) console.warn('Instagram WebView:', error.nativeEvent);
               }}
+              onHttpError={onLoadError ? () => onLoadError() : undefined}
             />
           </View>
         ) : null}

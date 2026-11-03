@@ -125,3 +125,44 @@ The dedicated `android-share-validation` EAS profile now extends `render-test`, 
 EAS account check reported Free, with 2 of 15 Android builds used in the current billing month and no overage charges. Recheck before submission. No paid service was provisioned.
 
 Blocker: Render has no configured API/CLI connection, and the computer-use tool continues to return `Computer Use permissions are not granted` after the user reported enabling access. The browser inventory also reports no browser bridge. No Render settings, migration, deployment, queue or credentials were changed. Resume the existing authorized rollout once dashboard access works; do not submit a full-feature APK against an unverified backend as a substitute.
+
+## Android pilot enabled and APK verified — 2026-11-03
+
+The user manually applied all three Share v2 migrations, deployed backend checkpoint `2ad08bfb22030b9f0fac80b54a41c8f536013046` from `codex/share-v2-pilot`, and enabled the three backend flags in Render. Browser automation remained unavailable; no automated dashboard edits were performed.
+
+Subsequent verification supersedes the paused status above:
+
+- The linked Supabase project contains all five Share v2 RPCs, both new private tables and existing import-work fencing functions. All five RPCs deny anon/authenticated execution and allow service-role execution. Receipt/review tables have RLS enabled and deny direct anon/authenticated reads. Existing data was not reset.
+- Render `/health` and `/ready/ingestion` return 200. Accept, intent and review routes now reach authentication (401 without credentials), confirming their runtime feature gates are enabled. These checks passed again after the user's final redeployment. Consumer readiness is verified; live queue-drain/Redis-loss testing was not performed. Existing Free-tier sleep and nonpersistent queue limitations remain.
+- Authenticated validation for the authorized test account returned 200 for history, private intent and review; another owner's intent/review returned 404. Concurrent acceptance of one already-READY, already-owned share produced the same import and a replayed receipt. Its source remained READY and private intent and Analytics consent remained unchanged. One durable test receipt remains intentionally; no new extraction or provider call was initiated. The temporary validation session was revoked.
+- No similar suggestions were present on that historical test share. Policy and review-concurrency local tests passed earlier; live/device suggestion Save/Dismiss remains unverified. No products or suggestions were fabricated to create a test example.
+
+Backend flags enabled on the test service: `SHARE_ACCEPT_ENABLED=true`, `SHARE_INTENT_ENABLED=true`, `SHARE_SUGGESTIONS_ENABLED=true`.
+
+APK flags enabled in the resolved `android-share-validation` EAS build environment: `EXPO_PUBLIC_NATIVE_SHARE_ENABLED=true`, `EXPO_PUBLIC_SHARE_INTENT_ENABLED=true`, `EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED=true`. Existing Analytics, creator/admin reporting, personalization capability, notification and push client switches remain enabled; these switches do not grant admin membership or change consent. Mac service flags and production services were not changed by this rollout.
+
+The single submitted EAS build finished successfully:
+
+- Build: `e060d890-d11f-4b11-a34e-70b60772debe`, Android versionCode **4**, package `com.anonymous.Mystash`.
+- [Build page](https://expo.dev/accounts/rishabh17/projects/Mystash/builds/e060d890-d11f-4b11-a34e-70b60772debe)
+- [APK download](https://expo.dev/artifacts/eas/cn0V0qzHYD247nLiaJpM0KyT-8YsWpz_6owVffbKi7I.apk?download=1)
+- Local artifact: `/private/tmp/Mystash-share-v2-pilot-v4.apk`; 112,280,277 bytes (107.1 MiB).
+- SHA-256: `534b0833f53ae1b97cd45f746a1f75d282a7e97303b144d2e3c6289a7056cf1e`.
+- Android signature verification passed and matches the preceding EAS APK certificate. Main application identifier is unchanged. The JavaScript bundle contains the Render HTTPS endpoint, excludes the old api-dev endpoint, and contains none of the scanned backend secret values. Native Activity, Worker, encrypted store and module classes are present. Compiled native share/intent resources are independently verified `true`; the three JavaScript switch values are evidenced by the resolved build profile.
+- The account was verified Free with 2 of 15 monthly Android builds used before this submission; the build used existing remote signing credentials and no paid resource was enabled.
+
+Android release native compilation is now verified by this EAS build. Native instrumentation, physical phone execution and iOS compilation remain unexecuted. Open this APK once and sign in before authenticated sharing so the protected native access-token snapshot is synchronized. Test the acceptance checklist above on the phone, including signed-out explicit claim, expired-auth recovery, offline capture/process death, account switching and return-to-source. The existing Render YouTube downloader issue and Free-tier availability constraints are not resolved by this build.
+
+Verification evidence is retained in ignored `backend/.analytics-release-private/share-v2-pilot/` (`preflight.json`, `api-validation.json`, `apk-verification.json`). Frontend/native source changes remain preserved in this checkout and were uploaded in the EAS source archive; the backend checkpoint alone is not a complete committed frontend release snapshot.
+
+## Native share-sheet visual refinement — local, 2026-11-03
+
+The first device screenshot revealed default Android dialog/button styling and OS-driven Nebula selection even though Mystash defaults to Titanium. The revised native sheet uses the central app default, rounded Titanium surfaces, Inter regular/semibold/bold, existing Ionicons, compact selectable outline/filled chips, a bordered optional context input, a 280-character counter, a quiet background-processing notice, and sentence-case primary/secondary actions. Nothing is selected by default. The reference's 200-character text is not adopted; the existing 280-character contract is preserved. The card scrolls when needed and the keyboard does not open automatically.
+
+Android uses a transparent native Activity with an explicit dimmed backdrop instead of the OEM dialog theme; iOS uses the corresponding card and keyboard-aware scroll layout in its existing extension. Font/icon resources and typography/spacing/radius/stroke values are generated through the existing Expo plugin from shared Mystash resources. `DEFAULT_THEME_MODE` centralizes the existing app default without changing it. Capture, encrypted storage, queueing, APIs, auth recovery and matching logic are unchanged.
+
+Files changed for this refinement: `modules/mystash-share/android/src/main/java/expo/modules/mystashshare/ShareActivity.kt`, its `AndroidManifest.xml` and `androidTest/.../ShareCaptureTest.kt`; `modules/mystash-share/ios/ShareViewController.swift`; `plugins/shareTheme.js`, `plugins/withNativeShare.js`, `plugins/withNativeShare.test.cjs`; `src/theme/tokens.ts`, `contexts/ThemeContext.tsx`; this handoff. Earlier working changes in these files remain preserved.
+
+Verification: 12 plugin/endpoint checks (including Xcode fixture idempotence), 32 shared UI render checks, client/backend TypeScript, scoped lint, Swift syntax parsing and whitespace checks passed. A native Android UI instrumentation case was added but not executed. The shared render checks do not render Kotlin/UIKit, and this revision's native compilation, screenshot comparison and physical-device behavior remain unverified. The prior versionCode 4 APK still contains the original sheet. No replacement build or deployment was started for this visual change.
+
+Background behavior confirmed in code: Save persists the encrypted record before pending feedback and schedules `ShareDelivery` immediately. WorkManager requires connectivity and is OS-scheduled. Valid-session delivery calls `/imports/accept` without opening the full app. The existing backend consumer reconciles receipts every 30 seconds; new sources are queued, READY sources reuse results, and FAILED sources do not silently restart paid extraction. Signed-out records require explicit claim after login; expired credentials wait for foreground auth refresh; network/cold-start failures retry. Render sleep and existing provider failures can delay or fail processing. Local pending feedback is never a promise that extraction has succeeded.

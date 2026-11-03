@@ -17,7 +17,7 @@ describe('UX-CREATE-B.8 create chrome', () => {
     assert.equal(createFieldColors(tokens, { invalid: true }).borderColor, tokens.color.danger);
 
     const btn = createPrimaryButtonStyle(tokens, { pending: true });
-    assert.equal(btn.backgroundColor, tokens.color.cta);
+    assert.equal(btn.backgroundColor, tokens.color.primary);
     assert.equal(btn.opacity, 0.7);
   });
 

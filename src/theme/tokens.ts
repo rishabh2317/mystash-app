@@ -10,6 +10,7 @@ import { APP_FONT } from '@/src/theme/appFont';
  */
 
 export type ThemeModeName = 'titanium' | 'nebula';
+export const DEFAULT_THEME_MODE: ThemeModeName = 'titanium';
 
 /**
  * Outline-card border experiment (token-level only — flip to compare A/B/C).
@@ -553,4 +554,18 @@ export function pageCanvasGradient(tokens: ThemeTokens): readonly [string, strin
 
 export function softCanvasGradient(tokens: ThemeTokens): readonly [string, string] {
   return [tokens.color.canvasSoft, tokens.color.canvasSoftEnd];
+}
+/** Capsule filters are raised controls, independent of the outline-only card treatment. */
+export function stashFilterChipChrome(tokens: ThemeTokens, selected: boolean) {
+  return {
+    backgroundColor: selected ? tokens.color.overlayPressed : tokens.color.surface,
+    borderColor: selected ? tokens.color.border : tokens.semantic.border.subtle,
+    borderWidth: tokens.stroke.thin,
+    borderRadius: tokens.radius.pill,
+    shadowColor: tokens.color.text,
+    shadowOffset: { width: tokens.elevation.none, height: tokens.stroke.thin },
+    shadowOpacity: tokens.mode === 'nebula' ? 0 : selected ? 0.04 : 0.08,
+    shadowRadius: tokens.space.xxs / 2,
+    elevation: tokens.stroke.thin,
+  };
 }

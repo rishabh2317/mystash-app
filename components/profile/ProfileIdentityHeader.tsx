@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import React from 'react';
+import React, { useCallback, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { ExpandableText } from '@/components/ui/ExpandableText';
@@ -36,9 +37,14 @@ export function ProfileIdentityHeader({
   const { tokens } = useThemeMode();
   const name = creator.displayName?.trim() || `@${creator.username}`;
   const bio = creator.bio?.trim() ?? '';
+  const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
+  useFocusEffect(useCallback(() => { setFailedAvatar(null); }, []));
+  const avatarKey = `${creator.userId}:${creator.avatarUrl ?? ''}`;
 
-  const avatar = creator.avatarUrl ? (
-    <Image source={{ uri: creator.avatarUrl }} style={styles.avatar} contentFit="cover" />
+  const avatar = creator.avatarUrl && failedAvatar !== avatarKey ? (
+    <Image source={{ uri: creator.avatarUrl }} style={styles.avatar} contentFit="cover"
+      recyclingKey={avatarKey} accessibilityLabel={`${name}'s profile photo`}
+      onError={() => setFailedAvatar(avatarKey)} />
   ) : (
     <View
       style={[

@@ -6,7 +6,20 @@ export type ImportSharePrimaryProduct = {
   imageUrl: string | null;
 };
 
+export type ImportResultStatus = 'running' | 'complete' | 'failed' | 'unknown';
+
 export type ImportShare = {
+  resultVersion?: 1;
+  timedOut?: boolean;
+  resultProductCount?: number;
+  resultProducts?: ImportSharePrimaryProduct[];
+  placeCount?: number;
+  resolvedPlaceCount?: number;
+  unverifiedPlaceCount?: number;
+  productStatus?: ImportResultStatus;
+  placeStatus?: ImportResultStatus;
+  hasInFlight?: boolean;
+  canRetry?: boolean;
   importId: string;
   state: ImportShareState;
   kind: 'instagram' | 'youtube' | 'web';
@@ -55,6 +68,14 @@ function asProducts(value: unknown): ImportSharePrimaryProduct[] {
   return out;
 }
 
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function resultStatus(value: unknown): ImportResultStatus {
+  return value === 'running' || value === 'complete' || value === 'failed' ? value : 'unknown';
+}
+
 export function hydrateImportShares(raw: unknown): ImportShare[] {
   if (!Array.isArray(raw)) return [];
   const shares: ImportShare[] = [];
@@ -76,7 +97,21 @@ export function hydrateImportShares(raw: unknown): ImportShare[] {
     const sourceUrl = typeof row.sourceUrl === 'string' ? row.sourceUrl.trim() : '';
     const products = asProducts(row.products);
     const primaryProduct = asPrimaryProduct(row.primaryProduct) ?? products[0] ?? null;
+    const results = row.resultVersion === 1 ? {
+      resultVersion: 1 as const,
+      timedOut: row.timedOut === true,
+      resultProductCount: count(row.resultProductCount),
+      resultProducts: asProducts(row.resultProducts),
+      placeCount: count(row.placeCount),
+      resolvedPlaceCount: count(row.resolvedPlaceCount),
+      unverifiedPlaceCount: count(row.unverifiedPlaceCount),
+      productStatus: resultStatus(row.productStatus),
+      placeStatus: resultStatus(row.placeStatus),
+      hasInFlight: row.hasInFlight === true,
+      canRetry: row.canRetry === true,
+    } : {};
     shares.push({
+      ...results,
       importId,
       state,
       kind: asShareKind(row.kind),

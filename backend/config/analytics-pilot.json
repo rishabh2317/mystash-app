@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "project_ref": "womdeohfpvzmhomgqwig",
+  "api_url": "https://api-dev.mystash.in",
+  "api": {
+    "ANALYTICS_ENABLED": "true",
+    "ANALYTICS_CREATOR_REPORTING_ENABLED": "true",
+    "ANALYTICS_ADMIN_REPORTING_ENABLED": "true",
+    "ANALYTICS_PERSONALIZATION_ENABLED": "true",
+    "ANALYTICS_INTEREST_WORKER_ENABLED": "false",
+    "ANALYTICS_ROLLUPS_ENABLED": "false",
+    "ANALYTICS_ADMIN_ROLLUPS_ENABLED": "false",
+    "ANALYTICS_MAINTENANCE_ENABLED": "false"
+  },
+  "worker": {
+    "ANALYTICS_ENABLED": "true",
+    "ANALYTICS_CREATOR_REPORTING_ENABLED": "false",
+    "ANALYTICS_ADMIN_REPORTING_ENABLED": "false",
+    "ANALYTICS_PERSONALIZATION_ENABLED": "true",
+    "ANALYTICS_INTEREST_WORKER_ENABLED": "true",
+    "ANALYTICS_ROLLUPS_ENABLED": "true",
+    "ANALYTICS_ADMIN_ROLLUPS_ENABLED": "true",
+    "ANALYTICS_MAINTENANCE_ENABLED": "true"
+  },
+  "client": {
+    "EXPO_PUBLIC_ANALYTICS_ENABLED": "true",
+    "EXPO_PUBLIC_CREATOR_ANALYTICS_ENABLED": "true",
+    "EXPO_PUBLIC_ADMIN_ANALYTICS_ENABLED": "true",
+    "EXPO_PUBLIC_PERSONALIZATION_ENABLED": "true"
+  }
+}

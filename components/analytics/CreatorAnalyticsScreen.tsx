@@ -52,7 +52,7 @@ export default function CreatorAnalyticsScreen() {
           forbidden: error instanceof EngagementApiError && [401, 403].includes(error.statusCode),
           error: error instanceof EngagementApiError && error.statusCode === 403
             ? 'Analytics are available after you start creating.'
-            : error instanceof EngagementApiError ? error.message : 'Analytics unavailable right now. Please try again.',
+            : 'Analytics unavailable right now. Please try again.',
         });
       }).finally(() => clearTimeout(timeout));
     return () => { cancelled = true; controller.abort(); clearTimeout(timeout); };
@@ -76,7 +76,7 @@ export default function CreatorAnalyticsScreen() {
         </View>
         <View accessibilityRole="tablist" style={{ flexDirection: 'row', gap: tokens.space.sm }}>
           {RANGES.map(range => (
-            <Pressable key={range} accessibilityRole="tab" accessibilityLabel={`Last ${range} complete UTC days`}
+            <Pressable key={range} accessibilityRole="tab" accessibilityLabel={`Last ${range} days`}
               accessibilityState={{ selected: days === range }} onPress={() => setDays(range)}
               style={{ flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', padding: tokens.space.sm,
                 borderRadius: tokens.radius.pill, backgroundColor: days === range ? tokens.color.primarySurface : tokens.color.surfaceSubtle }}>
@@ -96,13 +96,12 @@ export default function CreatorAnalyticsScreen() {
               : report ? <>
                 <View style={{ gap: tokens.space.xs }}>
                   <Text style={typeStyle(tokens, 'tileTitle')}>{utcDateLabel(report.current.start)} – {utcDateLabel(rangeEnd)}</Text>
-                  <Text style={typeStyle(tokens, 'tileMeta')}>Complete UTC days · {report.current.coveredDays}/{days} days with continuous worker coverage</Text>
-                  <Text style={typeStyle(tokens, 'tileMeta')}>{report.refreshedAt ? `Updated ${new Date(report.refreshedAt).toLocaleString()}` : 'Awaiting the first aggregation'}</Text>
+                  <Text style={typeStyle(tokens, 'tileMeta')}>{report.refreshedAt ? `Updated ${new Date(report.refreshedAt).toLocaleString()}` : 'New activity will appear here'}</Text>
                 </View>
                 <View style={[...card, { backgroundColor: tokens.color.surfaceSubtle }]}>
-                  <Text style={typeStyle(tokens, 'tileTitle')}>{report.stale ? 'Updates delayed' : report.current.coveredDays < days ? 'Partial measurement coverage' : 'Recorded activity'}</Text>
-                  <Text style={typeStyle(tokens, 'bodyMuted')}>Counts reflect recorded interactions, not unique people. Optional measurement includes people who opted in. Coverage samples worker availability, not every device. Gaps are unknown; a dash does not mean zero.</Text>
-                  {report.provisional && <Text style={typeStyle(tokens, 'tileMeta')}>Recent counts are provisional while delayed events arrive.</Text>}
+                  <Text style={typeStyle(tokens, 'tileTitle')}>{report.stale ? 'Updates delayed' : report.current.coveredDays < days ? 'Limited data' : 'Recorded activity'}</Text>
+                  <Text style={typeStyle(tokens, 'bodyMuted')}>Optional activity comes from people who opted in. Counts are interactions, not unique people. A dash means data is unavailable.</Text>
+                  {report.provisional && <Text style={typeStyle(tokens, 'tileMeta')}>Recent activity may take a little time to appear.</Text>}
                   {!hasObservations && <Text style={typeStyle(tokens, 'bodyMuted')}>{report.current.coveredDays === days ? 'No recorded activity in this range.' : 'Not enough recorded activity in this range yet.'}</Text>}
                 </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: tokens.space.sm }}>
@@ -133,13 +132,13 @@ export default function CreatorAnalyticsScreen() {
                     <Text style={typeStyle(tokens, 'tileMeta')}>0 · {utcDateLabel(report.current.start)}</Text>
                     <Text style={typeStyle(tokens, 'tileMeta')}>{utcDateLabel(rangeEnd)}</Text>
                   </View>
-                  <Text style={typeStyle(tokens, 'tileMeta')}>Unknown days remain gaps. Partial days show recorded counts only.</Text>
+                  <Text style={typeStyle(tokens, 'tileMeta')}>Missing data appears as gaps in the chart.</Text>
                 </View>
                 <View style={card}>
                   <Text style={typeStyle(tokens, 'sectionTitle')}>Audience & engagement</Text>
                   {(['followers_added', 'followers_removed', 'saves_added', 'saves_removed', 'collection_shares', 'likes_added', 'likes_removed', 'profile_opens', 'collection_impressions', 'product_impressions'] as CreatorMetric[]).map(name =>
                     <View key={name} style={styles.statRow}><Text style={[typeStyle(tokens, 'bodyMuted'), { flex: 1 }]}>{METRIC_LABELS[name]}</Text><Text style={typeStyle(tokens, 'tileTitle')}>{reportCount(report.current.values[name])}</Text></View>)}
-                  <Text style={typeStyle(tokens, 'tileMeta')}>Saves and follows count additions and removals in this range. Impressions require at least half the card to be visible for one second. Merchant requests record resolved outbound destinations, not purchases or confirmed arrivals.</Text>
+                  <Text style={typeStyle(tokens, 'tileMeta')}>Merchant requests are requests to open shopping links, not confirmed purchases.</Text>
                 </View>
                 <View style={{ gap: tokens.space.sm }}>
                   <Text style={typeStyle(tokens, 'sectionTitle')}>Top collections</Text>
@@ -167,7 +166,7 @@ export default function CreatorAnalyticsScreen() {
                   <View style={styles.statRow}><Text style={typeStyle(tokens, 'bodyMuted')}>Collection saves</Text><Text style={typeStyle(tokens, 'tileTitle')}>{reportCount(result?.current?.totals.saves ?? null)}</Text></View>
                   {!result?.current && <Text style={typeStyle(tokens, 'tileMeta')}>Current totals unavailable. Pull to refresh to retry.</Text>}
                 </View>
-                <Text style={typeStyle(tokens, 'tileMeta')}>Only your currently public, published collections are included in range metrics. Counts may change when content is removed. Historical coverage gaps prevent reliable comparisons. No revenue or purchase attribution is inferred.</Text>
+                <Text style={typeStyle(tokens, 'tileMeta')}>Insights cover your public, published collections. Comparisons appear when enough data is available.</Text>
               </> : null}
       </ScrollView>
     </View>

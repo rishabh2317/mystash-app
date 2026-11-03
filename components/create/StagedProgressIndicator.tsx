@@ -1,11 +1,13 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { Text as AppText } from '@/components/ui/Text';
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
 import type { IngestProgressStageView } from '@/src/ui/ingestProgressStages';
 
 type Props = {
   stages: IngestProgressStageView[];
+  appearance?: 'default' | 'studio';
   hint?: string;
 };
 
@@ -13,15 +15,16 @@ type Props = {
  * Horizontal segmented progress for ingest/extraction waits.
  * Uses real stage labels; no numeric percentage.
  */
-export function StagedProgressIndicator({ stages, hint }: Props) {
+export function StagedProgressIndicator({ stages, hint, appearance = 'default' }: Props) {
   const tokens = useThemeTokens();
+  const studio = appearance === 'studio';
   const active = stages.find((stage) => stage.state === 'active');
 
   return (
     <View
       accessibilityRole="progressbar"
       accessibilityLabel={active?.label}
-      style={[styles.wrap, { gap: tokens.space.sm }]}
+      style={[styles.wrap, { gap: tokens.space.sm, paddingHorizontal: tokens.space.xs }, studio && { paddingVertical: tokens.space.sm }]}
     >
       <View style={[styles.track, { gap: tokens.space.xxs }]}>
         {stages.map((stage) => (
@@ -35,11 +38,11 @@ export function StagedProgressIndicator({ stages, hint }: Props) {
                     ? tokens.color.danger
                     : stage.state === 'pending'
                       ? tokens.color.border
-                      : tokens.color.accent,
+                      : tokens.color.primary,
                 opacity:
                   stage.state === 'pending' ? 0.35 : stage.state === 'active' ? 1 : 0.9,
                 borderRadius: tokens.radius.pill,
-                height: stage.state === 'active' ? 5 : 4,
+                height: studio ? 5 : stage.state === 'active' ? 5 : 4,
               },
             ]}
             accessibilityElementsHidden
@@ -47,28 +50,29 @@ export function StagedProgressIndicator({ stages, hint }: Props) {
         ))}
       </View>
       {active ? (
-        <Text
+        <AppText
           style={{
             color: tokens.color.text,
             fontSize: tokens.fontSize.bodyStrong,
-            fontWeight: tokens.fontWeight.bold,
+            lineHeight: tokens.lineHeight.bodyStrong,
+            fontFamily: tokens.fontFamily.bold,
             textAlign: 'center',
           }}
         >
           {active.label}
-        </Text>
+        </AppText>
       ) : null}
       {hint ? (
-        <Text
+        <AppText
           style={{
             color: tokens.color.textMuted,
-            fontSize: 13,
-            lineHeight: 18,
+            fontSize: tokens.fontSize.caption,
+            lineHeight: tokens.lineHeight.caption,
             textAlign: 'center',
           }}
         >
           {hint}
-        </Text>
+        </AppText>
       ) : null}
     </View>
   );
@@ -77,7 +81,6 @@ export function StagedProgressIndicator({ stages, hint }: Props) {
 const styles = StyleSheet.create({
   wrap: {
     width: '100%',
-    paddingHorizontal: 8,
   },
   track: {
     flexDirection: 'row',

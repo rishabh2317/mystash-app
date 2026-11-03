@@ -26,6 +26,9 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 interface YouTubeReelItemProps {
+  /** Optional host UI feedback; no tracking or player protocol changes. */
+  onReady?: () => void;
+  onLoadError?: () => void;
   video: Video;
   isActive: boolean;
   webViewRef?: React.RefObject<any>;
@@ -42,6 +45,8 @@ export default function YouTubeReelItem({
   isActive,
   webViewRef: externalWebViewRef,
   fadeMs: _fadeMs = 300,
+  onReady,
+  onLoadError,
 }: YouTubeReelItemProps) {
   const [stageHeight, setStageHeight] = useState(0);
   const [revealedId, setRevealedId] = useState<string | null>(null);
@@ -149,13 +154,16 @@ export default function YouTubeReelItem({
                   setRevealedId(videoId);
                 }
                 if (shouldRevealFeedFrame(message)) {
+                  onReady?.();
                   recordPlaybackMark(trace, 'firstFrame');
                   logPlayback(trace, 'firstFrame', playbackPlayerCount());
                 }
               }}
               onError={(error) => {
+                onLoadError?.();
                 if (__DEV__) console.warn('YouTube WebView:', error.nativeEvent);
               }}
+              onHttpError={onLoadError ? () => onLoadError() : undefined}
             />
           </View>
         ) : null}

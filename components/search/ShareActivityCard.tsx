@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, type Href } from 'expo-router';
 import React, { useState } from 'react';
+import { ShareImportDetails } from './ShareImportDetails';
 import {
   ActivityIndicator,
   Alert,
@@ -77,11 +78,11 @@ export function ShareActivityCard({
   const [busy, setBusy] = useState(false);
   const time = shareActivityRelativeTime(item.createdAt);
   const stateLabel = shareActivityStateLabel(item.userState);
-  const failed = item.userState === 'failed';
+  const failed = item.canRetry ?? item.userState === 'failed';
   const showBagLink =
     item.userState === 'products_found' ||
     item.userState === 'no_products' ||
-    item.userState === 'processing';
+    item.userState === 'processing' || item.productCount > 0;
 
   const confirmDelete = () => {
     Alert.alert('Delete share', 'Remove this share from your activity history?', [
@@ -92,7 +93,9 @@ export function ShareActivityCard({
         onPress: () => {
           if (!onDelete) return;
           setBusy(true);
-          void Promise.resolve(onDelete(item.importId)).finally(() => setBusy(false));
+          void Promise.resolve(onDelete(item.importId)).catch(() => {
+            Alert.alert('Couldn’t delete share', 'Please try again.');
+          }).finally(() => setBusy(false));
         },
       },
     ]);
@@ -139,7 +142,7 @@ export function ShareActivityCard({
             {item.subtitle}
           </Text>
           <View style={styles.meta}>
-            {item.userState === 'processing' ? (
+            {(item.hasInFlight ?? item.userState === 'processing') ? (
               <ActivityIndicator size="small" color={tokens.color.accent} />
             ) : (
               <Text style={{ color: tokens.color.textMuted, fontSize: 12, fontWeight: '600' }}>
@@ -162,6 +165,7 @@ export function ShareActivityCard({
 
       {expandable && expanded ? (
         <View style={[styles.expanded, { borderTopColor: tokens.color.divider }]}>
+          {process.env.EXPO_PUBLIC_NATIVE_SHARE_ENABLED === 'true' || process.env.EXPO_PUBLIC_SHARE_INTENT_ENABLED === 'true' || process.env.EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED === 'true' ? <ShareImportDetails importId={item.importId} sourceUrl={item.sourceUrl} placeCount={item.placeCount} productCount={item.productCount} /> : null}
           {item.sourceUrl ? (
             <View style={styles.detailBlock}>
               <Text style={[styles.detailLabel, { color: tokens.color.textMuted }]}>
@@ -220,7 +224,7 @@ export function ShareActivityCard({
             </ScrollView>
           ) : item.userState === 'no_products' ? (
             <Text style={{ color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
-              {SHARE_ACTIVITY_COPY.noProducts}
+              {item.subtitle}
             </Text>
           ) : failed ? (
             <Text style={{ color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
@@ -238,7 +242,9 @@ export function ShareActivityCard({
                 onPress={() => {
                   if (!onRetry || busy) return;
                   setBusy(true);
-                  void Promise.resolve(onRetry(item.importId)).finally(() => setBusy(false));
+                  void Promise.resolve(onRetry(item.importId)).catch(() => {
+                    Alert.alert('Couldn’t retry', 'Please try again. Your saved results are unchanged.');
+                  }).finally(() => setBusy(false));
                 }}
                 disabled={busy || !onRetry}
                 style={[
@@ -264,7 +270,8 @@ export function ShareActivityCard({
                 </Text>
               </Pressable>
             </View>
-          ) : showBagLink ? (
+          ) : null}
+          {showBagLink ? (
             <Pressable
               onPress={() => router.push('/cart' as Href)}
               style={[styles.bagLink, { borderColor: tokens.color.border }]}
@@ -275,6 +282,17 @@ export function ShareActivityCard({
                 {SHARE_ACTIVITY_COPY.viewInBag}
               </Text>
               <Ionicons name="bag-handle-outline" size={16} color={tokens.color.primary} />
+            </Pressable>
+          ) : null}
+          {(item.placeCount ?? 0) > 0 ? (
+            <Pressable
+              onPress={() => router.push('/stash?segment=places' as Href)}
+              style={[styles.bagLink, { borderColor: tokens.color.border }]}
+              accessibilityRole="link"
+              accessibilityLabel="View places"
+            >
+              <Text style={{ color: tokens.color.primary, fontSize: 14, fontWeight: '700' }}>View places</Text>
+              <Ionicons name="location-outline" size={16} color={tokens.color.primary} />
             </Pressable>
           ) : null}
         </View>

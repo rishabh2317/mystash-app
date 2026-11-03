@@ -417,7 +417,7 @@ export default function ManualProductsScreen() {
         >
           <Text
             style={{
-              color: tokens.color.successOn,
+              color: tokens.color.onPrimary,
               fontWeight: tokens.fontWeight.extraBold,
               fontSize: tokens.fontSize.body,
               opacity: busy ? 0.85 : 1,

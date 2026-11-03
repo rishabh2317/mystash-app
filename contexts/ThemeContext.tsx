@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Extrapolate, interpolate, useSharedValue, withTiming, useDerivedValue } from 'react-native-reanimated';
 
-import { getThemeTokens, type ThemeModeName, type ThemeTokens } from '@/src/theme/tokens';
+import { DEFAULT_THEME_MODE, getThemeTokens, type ThemeModeName, type ThemeTokens } from '@/src/theme/tokens';
 
 export type ThemeMode = ThemeModeName;
 
@@ -22,7 +22,7 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeModeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>('titanium');
+  const [mode, setMode] = useState<ThemeMode>(DEFAULT_THEME_MODE);
 
   const transitionProgress = useSharedValue(1);
   const fromLight = useSharedValue(mode === 'titanium' ? 1 : 0);

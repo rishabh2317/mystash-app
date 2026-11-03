@@ -7,12 +7,11 @@ import type { PlaceStashItem } from '@/src/types/placeStash';
 import {
   DEFAULT_STASH_SEGMENT,
   PLACE_UNCERTAINTY_COPY,
-  STASH_PLACES_COPY,
   STASH_SEGMENT,
   STASH_SEGMENT_TABS,
   hydratePlaceStashItem,
   hydratePlaceStashPage,
-  partitionPlaceStashItems,
+  unifiedPlaceStashItems,
   pickPlaceStashImage,
   placeCardView,
   placeSearchUrl,
@@ -62,6 +61,16 @@ describe('Stash Products / Places tabs', () => {
 });
 
 describe('GET /places hydration', () => {
+  it('preserves additive multi-source attribution without replacing the existing navigation identity', () => {
+    const sources = ['one', 'two'].map((id) => ({ contentSourceId: id, userImportId: `import-${id}`,
+      contentSourcePlaceId: `hypothesis-${id}`, addedAt: '2026-10-28T00:00:00Z' }));
+    const item = hydratePlaceStashItem({ kind: 'resolved', name: 'Potato Head', placeId: 'canonical',
+      saveId: 'card', sources, destination: GOOGLE_SEARCH });
+    assert.equal(item?.id, 'canonical');
+    assert.equal(item?.saveId, 'card');
+    assert.equal(item?.resolutionStatus, 'resolved');
+    assert.deepEqual(item?.sources, sources);
+  });
   it('loads mixed resolved and unresolved items from the list payload', () => {
     const page = hydratePlaceStashPage({
       itemCount: 2,
@@ -116,8 +125,8 @@ describe('GET /places hydration', () => {
   });
 });
 
-describe('Places and Leads sections', () => {
-  it('renders resolved places first, leads below, and hides empty sections', () => {
+describe('unified Places dataset', () => {
+  it('keeps resolved and unverified places together in API order', () => {
     const mixed: PlaceStashItem[] = [
       {
         kind: 'unresolved',
@@ -139,25 +148,11 @@ describe('Places and Leads sections', () => {
         image: { kind: 'source', url: 'https://img.youtube.com/vi/abc/hqdefault.jpg' },
       },
     ];
-    const grouped = partitionPlaceStashItems(mixed);
-    assert.deepEqual(
-      grouped.places.map((item) => item.id),
-      ['pl-1'],
-    );
-    assert.deepEqual(
-      grouped.leads.map((item) => item.id),
-      ['lead-1'],
-    );
-    assert.equal(partitionPlaceStashItems([]).places.length, 0);
-    assert.equal(partitionPlaceStashItems(grouped.places).leads.length, 0);
-
-    const stash = read('app/(tabs)/stash.tsx');
-    assert.match(stash, /STASH_PLACES_COPY\.placesSection/);
-    assert.match(stash, /STASH_PLACES_COPY\.leadsSection/);
-    assert.match(stash, /grouped\.places\.length > 0/);
-    assert.match(stash, /grouped\.leads\.length > 0/);
-    assert.equal(STASH_PLACES_COPY.placesSection, 'Places');
-    assert.equal(STASH_PLACES_COPY.leadsSection, 'Leads');
+    assert.deepEqual(unifiedPlaceStashItems(mixed).map((item) => item.id), ['lead-1', 'pl-1']);
+    assert.deepEqual(unifiedPlaceStashItems([]), []);
+    assert.doesNotMatch(read('app/(tabs)/stash.tsx'), /partitionPlaceStashItems|grouped\.leads|grouped\.places/);
+    assert.match(read('components/place/StashPlacesContent.tsx'), /buildPlacesHome/);
+    assert.match(read('src/ui/stashPlaces.ts'), /const items = unifiedPlaceStashItems\(raw\)/);
   });
 });
 
@@ -213,11 +208,16 @@ describe('PlaceCard states', () => {
     assert.equal(view.imageUrl, 'https://img.youtube.com/vi/abc/hqdefault.jpg');
   });
 
-  it('PlaceCard is media-first with outlinePrimary Search on Google', () => {
+  it('PlaceCard keeps actions and imagery while omitting presentation-only verification badges', () => {
     const card = read('components/place/PlaceCard.tsx');
     assert.match(card, /from 'expo-image'/);
-    assert.match(card, /size="compact"/);
-    assert.match(card, /variant="outlinePrimary"/);
+    assert.match(card, /accessibilityLabel=\{`\$\{destination\.label\}, \$\{view\.name\}`\}/);
+    assert.match(card, /onSearch\(view\.searchUrl\)/);
+    assert.doesNotMatch(card, /styles\.status|Unverified place|STASH_PLACES_COPY\.unverified/);
+    assert.match(card, /view\.categoryText/);
+    assert.match(card, /view\.imageLabel/);
+    assert.match(card, /onError=/);
+    assert.doesNotMatch(card, /opacity: view\.lead/);
     assert.match(card, /location-outline/);
     assert.doesNotMatch(card, /ProductCard|picsum|latitude|longitude|rating|MapView|WebView/);
   });
@@ -301,7 +301,8 @@ describe('Products Stash regression', () => {
     assert.match(stash, /buildStashHome/);
     assert.match(stash, /Your products/);
     assert.match(stash, /renderRelatedGrid/);
-    assert.match(stash, /Recently stashed/);
+    assert.match(stash, /StashRecentProducts/);
+    assert.match(read('components/commerce/StashRecentProducts.tsx'), /STASH_FILTER_COPY\.recentlyStashed/);
     assert.doesNotMatch(stash, /Ready to shop/);
     assert.doesNotMatch(stash, /BagItemCard/);
   });

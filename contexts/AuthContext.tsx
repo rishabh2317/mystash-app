@@ -2,6 +2,7 @@ import { analyticsIdentityChanged } from '@/src/analytics/privacy';
 import { stopAnalytics } from '@/src/analytics/client';
 import { Session, User } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { syncNativeShareSession } from '@/src/services/nativeShare';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -90,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<string | null>(null);
   const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
+  useEffect(() => { void syncNativeShareSession(session).catch(() => { /* Keep private outbox pending. */ }); }, [session]);
 
   useEffect(() => {
     let mounted = true;
@@ -279,6 +281,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: null };
       },
       signOut: async () => {
+        await syncNativeShareSession(null);
         stopAnalytics();
         await unlinkPushBeforeSignOut().catch(() => undefined);
         await clearPendingConfirmationEmail(AsyncStorage);

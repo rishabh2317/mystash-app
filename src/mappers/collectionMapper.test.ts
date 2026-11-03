@@ -68,3 +68,16 @@ describe('mapAggregateToCollectionViewModel', () => {
     assert.equal(vm.creator.username, 'rama');
   });
 });
+
+it('uses the saved primary media thumbnail when a saved Collection has no hero', () => {
+  const aggregate = {
+    collection: { id: 'c', creatorId: 'u', heroThumbnailUrl: '   ' },
+    media: [{ id: 'secondary', isPrimary: false, thumbnailUrl: 'https://fixture.invalid/other.jpg' },
+      { id: 'primary', isPrimary: true, thumbnailUrl: 'https://fixture.invalid/primary.jpg' }], tags: [],
+  } as unknown as CollectionAggregateDto;
+  assert.equal(mapAggregateToCollectionViewModel(aggregate).heroThumbnailUrl, 'https://fixture.invalid/primary.jpg');
+  aggregate.collection.heroThumbnailUrl = 'https://fixture.invalid/hero.jpg';
+  assert.equal(mapAggregateToCollectionViewModel(aggregate).heroThumbnailUrl, 'https://fixture.invalid/hero.jpg');
+  aggregate.collection.heroThumbnailUrl = null; aggregate.media = [];
+  assert.equal(mapAggregateToCollectionViewModel(aggregate).heroThumbnailUrl, null);
+});

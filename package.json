@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "analytics:pilot": "python3 backend/scripts/analyticsPilot.py",
     "start": "expo start",
     "start:lan": "bash -c 'export REACT_NATIVE_PACKAGER_HOSTNAME=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo localhost); echo \"Packager host: $REACT_NATIVE_PACKAGER_HOSTNAME\"; expo start --clear --lan'",
     "reset-project": "node ./scripts/reset-project.js",

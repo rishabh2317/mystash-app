@@ -1,3 +1,4 @@
+import { PRODUCT_CARD_LAYOUT } from '@/src/ui/productCardLayout';
 import { useQualifiedExposure } from '@/src/analytics/hooks';
 import React, { useEffect } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -74,13 +75,7 @@ type Props = {
 };
 
 /** Square media in the Collection card; the rail card uses a full-width crop. */
-export const PRODUCT_CARD_LAYOUT = {
-  collectionThumbSize: 96,
-  relatedMediaAspect: 1,
-  miniMediaAspect: 1,
-  standardThumb: 88,
-  compactThumb: 56,
-} as const;
+export { PRODUCT_CARD_LAYOUT } from '@/src/ui/productCardLayout';
 const COLLECTION_THUMB_SIZE = PRODUCT_CARD_LAYOUT.collectionThumbSize;
 const RELATED_MEDIA_ASPECT = PRODUCT_CARD_LAYOUT.relatedMediaAspect;
 const MINI_MEDIA_ASPECT = PRODUCT_CARD_LAYOUT.miniMediaAspect;
@@ -451,7 +446,7 @@ export function ProductCard({
   }
 
   if (variant === 'related') {
-    const inset = 6;
+    const inset = PRODUCT_CARD_LAYOUT.relatedInset;
     return (
       <View
         ref={exposureRef}

@@ -1,0 +1,11 @@
+[
+  {"input":"https://www.instagram.com/reel/DInQfD9znll/","ok":true},
+  {"input":"See this https://youtube.com/shorts/ASkP2CRZOfc!","ok":true},
+  {"input":"https://www.shop.example/products/brown-bag","ok":true},
+  {"input":"","ok":false},
+  {"input":"nothing shared","ok":false},
+  {"input":"javascript:alert(1)","ok":false},
+  {"input":"http://127.0.0.1/private","ok":false},
+  {"input":"https://user:password@example.com/private","ok":false},
+  {"input":"https://mystash.local/path","ok":false}
+]

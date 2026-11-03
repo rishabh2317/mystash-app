@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 
 import { TopBar } from '@/components/chrome/TopBar';
+import { NativePendingShares } from '@/components/search/NativePendingShares';
+import { ActionButton } from '@/components/ui/ActionButton';
 import { ShareActivityCard } from '@/components/search/ShareActivityCard';
 import { ShareActivityCardSkeleton } from '@/components/search/ShareActivityCardSkeleton';
 import { SkeletonStack } from '@/components/status/SkeletonStack';
@@ -24,7 +26,7 @@ export default function YourSharesScreen() {
   const router = useRouter();
   const { tokens } = useThemeMode();
   const { user, loading: authLoading } = useAuth();
-  const { shares, loaded, refresh } = useImportSharesPoll({ enabled: Boolean(user) });
+  const { shares, loaded, refresh,loadMore,hasMore,loadingMore,loadMoreError } = useImportSharesPoll({ enabled: Boolean(user),history:process.env.EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED==='true' });
   const items = useMemo(() => shareActivityHistoryItems(shares), [shares]);
 
   const onRetry = useCallback(
@@ -38,7 +40,7 @@ export default function YourSharesScreen() {
   const onDelete = useCallback(
     async (importId: string) => {
       await deleteUserImport(importId);
-      await refresh();
+      await refresh(true);
     },
     [refresh],
   );
@@ -92,7 +94,9 @@ export default function YourSharesScreen() {
         keyExtractor={(item) => item.importId}
         contentContainerStyle={styles.list}
         refreshing={false}
-        onRefresh={() => void refresh()}
+        onRefresh={() => void refresh(true)}
+        onEndReached={()=>{if(hasMore&&!loadingMore&&!loadMoreError)void loadMore();}}
+        ListFooterComponent={loadMoreError?<ActionButton label="Try loading more shares" variant="quiet" onPress={()=>void loadMore()}/>:null}
         renderItem={({ item }) => (
           <ShareActivityCard
             item={item}
@@ -109,6 +113,7 @@ export default function YourSharesScreen() {
     <View style={styles.root}>
       <LinearGradient colors={[...bg]} style={StyleSheet.absoluteFill} />
       <TopBar mode="page" title={SHARE_ACTIVITY_COPY.sharesTitle} showBack />
+      <NativePendingShares />
       {body}
     </View>
   );

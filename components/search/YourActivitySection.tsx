@@ -30,24 +30,16 @@ export function YourActivitySection({ items, loading, onRefresh }: Props) {
 
   const onRetry = useCallback(
     async (importId: string) => {
-      try {
-        await retryUserImport(importId);
-        await onRefresh();
-      } catch {
-        /* surface via next poll */
-      }
+      await retryUserImport(importId);
+      await onRefresh();
     },
     [onRefresh],
   );
 
   const onDelete = useCallback(
     async (importId: string) => {
-      try {
-        await deleteUserImport(importId);
-        await onRefresh();
-      } catch {
-        /* ignore */
-      }
+      await deleteUserImport(importId);
+      await onRefresh();
     },
     [onRefresh],
   );

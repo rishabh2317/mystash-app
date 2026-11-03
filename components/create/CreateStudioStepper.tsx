@@ -35,8 +35,10 @@ export function CreateStudioStepper({ active, progress, onPressStep }: Props) {
         {
           backgroundColor: tokens.color.canvas,
           borderBottomColor: tokens.color.divider,
-          paddingHorizontal: tokens.space.lg,
-          paddingVertical: tokens.space.sm,
+          marginBottom: tokens.space.sm,
+          paddingHorizontal: tokens.space.md,
+          paddingTop: tokens.space.sm,
+          paddingBottom: tokens.space.sm,
         },
       ]}
     >
@@ -47,11 +49,7 @@ export function CreateStudioStepper({ active, progress, onPressStep }: Props) {
           const copy = STUDIO_STEP_COPY[id];
           const isCurrent = visual === 'current';
           const isComplete = visual === 'completed';
-          const color = isCurrent
-            ? tokens.color.primary
-            : isComplete
-              ? tokens.color.text
-              : tokens.color.textMuted;
+          const color = isCurrent || isComplete ? tokens.color.text : tokens.color.textMuted;
 
           return (
             <React.Fragment key={id}>
@@ -65,29 +63,35 @@ export function CreateStudioStepper({ active, progress, onPressStep }: Props) {
                 accessibilityLabel={`${copy.index} ${copy.label}`}
                 style={({ pressed }) => [
                   styles.step,
-                  { opacity: !unlocked ? 0.45 : pressed ? tokens.motion.pressOpacity : 1 },
+                  { gap: tokens.space.xs, opacity: pressed ? tokens.motion.pressOpacity : 1 },
                 ]}
               >
-                {isComplete ? (
-                  <Ionicons name="checkmark" size={12} color={tokens.color.primary} />
-                ) : (
-                  <Text
-                    style={[
-                      typeStyle(tokens, 'tileMeta'),
-                      {
-                        color,
-                        fontFamily: tokens.fontFamily.semibold,
-                        letterSpacing: 0.6,
-                      },
-                    ]}
-                  >
-                    {copy.index}
-                  </Text>
-                )}
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      borderRadius: tokens.radius.pill,
+                      backgroundColor: isCurrent ? tokens.color.primary : isComplete ? tokens.color.primarySurface : tokens.color.surfaceSubtle,
+                    },
+                  ]}
+                >
+                  {isComplete ? (
+                    <Ionicons name="checkmark" size={16} color={tokens.color.onPrimarySurface} />
+                  ) : (
+                    <Text
+                      style={[
+                        typeStyle(tokens, 'tileTitle'),
+                        { color: isCurrent ? tokens.color.onPrimary : tokens.color.textMuted },
+                      ]}
+                    >
+                      {copy.index}
+                    </Text>
+                  )}
+                </View>
                 <Text
                   style={[
                     typeStyle(tokens, isCurrent ? 'tileTitle' : 'tileMeta'),
-                    { color, fontSize: tokens.fontSize.caption, lineHeight: tokens.lineHeight.caption },
+                    { color, fontSize: tokens.fontSize.caption, lineHeight: tokens.lineHeight.caption, flexShrink: 1 },
                   ]}
                 >
                   {copy.label}
@@ -98,6 +102,8 @@ export function CreateStudioStepper({ active, progress, onPressStep }: Props) {
                   style={[
                     styles.connector,
                     {
+                      marginHorizontal: tokens.space.xs,
+                      minWidth: tokens.space.xs,
                       backgroundColor: studioConnectorComplete(id, progress)
                         ? tokens.color.primary
                         : tokens.color.divider,
@@ -125,12 +131,12 @@ const styles = StyleSheet.create({
   step: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 2,
+    minHeight: 44,
+    flexShrink: 1,
   },
+  badge: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   connector: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
-    marginHorizontal: 10,
   },
 });

@@ -25,12 +25,13 @@ export type StudioLibrarySelection = {
 };
 
 type Props = {
+  appearance?: 'default' | 'studio';
   selectedUrl?: string | null;
   onSelect: (video: StudioLibrarySelection) => void;
 };
 
 /** Already-synced videos as a selection list — no enclosing card. */
-export function CreateStudioLibraryPicker({ selectedUrl, onSelect }: Props) {
+export function CreateStudioLibraryPicker({ selectedUrl, onSelect, appearance = 'default' }: Props) {
   const { tokens } = useThemeMode();
   const [snapshot, setSnapshot] = useState<CreatorLibrarySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export function CreateStudioLibraryPicker({ selectedUrl, onSelect }: Props) {
         </Text>
       ) : null}
       {items.length === 0 ? (
-        <Text style={[typeStyle(tokens, 'bodyMuted'), { fontSize: tokens.fontSize.caption, lineHeight: 18 }]}>
+        <Text style={typeStyle(tokens, 'caption')}>
           {CREATE_COPY.libraryEmpty}
         </Text>
       ) : (
@@ -116,6 +117,7 @@ function LibraryRow({
           borderRadius: tokens.radius.md,
           paddingVertical: tokens.space.xs,
           paddingHorizontal: tokens.space.xs,
+          gap: tokens.space.sm,
           opacity: controlOpacity(
             resolveControlPhase({ pressed, disabled: unavailable }),
             tokens.motion.pressOpacity,
@@ -124,11 +126,11 @@ function LibraryRow({
       ]}
     >
       {item.thumbnailUrl ? (
-        <Image source={{ uri: item.thumbnailUrl }} style={styles.thumb} />
+        <Image source={{ uri: item.thumbnailUrl }} style={[styles.thumb, { borderRadius: tokens.radius.sm }]} />
       ) : (
-        <View style={[styles.thumb, { backgroundColor: tokens.color.canvasEnd }]} />
+        <View style={[styles.thumb, { backgroundColor: tokens.color.canvasEnd, borderRadius: tokens.radius.sm }]} />
       )}
-      <View style={{ flex: 1, gap: 2 }}>
+      <View style={{ flex: 1, gap: tokens.space.xxs }}>
         <Text numberOfLines={1} style={typeStyle(tokens, 'tileTitle')}>
           {item.title || item.externalId}
         </Text>
@@ -152,6 +154,6 @@ function LibraryRow({
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  thumb: { width: 44, height: 58, borderRadius: 8 },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  thumb: { width: 44, height: 58 },
 });

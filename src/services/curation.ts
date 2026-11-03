@@ -1,6 +1,7 @@
 import { curationLog, curationLogIngestResult, curationLogIngestStart } from '@/src/logging/curationLog';
 import { supabase } from '@/src/services/supabase';
-import { setCurationDraft } from '@/src/state/curationDraftStore';
+import { isCurationDraftPublished, markCurationDraftPublished, removeCurationDraft, setCurationDraft } from '@/src/state/curationDraftStore';
+import { confirmPublication, createPublishSingleFlight } from './publishSingleFlight';
 import type {
   ExtractionPipelineMetaClient,
   IngestDraftPayload,
@@ -158,6 +159,10 @@ export async function loadIngestDraftPayload(ingestId: string): Promise<IngestDr
     .maybeSingle();
 
   if (irErr || !ir) return null;
+  if (ir.status === 'published' || ir.status === 'rejected') {
+    return { ingestId: ir.id, sourceUrl: ir.source_url, platform: ir.platform ?? 'unknown',
+      status: ir.status, products: [] };
+  }
 
   const { data: rows } = await supabase
     .from('ingest_draft_products')
@@ -343,7 +348,7 @@ export async function listUserDraftIngests(): Promise<UserDraftIngestSummary[]> 
     return [];
   }
 
-  return (data ?? []).map((row) => ({
+  return (data ?? []).filter((row) => !isCurationDraftPublished(row.id)).map((row) => ({
     id: row.id as string,
     sourceUrl: row.source_url as string,
     status: row.status as string,
@@ -358,8 +363,14 @@ export async function listUserDraftIngests(): Promise<UserDraftIngestSummary[]> 
  * Product discovery continues in the Collection Editor (UX-CREATE-B.2).
  */
 export async function loadOrResumeIngestDraft(ingestId: string): Promise<IngestDraftPayload | null> {
+  if (isCurationDraftPublished(ingestId)) return null;
   const payload = await loadIngestDraftPayload(ingestId);
-  if (!payload) return null;
+  if (!payload || isCurationDraftPublished(ingestId)) return null;
+  if (payload.status === 'published' || payload.status === 'rejected') {
+    if (payload.status === 'published') markCurationDraftPublished(ingestId);
+    else removeCurationDraft(ingestId);
+    return null;
+  }
   setCurationDraft(ingestId, payload);
   return payload;
 }
@@ -773,6 +784,9 @@ async function invokePublishIngest(
   }
 }
 
+type PublishSelectionResult = { ok: boolean; error?: string; videoId?: string; collectionId?: string };
+const publishOnce = createPublishSingleFlight<PublishSelectionResult>();
+
 export async function publishIngestSelection(
   ingestId: string,
   selectedProductIds: string[],
@@ -788,17 +802,30 @@ export async function publishIngestSelection(
   if (ids.length === 0) {
     return { ok: false, error: 'No products selected to publish.' };
   }
-  const result = await invokePublishIngest({
-    ingest_id: draft.ingestId,
-    selected_product_ids: ids,
-    source_url: draft.sourceUrl,
-    platform: draft.platform,
-    reject_all: false,
-  });
-  if (result.ok) {
-    return { ok: true, videoId: result.videoId, collectionId: result.collectionId };
-  }
-  return { ok: false, error: result.error ?? 'Publish failed' };
+  const { data: sessionData } = await supabase.auth.getSession();
+  const ownerId = sessionData.session?.user.id;
+  if (!ownerId) return { ok: false, error: 'Sign in required.' };
+  return publishOnce(`${ownerId}:${ingestId}`, async () => {
+    const response = await invokePublishIngest({
+      ingest_id: draft.ingestId,
+      selected_product_ids: ids,
+      source_url: draft.sourceUrl,
+      platform: draft.platform,
+      reject_all: false,
+    });
+    // Older servers acknowledged all finalized states without returning IDs. Confirm
+    // that this is publication, not rejection, before acknowledging it as success.
+    const result = await confirmPublication(response, async () => {
+      const { data, error } = await supabase.from('ingest_requests').select('status, collection_id, video_id')
+        .eq('id', ingestId).eq('user_id', ownerId).maybeSingle();
+      return error ? null : data;
+    });
+    if (result.ok) {
+      markCurationDraftPublished(ingestId);
+      return { ok: true, videoId: result.videoId, collectionId: result.collectionId };
+    }
+    return { ok: false, error: result.error ?? 'Publish failed' };
+  }, JSON.stringify([...new Set(ids)].sort()));
 }
 
 export async function rejectIngestRequest(ingestId: string, draft: IngestDraftPayload): Promise<{ ok: boolean; error?: string }> {

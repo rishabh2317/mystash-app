@@ -35,8 +35,8 @@ describe('Edit Collection surgical UX', () => {
     assert.match(confirm, /ActionButton/);
     assert.match(confirm, /publishConfirmPrimary/);
     assert.match(confirm, /publishConfirmSecondary/);
-    assert.match(success, /layout === 'editor'/);
-    assert.match(review, /layout="editor"/);
+    assert.doesNotMatch(success, /layout ===|layout\?:/);
+    assert.match(success, /styles\.editorCover/);
     assert.match(review, /coverUrl=\{publishedCoverUrl\}/);
     const copy = readFileSync(join(ROOT, 'src/ui/createCopy.ts'), 'utf8');
     assert.match(copy, /editorPasteProductLink: 'Paste product link'/);

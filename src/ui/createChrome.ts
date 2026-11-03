@@ -30,7 +30,7 @@ export function createFieldColors(
 export function createPrimaryButtonStyle(tokens: ThemeTokens, flags: ControlFlags = {}) {
   const phase = resolveControlPhase(flags);
   return {
-    backgroundColor: tokens.color.cta,
+    backgroundColor: tokens.color.primary,
     opacity: controlOpacity(phase, tokens.motion.pressOpacity),
     borderRadius: tokens.radius.md,
   };
@@ -59,18 +59,18 @@ export function createSegmentBadgeColors(
 ): { bg: string; fg: string } {
   if (segment === 'attention') {
     return {
-      bg: tokens.mode === 'titanium' ? 'rgba(185,28,28,0.14)' : 'rgba(252,165,165,0.2)',
+      bg: tokens.color.surfaceSubtle,
       fg: tokens.color.danger,
     };
   }
   if (segment === 'processing') {
     return {
-      bg: tokens.mode === 'titanium' ? 'rgba(180,83,9,0.14)' : 'rgba(251,191,36,0.2)',
+      bg: tokens.color.surfaceSubtle,
       fg: tokens.color.warning,
     };
   }
   return {
-    bg: tokens.mode === 'titanium' ? 'rgba(5,150,105,0.14)' : 'rgba(16,185,129,0.22)',
+    bg: tokens.color.surfaceSubtle,
     fg: tokens.color.success,
   };
 }

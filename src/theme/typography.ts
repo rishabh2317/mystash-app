@@ -14,6 +14,7 @@ import type { ThemeTokens } from '@/src/theme/tokens';
  * - tilePrice → related product price
  */
 export type TypeRole =
+  | 'caption'
   | 'chromeTitle'
   | 'sectionTitle'
   | 'tileTitle'
@@ -31,6 +32,9 @@ export type TypeRole =
 
 export function typeStyle(tokens: ThemeTokens, role: TypeRole): TextStyle {
   switch (role) {
+    case 'caption':
+      return { fontSize: tokens.fontSize.caption, lineHeight: tokens.lineHeight.caption,
+        fontFamily: tokens.fontFamily.regular, color: tokens.color.textMuted };
     case 'chromeTitle':
       return {
         fontSize: tokens.fontSize.title,

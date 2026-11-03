@@ -6,7 +6,7 @@
 import type { ImportShare, ImportShareState } from '@/src/services/importShareMap';
 import { productPagePath } from '@/src/ui/productPage';
 
-export type ShareActivityUserState = 'processing' | 'products_found' | 'no_products' | 'failed';
+export type ShareActivityUserState = 'processing' | 'products_found' | 'places_found' | 'both_found' | 'partial' | 'results_ready' | 'no_products' | 'failed';
 
 export type ShareActivityView = {
   importId: string;
@@ -14,6 +14,9 @@ export type ShareActivityView = {
   userState: ShareActivityUserState;
   createdAt: string;
   productCount: number;
+  placeCount?: number;
+  hasInFlight?: boolean;
+  canRetry?: boolean;
   contentSourceId: string | null;
   sourceUrl: string;
   title: string;
@@ -27,9 +30,9 @@ export const SHARE_ACTIVITY_COPY = {
   sectionTitle: 'Your activity',
   seeAll: 'See all',
   sharesTitle: 'Your Shares',
-  processing: 'Finding products…',
-  processingReel: 'Finding products from your Reel…',
-  processingShort: 'Finding products from your Short…',
+  processing: 'Finding products and places…',
+  processingReel: 'Finding products and places from your Reel…',
+  processingShort: 'Finding products and places from your Short…',
   processingLink: 'Finding products from your link…',
   productsFound: 'Products found',
   productsFoundOne: '1 product found',
@@ -74,6 +77,42 @@ function processingSubtitle(kind: ImportShare['kind']): string {
   return SHARE_ACTIVITY_COPY.processingLink;
 }
 
+function countLabel(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+function resultSubtitle(share: ImportShare): string {
+  const products = share.resultProductCount ?? share.productCount;
+  const places = share.placeCount ?? 0;
+  const found = [products ? countLabel(products, 'product') : '', places ? countLabel(places, 'place') : '']
+    .filter(Boolean).join(' · ');
+  const running = [share.productStatus === 'running' ? 'products' : '', share.placeStatus === 'running' ? 'places' : '']
+    .filter(Boolean).join(' and ');
+  const failures = [share.productStatus === 'failed' ? 'Products couldn’t finish' : '',
+    share.placeStatus === 'failed' ? (places ? 'Place verification couldn’t finish' : 'Places couldn’t finish') : '']
+    .filter(Boolean).join(' · ');
+  if (share.timedOut) return [found ? `${found} found` : '', 'Couldn’t finish in time'].filter(Boolean).join(' · ');
+  if (share.hasInFlight && !running) return [found ? `${found} found` : '', 'Finishing discovery…'].filter(Boolean).join(' · ');
+  if (running) return [found ? `${found} found` : '', `Finding ${running}…`, failures].filter(Boolean).join(' · ');
+  if (failures) return [found ? `${found} found` : '', failures].filter(Boolean).join(' · ');
+  if (found) return `${found} found`;
+  if (share.productStatus === 'complete' && share.placeStatus === 'complete') {
+    return share.kind === 'web' ? 'No products found' : 'No products or places found';
+  }
+  return 'Results ready';
+}
+
+function resultUserState(share: ImportShare): ShareActivityUserState {
+  const products = share.resultProductCount ?? share.productCount;
+  const places = share.placeCount ?? 0;
+  if (share.hasInFlight) return products || places ? 'partial' : 'processing';
+  if (share.canRetry) return products || places ? 'partial' : 'failed';
+  if (products && places) return 'both_found';
+  if (places) return 'places_found';
+  if (products) return 'products_found';
+  return share.productStatus === 'complete' && share.placeStatus === 'complete' ? 'no_products' : 'results_ready';
+}
+
 function outcomeSubtitle(share: ImportShare, userState: ShareActivityUserState): string {
   if (userState === 'processing') return processingSubtitle(share.kind);
   if (userState === 'no_products') return SHARE_ACTIVITY_COPY.noProducts;
@@ -90,21 +129,26 @@ function outcomeSubtitle(share: ImportShare, userState: ShareActivityUserState):
 }
 
 export function mapImportShareToActivity(share: ImportShare): ShareActivityView {
-  const userState = shareActivityUserState(share.state);
+  const userState = share.resultVersion === 1 ? resultUserState(share)
+    : share.state === 'ready' && share.productCount === 0 ? 'results_ready' : shareActivityUserState(share.state);
   const platformLabel = sharePlatformLabel(share.kind);
   return {
     importId: share.importId,
     kind: share.kind,
     userState,
     createdAt: share.createdAt,
-    productCount: share.productCount,
+    productCount: share.resultProductCount ?? share.productCount,
+    placeCount: share.placeCount ?? 0,
+    hasInFlight: share.hasInFlight ?? share.state === 'looking',
+    canRetry: share.canRetry ?? share.state === 'couldnt_finish',
     contentSourceId: share.contentSourceId,
     sourceUrl: share.sourceUrl,
     title: platformLabel,
-    subtitle: outcomeSubtitle(share, userState),
+    subtitle: share.resultVersion === 1 ? resultSubtitle(share)
+      : userState === 'results_ready' ? 'Results ready' : outcomeSubtitle(share, userState),
     imageUrl: share.primaryProduct?.imageUrl ?? share.products[0]?.imageUrl ?? null,
     platformLabel,
-    products: share.products,
+    products: share.resultProducts ?? share.products,
   };
 }
 
@@ -121,7 +165,7 @@ function byCreatedAtDesc(a: ImportShare, b: ImportShare): number {
  */
 export function shareActivityLandingItems(shares: ImportShare[]): ShareActivityView[] {
   const sorted = [...shares].sort(byCreatedAtDesc);
-  const looking = sorted.filter((s) => s.state === 'looking');
+  const looking = sorted.filter((s) => s.hasInFlight ?? s.state === 'looking');
   if (looking.length > 0) {
     return [mapImportShareToActivity(looking[0]!)];
   }
@@ -136,6 +180,7 @@ export function shareActivityHistoryItems(shares: ImportShare[]): ShareActivityV
 export type ShareActivityDestination =
   | { kind: 'product'; path: string }
   | { kind: 'bag'; path: '/cart' }
+  | { kind: 'places'; path: '/stash?segment=places' }
   | { kind: 'none' };
 
 /**
@@ -146,8 +191,11 @@ export function shareActivityDestination(
   share: Pick<
     ImportShare,
     'state' | 'productCount' | 'primaryProduct' | 'contentSourceId' | 'importId'
-  >,
+  > & Partial<Pick<ImportShare, 'placeCount' | 'resultProductCount'>>,
 ): ShareActivityDestination {
+  if ((share.placeCount ?? 0) > 0 && (share.resultProductCount ?? share.productCount) === 0) {
+    return { kind: 'places', path: '/stash?segment=places' };
+  }
   if (share.state === 'looking') return { kind: 'bag', path: '/cart' };
   if (share.state === 'nothing_yet' || share.state === 'couldnt_finish') return { kind: 'none' };
   if (share.state !== 'ready') return { kind: 'none' };
@@ -194,8 +242,12 @@ export function shareActivityStateLabel(userState: ShareActivityUserState): stri
       return 'Processing';
     case 'products_found':
       return SHARE_ACTIVITY_COPY.productsFound;
+    case 'places_found': return 'Places found';
+    case 'both_found': return 'Products and places found';
+    case 'partial': return 'Partial results';
+    case 'results_ready': return 'Results ready';
     case 'no_products':
-      return 'No products';
+      return 'No results';
     case 'failed':
       return 'Failed';
   }

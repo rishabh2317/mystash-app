@@ -1,0 +1,888 @@
+{
+  "provenance": "Synthetic repository response fixtures frozen for offline replay; not production captures. Names and payload shapes reuse PlaceResolver/ProductResolver tests; staged/failure combinations extend those fixtures.",
+  "timing": "Actual local wall time with injected fixed-delay providers; not live-service latency",
+  "fixtureCount": 8,
+  "repeats": 3,
+  "summaries": [
+    {
+      "fixture": "product-only",
+      "samples": [
+        {
+          "before": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 1,
+              "mediaAi": 0,
+              "visionFeatures": 0,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 14.663499999999999,
+            "firstPlaceMs": null,
+            "firstProductMs": 14.624000000000024
+          },
+          "after": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 1,
+              "mediaAi": 0,
+              "visionFeatures": 0,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 13.707332999999949,
+            "firstPlaceMs": null,
+            "firstProductMs": 13.597624999999994
+          }
+        },
+        {
+          "before": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 1,
+              "mediaAi": 0,
+              "visionFeatures": 0,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 11.922624999999925,
+            "firstPlaceMs": null,
+            "firstProductMs": 11.895791999999915
+          },
+          "after": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 1,
+              "mediaAi": 0,
+              "visionFeatures": 0,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 12.182375000000093,
+            "firstPlaceMs": null,
+            "firstProductMs": 12.125583000000006
+          }
+        },
+        {
+          "before": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 1,
+              "mediaAi": 0,
+              "visionFeatures": 0,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 10.888709000000063,
+            "firstPlaceMs": null,
+            "firstProductMs": 10.871000000000095
+          },
+          "after": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 1,
+              "mediaAi": 0,
+              "visionFeatures": 0,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 10.817625000000021,
+            "firstPlaceMs": null,
+            "firstProductMs": 10.736041
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "place-only",
+      "samples": [
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 101.47974999999997,
+            "firstPlaceMs": 101.30224999999996,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 79.67741699999999,
+            "firstPlaceMs": 33.624124999999935,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 101.84624999999994,
+            "firstPlaceMs": 101.46383300000002,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 81.43937499999993,
+            "firstPlaceMs": 33.03379199999995,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 97.98404099999993,
+            "firstPlaceMs": 97.89608300000009,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 79.23691699999995,
+            "firstPlaceMs": 32.39691700000003,
+            "firstProductMs": null
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "mixed-later-product",
+      "samples": [
+        {
+          "before": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 2,
+              "mediaAi": 2,
+              "visionFeatures": 6,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 75.91283399999998,
+            "firstPlaceMs": 75.47775000000001,
+            "firstProductMs": 54.78041699999994
+          },
+          "after": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 2,
+              "mediaAi": 2,
+              "visionFeatures": 6,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 53.27304200000003,
+            "firstPlaceMs": 34.30983399999991,
+            "firstProductMs": 53.07708400000001
+          }
+        },
+        {
+          "before": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 2,
+              "mediaAi": 2,
+              "visionFeatures": 6,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 74.91466700000001,
+            "firstPlaceMs": 74.62024999999994,
+            "firstProductMs": 51.00820799999997
+          },
+          "after": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 2,
+              "mediaAi": 2,
+              "visionFeatures": 6,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 52.329083999999966,
+            "firstPlaceMs": 34.383959000000004,
+            "firstProductMs": 51.897208999999975
+          }
+        },
+        {
+          "before": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 2,
+              "mediaAi": 2,
+              "visionFeatures": 6,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 74.47533300000009,
+            "firstPlaceMs": 73.45287500000018,
+            "firstProductMs": 52.70875000000001
+          },
+          "after": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 2,
+              "mediaAi": 2,
+              "visionFeatures": 6,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 53.55766599999993,
+            "firstPlaceMs": 33.31074999999987,
+            "firstProductMs": 52.653458
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "hidden-merchandise-stage3",
+      "samples": [
+        {
+          "before": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 101.47095800000011,
+            "firstPlaceMs": 101.18587500000012,
+            "firstProductMs": 79.39983299999994
+          },
+          "after": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 81.7941249999999,
+            "firstPlaceMs": 32.87637500000005,
+            "firstProductMs": 81.47066700000005
+          }
+        },
+        {
+          "before": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 101.54795799999988,
+            "firstPlaceMs": 101.3052909999999,
+            "firstProductMs": 78.56070799999998
+          },
+          "after": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 80.6320830000002,
+            "firstPlaceMs": 34.270292000000154,
+            "firstProductMs": 80.33233300000006
+          }
+        },
+        {
+          "before": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 102.10216699999978,
+            "firstPlaceMs": 101.18866700000012,
+            "firstProductMs": 80.54516699999999
+          },
+          "after": {
+            "productNames": [
+              "Sony WH-1000XM5"
+            ],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 77.23454200000015,
+            "firstPlaceMs": 33.06379199999992,
+            "firstProductMs": 76.98100000000022
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "ambiguous-place",
+      "samples": [
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 101.09875000000011,
+            "firstPlaceMs": 100.86058300000013,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 103.02837499999987,
+            "firstPlaceMs": 102.71645899999976,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 101.86904199999981,
+            "firstPlaceMs": 101.75587499999983,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 104.83062500000005,
+            "firstPlaceMs": 104.43237500000032,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 99.08345899999995,
+            "firstPlaceMs": 98.99337500000001,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 101.76504100000011,
+            "firstPlaceMs": 101.30720800000017,
+            "firstProductMs": null
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "generic-place",
+      "samples": [
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 79.80687500000022,
+            "firstPlaceMs": null,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 79.67808400000013,
+            "firstPlaceMs": null,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 79.12691600000016,
+            "firstPlaceMs": null,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 81.33095800000001,
+            "firstPlaceMs": null,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 79.52700000000004,
+            "firstPlaceMs": null,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 0
+            },
+            "peak": 0,
+            "totalMs": 78.70212500000025,
+            "firstPlaceMs": null,
+            "firstProductMs": null
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "provider-failure-three-places",
+      "samples": [
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head",
+              "Tanah Lot",
+              "Uluwatu Temple"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 3
+            },
+            "peak": 1,
+            "totalMs": 169.02183300000024,
+            "firstPlaceMs": 100.1566670000002,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head",
+              "Tanah Lot",
+              "Uluwatu Temple"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 3
+            },
+            "peak": 2,
+            "totalMs": 80.99662499999977,
+            "firstPlaceMs": 77.06808299999966,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head",
+              "Tanah Lot",
+              "Uluwatu Temple"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 3
+            },
+            "peak": 1,
+            "totalMs": 149.56433300000026,
+            "firstPlaceMs": 98.33941600000026,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head",
+              "Tanah Lot",
+              "Uluwatu Temple"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 3
+            },
+            "peak": 2,
+            "totalMs": 84.27949999999964,
+            "firstPlaceMs": 80.41516699999966,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head",
+              "Tanah Lot",
+              "Uluwatu Temple"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 3
+            },
+            "peak": 1,
+            "totalMs": 150.61545899999965,
+            "firstPlaceMs": 100.15483399999994,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head",
+              "Tanah Lot",
+              "Uluwatu Temple"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 3
+            },
+            "peak": 2,
+            "totalMs": 80.59191599999986,
+            "firstPlaceMs": 77.62599999999975,
+            "firstProductMs": null
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "duplicate-mention",
+      "samples": [
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 99.751667,
+            "firstPlaceMs": 99.45004199999994,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 80.03529200000003,
+            "firstPlaceMs": 33.43404200000032,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 100.15791700000045,
+            "firstPlaceMs": 99.86562500000036,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 81.60183300000062,
+            "firstPlaceMs": 33.25350000000071,
+            "firstProductMs": null
+          }
+        },
+        {
+          "before": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 99.51375000000007,
+            "firstPlaceMs": 99.2670420000004,
+            "firstProductMs": null
+          },
+          "after": {
+            "productNames": [],
+            "placeNames": [
+              "Potato Head"
+            ],
+            "calls": {
+              "reasoning": 3,
+              "mediaAi": 4,
+              "visionFeatures": 26,
+              "placeSearch": 1
+            },
+            "peak": 1,
+            "totalMs": 81.98583299999973,
+            "firstPlaceMs": 33.52637500000037,
+            "firstProductMs": null
+          }
+        }
+      ]
+    }
+  ]
+}

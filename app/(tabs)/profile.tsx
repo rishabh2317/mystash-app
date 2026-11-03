@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -97,6 +97,7 @@ export default function ProfileScreen() {
   const [editVisible, setEditVisible] = useState(false);
   const [editPending, setEditPending] = useState(false);
   const loadGen = useRef(0);
+  const profileOwner = useRef<string | null>(null);
 
   // OD-12: resume ADD_TO_CART / FOLLOW_CREATOR / SAVE_COLLECTION after successful auth.
   useEffect(() => {
@@ -179,18 +180,20 @@ export default function ProfileScreen() {
       if (gen !== loadGen.current) return;
       setCreator(me);
       setProfileLoading(false);
+      return me;
     } catch (e) {
       if (gen !== loadGen.current) return;
       setProfileLoading(false);
       setProfileError(e instanceof Error ? e.message : 'Could not load profile');
-      setCreator(null);
     }
   }, []);
 
   const loadCollections = useCallback(async (creatorId: string) => {
+    const gen = loadGen.current;
     setCollectionsLoading(true);
     try {
       const page = await listCreatorCollections(creatorId, { limit: 20 });
+      if (gen !== loadGen.current) return;
       setCollections(page.collections);
       setCreator((current) =>
         current
@@ -204,39 +207,48 @@ export default function ProfileScreen() {
           : current,
       );
     } catch {
-      setCollections([]);
+      // Keep the last loaded grid when a background refresh fails.
     } finally {
-      setCollectionsLoading(false);
+      if (gen === loadGen.current) setCollectionsLoading(false);
     }
   }, []);
 
   const loadSaved = useCallback(async () => {
+    const gen = loadGen.current;
     setSavedLoading(true);
     try {
       const page = await loadSavedCollections();
+      if (gen !== loadGen.current) return;
       setSaved(page.items);
     } catch {
-      setSaved([]);
+      // Keep the last loaded grid when a background refresh fails.
     } finally {
-      setSavedLoading(false);
+      if (gen === loadGen.current) setSavedLoading(false);
     }
   }, []);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    if (profileOwner.current !== (user?.id ?? null)) {
+      profileOwner.current = user?.id ?? null;
+      setCreator(null);
+      setCollections([]);
+      setSaved([]);
+    }
     if (!user || loading || !emailVerified || passwordRecoveryPending) {
       setCreator(null);
       setCollections([]);
       setSaved([]);
-      return;
+      return () => { ++loadGen.current; };
     }
-    void loadProfile();
-  }, [user, loading, emailVerified, passwordRecoveryPending, loadProfile]);
-
-  useEffect(() => {
-    if (!creator?.userId) return;
-    void loadCollections(creator.userId);
-    void loadSaved();
-  }, [creator?.userId, loadCollections, loadSaved]);
+    const request = loadProfile();
+    const gen = loadGen.current;
+    void request.then(me => {
+      if (!me || gen !== loadGen.current) return;
+      void loadCollections(me.userId);
+      void loadSaved();
+    });
+    return () => { ++loadGen.current; };
+  }, [user, loading, emailVerified, passwordRecoveryPending, loadProfile, loadCollections, loadSaved]));
 
   const onPressCollection = useCallback(
     (collection: CollectionViewModel) => {

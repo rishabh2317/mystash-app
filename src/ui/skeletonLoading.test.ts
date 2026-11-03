@@ -22,7 +22,8 @@ describe('skeleton loading contracts', () => {
   it('wired screens show skeletons instead of a full-content spinner on initial fetch', () => {
     const stash = read('app/(tabs)/stash.tsx');
     assert.match(stash, /StashHomeSkeleton/);
-    assert.match(stash, /PlaceCardSkeleton/);
+    assert.match(stash, /StashPlacesContent/);
+    assert.match(read('components/place/StashPlacesContent.tsx'), /PlaceCardSkeleton/);
     assert.match(stash, /resolveListLoadState/);
 
     const product = read('app/product/[productId].tsx');

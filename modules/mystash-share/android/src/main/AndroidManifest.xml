@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <application>
+    <activity android:name="expo.modules.mystashshare.ShareActivity" android:exported="false"
+      android:excludeFromRecents="true" android:taskAffinity="" android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+  </application>
+</manifest>

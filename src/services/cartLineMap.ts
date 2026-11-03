@@ -3,6 +3,7 @@ import type { CatalogProductViewModel, CatalogVerificationStatus } from '@/src/t
 export type CartItemAvailability = 'AVAILABLE' | 'UNAVAILABLE' | 'NO_DESTINATION';
 
 export type CartItemSource = {
+  matchKind?: 'similar';
   collectionId?: string | null;
   creatorId?: string | null;
   collectionProductTagId?: string | null;
@@ -75,6 +76,7 @@ function mapSource(raw: unknown): CartItemSource | null {
   if (!raw || typeof raw !== 'object') return null;
   const s = raw as Record<string, unknown>;
   const source: CartItemSource = {
+    ...(s.matchKind === 'similar' ? { matchKind: 'similar' as const } : {}),
     collectionId: typeof s.collectionId === 'string' ? s.collectionId : null,
     creatorId: typeof s.creatorId === 'string' ? s.creatorId : null,
     collectionProductTagId:

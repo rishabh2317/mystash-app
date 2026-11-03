@@ -55,7 +55,8 @@ export function mapAggregateToCollectionViewModel(
     collectionId: collection.id,
     slug: collection.slug,
     title: collection.title,
-    heroThumbnailUrl: collection.heroThumbnailUrl,
+    heroThumbnailUrl: collection.heroThumbnailUrl?.trim() ||
+      aggregate.media.find(media => media.isPrimary)?.thumbnailUrl?.trim() || null,
     productCount,
     publishedAt: collection.publishedAt,
     creator: {

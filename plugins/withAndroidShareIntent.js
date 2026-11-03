@@ -73,6 +73,12 @@ import android.os.Bundle
 class ShareIntentActivity : Activity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    val enabledId = resources.getIdentifier("mystash_share_enabled", "string", packageName)
+    if (enabledId != 0 && getString(enabledId) == "true") {
+      startActivity(Intent(intent).setClass(this, expo.modules.mystashshare.ShareActivity::class.java))
+      finish()
+      return
+    }
     startActivity(importIntent(sharedText(intent)))
     finish()
   }

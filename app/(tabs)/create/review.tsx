@@ -1,4 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext';
+import { useIsFocused } from '@react-navigation/native';
 import {
   ProductDetailsSheet,
   ReviewProductCard,
@@ -82,7 +83,7 @@ import { transformToReviewEmbedUrl } from '@/src/utils/videoUtils';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -124,6 +125,7 @@ export default function CreateReviewScreen() {
         : undefined;
   const openManualOnLoad = modeParam === 'manual';
   const router = useRouter();
+  const focused = useIsFocused();
   const navigation = useNavigation();
   const { user, loading: authLoading } = useAuth();
   const handleBuy = useProductBuyHandler();
@@ -152,6 +154,16 @@ export default function CreateReviewScreen() {
   const [publishError, setPublishError] = useState<string | null>(null);
   const [storyTitleError, setStoryTitleError] = useState<string | null>(null);
   const [publishPhase, setPublishPhase] = useState<PublishRitualPhase>('idle');
+  const publishLock = useRef(false);
+  const publishEpoch = useRef(0);
+  const publishOwner = useRef(user?.id);
+  publishOwner.current = user?.id;
+  useEffect(() => {
+    publishEpoch.current += 1;
+    publishLock.current = false;
+    setPublishPhase('idle');
+    setBusy(false);
+  }, [user?.id]);
   const [publishedCollectionId, setPublishedCollectionId] = useState<string | null>(null);
   const [publishedTitle, setPublishedTitle] = useState('');
   const [publishedProductCount, setPublishedProductCount] = useState(0);
@@ -711,16 +723,21 @@ export default function CreateReviewScreen() {
   };
 
   const confirmPublish = async () => {
+    if (publishLock.current || publishPhase === 'success') return;
     if (!readiness.ready || !canPublish || selectedIds.length < 1) {
       setPublishPhase('idle');
       setPublishError(CREATE_COPY.editorPublishSelectBody);
       return;
     }
     setPublishPhase('publishing');
+    publishLock.current = true;
+    const owner = user?.id, epoch = publishEpoch.current;
+    const current = () => publishOwner.current === owner && publishEpoch.current === epoch;
     setBusy(true);
     setPublishError(null);
     try {
       const res = await publishIngestSelection(draft.ingestId, selectedIds, draft);
+      if (!current()) return;
       if (!res.ok) {
         setPublishPhase('idle');
         setPublishError(res.error ?? CREATE_COPY.publishFailedInline);
@@ -728,7 +745,6 @@ export default function CreateReviewScreen() {
       }
       const collectionId = resolvePublishSuccessCollectionId(res.collectionId);
       removeCurationDraft(draft.ingestId);
-      completeCreateFlow();
       requestFeedReload();
       setPublishedCollectionId(collectionId);
       setPublishedTitle(publishSummary.title);
@@ -736,12 +752,20 @@ export default function CreateReviewScreen() {
       setPublishedCoverUrl(draft.thumbnail ?? null);
       setPublishPhase('success');
       void maybePromptForPush('first_publish');
+    } catch (e) {
+      if (!current()) return;
+      setPublishPhase('idle');
+      setPublishError(normalizeIngestError(e) || CREATE_COPY.publishFailedInline);
     } finally {
-      setBusy(false);
+      if (current()) {
+        publishLock.current = false;
+        setBusy(false);
+      }
     }
   };
 
   const onRejectAll = async () => {
+    if (publishLock.current || busy) return;
     Alert.alert(CREATE_COPY.editorDiscardConfirmTitle, CREATE_COPY.editorDiscardConfirmBody, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -750,10 +774,13 @@ export default function CreateReviewScreen() {
         onPress: async () => {
           setBusy(true);
           try {
-            await rejectIngestRequest(draft.ingestId, draft);
+            const result = await rejectIngestRequest(draft.ingestId, draft);
+            if (!result.ok) { setPublishError(result.error ?? 'Could not discard this draft. Please retry.'); return; }
             removeCurationDraft(draft.ingestId);
             abandonCreateFlow();
             exitCreateFlowAfterAbandon(router);
+          } catch (e) {
+            setPublishError(normalizeIngestError(e));
           } finally {
             setBusy(false);
           }
@@ -1144,21 +1171,21 @@ export default function CreateReviewScreen() {
         onCancel={closePublishConfirm}
       />
       <PublishSuccessScreen
-        visible={publishPhase === 'success'}
-        layout="editor"
+        visible={publishPhase === 'success' && focused}
         coverUrl={publishedCoverUrl}
         title={publishedTitle || publishSummary.title}
         productCountLabel={publishProductCountLabel(publishedProductCount || selectedIds.length)}
         canViewCollection={Boolean(publishedCollectionId)}
-        onViewFeed={() => exitCreateFlowAfterSuccess(router)}
+        onViewFeed={() => { completeCreateFlow(); exitCreateFlowAfterSuccess(router); }}
         onViewCollection={() => {
+          completeCreateFlow();
           if (publishedCollectionId) {
             exitCreateFlowToCollection(router, publishedCollectionId);
           } else {
             exitCreateFlowAfterSuccess(router);
           }
         }}
-        onCreateAnother={() => exitCreateFlowToCreateAnother(router)}
+        onCreateAnother={() => { completeCreateFlow(); exitCreateFlowToCreateAnother(router); }}
       />
       <ProductDetailsSheet
         visible={detailsVisible}

@@ -7,6 +7,7 @@ import { CreateStudioLibraryPicker } from '@/components/create/CreateStudioLibra
 import { CreateStudioStage, configureStudioStageAnimation } from '@/components/create/CreateStudioStage';
 import { CreateStudioStepper } from '@/components/create/CreateStudioStepper';
 import { StagedProgressIndicator } from '@/components/create/StagedProgressIndicator';
+import { PublishConfirmSheet } from '@/components/create/PublishConfirmSheet';
 import { PublishSuccessScreen } from '@/components/create/PublishSuccessScreen';
 import { StatusBlock } from '@/components/status/StatusBlock';
 import { ActionButton } from '@/components/ui/ActionButton';
@@ -45,10 +46,12 @@ import {
   exitCreateFlowToCreateAnother,
   useCreateFlowReset,
 } from '@/src/state/createFlowSession';
-import { removeCurationDraft } from '@/src/state/curationDraftStore';
+import { isCurationDraftPublished, removeCurationDraft } from '@/src/state/curationDraftStore';
 import { requestFeedReload } from '@/src/services/feedRefresh';
 import { maybePromptForPush } from '@/src/notifications/permissionPrompt';
 import {
+  buildPublishConfirmSummary,
+  type PublishRitualPhase,
   publishProductCountLabel,
   resolvePublishSuccessCollectionId,
 } from '@/src/ui/createPublishRitual';
@@ -72,7 +75,7 @@ import {
 } from '@/src/ui/createStudioFlow';
 import type { DraftProduct, IngestDraftPayload } from '@/src/types/curation';
 import { detectPlatform, isSupportedVideoUrl } from '@/src/utils/videoUtils';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -95,8 +98,10 @@ type SelectedVideo = {
 
 export default function CreateSubmitScreen() {
   const router = useRouter();
+  const focused = useIsFocused();
   const { user, loading: authLoading } = useAuth();
   const tokens = useThemeTokens();
+  const styles = useMemo(() => createStudioStyles(tokens), [tokens]);
   const { showToast } = useAppToast();
   const reduceMotion = usePrefersReducedMotion();
 
@@ -119,10 +124,21 @@ export default function CreateSubmitScreen() {
   const [addingLink, setAddingLink] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState<StudioStepId>('video');
-  const [publishPhase, setPublishPhase] = useState<'idle' | 'publishing' | 'success'>('idle');
+  const [publishPhase, setPublishPhase] = useState<PublishRitualPhase>('idle');
   const [publishedCollectionId, setPublishedCollectionId] = useState<string | null>(null);
   const [publishedTitle, setPublishedTitle] = useState('');
   const [publishedProductCount, setPublishedProductCount] = useState(0);
+  const [publishedCoverUrl, setPublishedCoverUrl] = useState<string | null>(null);
+  const publishLock = useRef(false);
+  const publishEpoch = useRef(0);
+  const publishOwner = useRef(user?.id);
+  publishOwner.current = user?.id;
+  useEffect(() => {
+    publishEpoch.current += 1;
+    publishLock.current = false;
+    setPublishPhase('idle');
+    setBusy(false);
+  }, [user?.id]);
 
   const scrollRef = useRef<ScrollView>(null);
   const spyLock = useRef(false);
@@ -171,7 +187,7 @@ export default function CreateSubmitScreen() {
     if (!user) return;
     setDraftsLoading(true);
     listUserDraftIngests()
-      .then(setResumeDrafts)
+      .then((rows) => setResumeDrafts(rows.filter((row) => !isCurationDraftPublished(row.id))))
       .finally(() => setDraftsLoading(false));
   }, [user]);
 
@@ -192,6 +208,8 @@ export default function CreateSubmitScreen() {
       setFormError(null);
       setActiveStep('video');
       setPublishPhase('idle');
+      publishLock.current = false;
+      publishEpoch.current += 1;
     }, []),
   );
 
@@ -407,6 +425,7 @@ export default function CreateSubmitScreen() {
   };
 
   const onDiscard = () => {
+    if (publishLock.current || busy) return;
     Alert.alert(CREATE_COPY.editorDiscardConfirmTitle, CREATE_COPY.editorDiscardConfirmBody, [
       { text: CREATE_COPY.feedbackDismiss, style: 'cancel' },
       {
@@ -415,9 +434,13 @@ export default function CreateSubmitScreen() {
         onPress: () => {
           const current = draft;
           if (current) {
-            void rejectIngestRequest(current.ingestId, current).finally(() => {
+            setBusy(true);
+            void rejectIngestRequest(current.ingestId, current).then((result) => {
+              if (!result.ok) { setFormError(result.error ?? 'Could not discard this draft. Please retry.'); return; }
               removeCurationDraft(current.ingestId);
-            });
+              abandonCreateFlow();
+            }).catch((e) => setFormError(normalizeIngestError(e))).finally(() => setBusy(false));
+            return;
           }
           abandonCreateFlow();
         },
@@ -425,9 +448,28 @@ export default function CreateSubmitScreen() {
     ]);
   };
 
+  const publishSummary = buildPublishConfirmSummary({
+    title: storyTitle || draft?.videoTitle,
+    productCount: includedProducts.length,
+    thumbnailUrl: draft?.thumbnail,
+    previewLine: CREATE_COPY.publishConfirmPreview,
+  });
+
+  const openPublishConfirm = () => {
+    if (!draft || !canPublish || busy || publishPhase !== 'idle') return;
+    setFormError(null);
+    setPublishPhase('confirm');
+  };
+
+  const closePublishConfirm = () => {
+    if (publishPhase === 'publishing') return;
+    setPublishPhase('idle');
+  };
+
   const onPublish = async () => {
-    if (!draft) return;
+    if (!draft || publishLock.current || publishPhase !== 'confirm') return;
     if (!canPublish) {
+      setPublishPhase('idle');
       setFormError(
         processing || !selectedProductsCanPublish(draft.products, selectedProducts)
           ? CREATE_COPY.editorPublishResolvingBody
@@ -436,6 +478,9 @@ export default function CreateSubmitScreen() {
       return;
     }
     const ids = draft.products.filter((p) => p.id && selectedProducts[p.id]).map((p) => p.id);
+    publishLock.current = true;
+    const owner = user?.id, epoch = publishEpoch.current;
+    const current = () => publishOwner.current === owner && publishEpoch.current === epoch;
     setBusy(true);
     setPublishPhase('publishing');
     setFormError(null);
@@ -444,28 +489,36 @@ export default function CreateSubmitScreen() {
       if (title && title !== (draft.videoTitle ?? '').trim()) {
         await updateIngestVideoTitle(draft.ingestId, title);
       }
+      if (!current()) return;
       const res = await publishIngestSelection(draft.ingestId, ids, {
         ...draft,
         videoTitle: title || draft.videoTitle,
       });
+      if (!current()) return;
       if (!res.ok) {
         setPublishPhase('idle');
         setFormError(res.error ?? CREATE_COPY.publishFailedInline);
         return;
       }
       removeCurationDraft(draft.ingestId);
-      completeCreateFlow();
+      setResumeDrafts((rows) => rows.filter((row) => row.id !== draft.ingestId));
+      setDraft(undefined);
       requestFeedReload();
       setPublishedCollectionId(resolvePublishSuccessCollectionId(res.collectionId));
       setPublishedTitle(title || draft.videoTitle || 'Untitled Collection');
       setPublishedProductCount(ids.length);
+      setPublishedCoverUrl(draft.thumbnail ?? null);
       setPublishPhase('success');
       void maybePromptForPush('first_publish');
     } catch (e) {
+      if (!current()) return;
       setPublishPhase('idle');
       setFormError(normalizeIngestError(e) || CREATE_COPY.publishFailedInline);
     } finally {
-      setBusy(false);
+      if (current()) {
+        publishLock.current = false;
+        setBusy(false);
+      }
     }
   };
 
@@ -541,20 +594,21 @@ export default function CreateSubmitScreen() {
             subhead={CREATE_COPY.videoStageSub}
             onPressHeader={() => scrollToStep('video')}
           >
-            <Text style={[typeStyle(tokens, 'tileTitle'), { color: tokens.color.textMuted }]}>
+            <Text style={[typeStyle(tokens, 'tileTitle')]}>
               {CREATE_COPY.addVideoFrom}
             </Text>
-            <Text style={typeStyle(tokens, 'tileTitle')}>{CREATE_COPY.libraryStepTitle}</Text>
-            <CreateStudioLibraryPicker selectedUrl={selectedVideo?.sourceUrl} onSelect={applyVideo} />
+            <View style={{ gap: tokens.space.xs }}>
+              <Text style={[typeStyle(tokens, 'tileTitle')]}>
+                {CREATE_COPY.libraryStepTitle}
+              </Text>
+              <CreateStudioLibraryPicker appearance="studio" selectedUrl={selectedVideo?.sourceUrl} onSelect={applyVideo} />
+            </View>
 
-            <Text
-              style={[
-                typeStyle(tokens, 'identityBrand'),
-                { marginTop: tokens.space.xs },
-              ]}
-            >
-              {CREATE_COPY.pasteUrlAlt}
-            </Text>
+            <View style={[styles.dividerRow, { gap: tokens.space.sm, marginTop: tokens.space.xs }]}>
+              <View style={[styles.divider, { backgroundColor: tokens.color.divider }]} />
+              <Text style={typeStyle(tokens, 'identityBrand')}>{CREATE_COPY.pasteUrlAlt}</Text>
+              <View style={[styles.divider, { backgroundColor: tokens.color.divider }]} />
+            </View>
             <View
               style={[
                 styles.fieldRow,
@@ -572,6 +626,7 @@ export default function CreateSubmitScreen() {
                   setPasteUrl(value);
                   setFormError(null);
                 }}
+                accessibilityLabel={CREATE_COPY.pasteUrlTitle}
                 placeholder={CREATE_COPY.pasteUrlTitle}
                 placeholderTextColor={pasteField.placeholderTextColor}
                 autoCapitalize="none"
@@ -599,7 +654,6 @@ export default function CreateSubmitScreen() {
               <ActionButton
                 label={CREATE_COPY.usePastedUrl}
                 variant="outlinePrimary"
-                size="compact"
                 trailingIcon="chevron-forward-outline"
                 onPress={() =>
                   applyVideo({
@@ -621,14 +675,18 @@ export default function CreateSubmitScreen() {
                 {selectedVideo.thumbnail ? (
                   <Image source={{ uri: selectedVideo.thumbnail }} style={styles.previewThumb} contentFit="cover" />
                 ) : (
-                  <View style={[styles.previewThumb, { backgroundColor: tokens.color.canvasEnd }]} />
+                  <View style={[styles.previewThumb, styles.thumbPlaceholder, { backgroundColor: tokens.color.surfaceSubtle }]}>
+                    <Ionicons name="videocam-outline" size={24} color={tokens.color.textMuted} />
+                  </View>
                 )}
-                <View style={{ flex: 1, gap: 2 }}>
+                <View style={{ flex: 1, gap: tokens.space.xxs }}>
                   <Text style={typeStyle(tokens, 'tilePrice')}>{CREATE_COPY.videoSelectedBadge}</Text>
-                  <Text numberOfLines={2} style={typeStyle(tokens, 'tileTitle')}>
+                  <Text numberOfLines={2} style={[typeStyle(tokens, 'tileTitle')]}>
                     {selectedVideo.title || selectedVideo.sourceUrl}
                   </Text>
-                  <Text style={typeStyle(tokens, 'tileMeta')}>{studioPlatformLabel(selectedVideo.platform)}</Text>
+                  <Text style={[typeStyle(tokens, 'tileMeta'), { fontSize: tokens.fontSize.caption, lineHeight: tokens.lineHeight.caption }]}>
+                    {studioPlatformLabel(selectedVideo.platform)}
+                  </Text>
                 </View>
                 <Pressable
                   onPress={() => {
@@ -642,8 +700,10 @@ export default function CreateSubmitScreen() {
                     setActiveStep('video');
                   }}
                   accessibilityRole="button"
+                  accessibilityLabel={CREATE_COPY.changeVideo}
+                  style={[styles.rowAction, { borderLeftColor: tokens.color.divider }]}
                 >
-                  <Text style={[typeStyle(tokens, 'link'), { color: tokens.color.textMuted }]}>
+                  <Text style={[typeStyle(tokens, 'link'), { color: tokens.color.primary }]}>
                     {CREATE_COPY.changeVideo}
                   </Text>
                 </Pressable>
@@ -653,7 +713,6 @@ export default function CreateSubmitScreen() {
             <ActionButton
               label={CREATE_COPY.continueToProducts}
               variant="filled"
-              size="compact"
               trailingIcon="chevron-forward-outline"
               disabled={!hasVideo}
               onPress={() => scrollToStep('products')}
@@ -677,6 +736,7 @@ export default function CreateSubmitScreen() {
             onPressHeader={() => scrollToStep('products')}
           >
             <ActionChoiceRow
+              appearance="studio"
               icon="sparkles-outline"
               title={CREATE_COPY.productSourceAiTitle}
               body={CREATE_COPY.productSourceAiBody}
@@ -687,12 +747,14 @@ export default function CreateSubmitScreen() {
             />
             {extracting || processing ? (
               <StagedProgressIndicator
+                appearance="studio"
                 stages={draft ? mapVideoExtractionStages(draft) : mapManualProductLinkStages(0)}
                 hint={CREATE_COPY.editorProcessingHint}
               />
             ) : null}
 
             <ActionChoiceRow
+              appearance="studio"
               icon="link-outline"
               title={CREATE_COPY.productSourceLinkTitle}
               body={CREATE_COPY.productSourceLinkBody}
@@ -716,6 +778,7 @@ export default function CreateSubmitScreen() {
                   <TextInput
                     value={linkUrl}
                     onChangeText={setLinkUrl}
+                    accessibilityLabel={CREATE_COPY.productSourceLinkTitle}
                     placeholder={CREATE_COPY.productSourceLinkPlaceholder}
                     placeholderTextColor={productField.placeholderTextColor}
                     autoCapitalize="none"
@@ -735,8 +798,7 @@ export default function CreateSubmitScreen() {
                 <ActionButton
                   label={CREATE_COPY.productSourceLinkAction}
                   variant="outlinePrimary"
-                  size="compact"
-                  pending={addingLink}
+                    pending={addingLink}
                   disabled={!normalizeProductHttpUrl(linkUrl) || addingLink}
                   trailingIcon="chevron-forward-outline"
                   onPress={() => void onAddProductLink()}
@@ -745,6 +807,7 @@ export default function CreateSubmitScreen() {
             ) : null}
 
             <ActionChoiceRow
+              appearance="studio"
               icon="cube-outline"
               title={CREATE_COPY.productSourceInventoryTitle}
               body={CREATE_COPY.productSourceInventoryBody}
@@ -764,8 +827,8 @@ export default function CreateSubmitScreen() {
                     ) : (
                       <View style={[styles.productThumb, { backgroundColor: tokens.color.canvasEnd }]} />
                     )}
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text numberOfLines={2} style={typeStyle(tokens, 'tileTitle')}>
+                    <View style={{ flex: 1, gap: tokens.space.xxs }}>
+                      <Text numberOfLines={2} style={[typeStyle(tokens, 'tileTitle')]}>
                         {product.name}
                       </Text>
                       <Text style={typeStyle(tokens, 'tileMeta')}>
@@ -776,6 +839,7 @@ export default function CreateSubmitScreen() {
                       onPress={() => setSelectedProducts((prev) => ({ ...prev, [product.id]: false }))}
                       accessibilityRole="button"
                       accessibilityLabel={CREATE_COPY.libraryRemoveProduct}
+                      style={styles.productAction}
                     >
                       <Text style={[typeStyle(tokens, 'link'), { color: tokens.color.textMuted }]}>
                         {CREATE_COPY.libraryRemoveProduct}
@@ -790,7 +854,10 @@ export default function CreateSubmitScreen() {
                 extracting,
                 extractedCount: extractedProducts.length,
               }) ? (
-              <Text style={typeStyle(tokens, 'bodyMuted')}>{CREATE_COPY.editorNoProductsBody}</Text>
+              <View style={[styles.emptyProducts, { backgroundColor: tokens.color.surfaceSubtle, borderRadius: tokens.radius.md, padding: tokens.space.md, gap: tokens.space.sm }]}>
+                <Ionicons name="cube-outline" size={22} color={tokens.color.textMuted} />
+                <Text style={[typeStyle(tokens, 'caption'), { flex: 1 }]}>{CREATE_COPY.editorNoProductsBody}</Text>
+              </View>
             ) : null}
 
             {formError && studioStageExpanded('products', activeStep) ? (
@@ -805,7 +872,6 @@ export default function CreateSubmitScreen() {
             <ActionButton
               label={CREATE_COPY.continueToPublish}
               variant="filled"
-              size="compact"
               trailingIcon="chevron-forward-outline"
               disabled={!hasProducts}
               onPress={() => scrollToStep('publish')}
@@ -828,7 +894,9 @@ export default function CreateSubmitScreen() {
             subhead={CREATE_COPY.publishStageSub}
             onPressHeader={() => scrollToStep('publish')}
           >
-            <Text style={typeStyle(tokens, 'tileMeta')}>{CREATE_COPY.collectionPreviewLabel}</Text>
+            <Text style={[typeStyle(tokens, 'tileTitle')]}>
+              {CREATE_COPY.collectionPreviewLabel}
+            </Text>
             <View
               style={[
                 styles.previewRow,
@@ -837,15 +905,17 @@ export default function CreateSubmitScreen() {
               ]}
             >
               {selectedVideo?.thumbnail ? (
-                <Image source={{ uri: selectedVideo.thumbnail }} style={styles.previewThumb} contentFit="cover" />
+                <Image source={{ uri: selectedVideo.thumbnail }} style={styles.publishThumb} contentFit="cover" />
               ) : (
-                <View style={[styles.previewThumb, { backgroundColor: tokens.color.canvasEnd }]} />
+                <View style={[styles.publishThumb, styles.thumbPlaceholder, { backgroundColor: tokens.color.surfaceSubtle }]}>
+                  <Ionicons name="videocam-outline" size={24} color={tokens.color.textMuted} />
+                </View>
               )}
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text numberOfLines={2} style={typeStyle(tokens, 'tileTitle')}>
+              <View style={{ flex: 1, gap: tokens.space.xs }}>
+                <Text numberOfLines={2} style={[typeStyle(tokens, 'tileTitle')]}>
                   {storyTitle || selectedVideo?.title || selectedVideo?.sourceUrl}
                 </Text>
-                <Text style={typeStyle(tokens, 'tileMeta')}>{studioProductsSummaryLabel(includedProducts.length)}</Text>
+                <Text style={typeStyle(tokens, 'caption')}>{studioProductsSummaryLabel(includedProducts.length)}</Text>
                 <View style={styles.previewThumbs}>
                   {includedProducts.slice(0, 4).map((product) =>
                     product.image ? (
@@ -863,7 +933,7 @@ export default function CreateSubmitScreen() {
               </View>
             </View>
 
-            <Text style={typeStyle(tokens, 'tileTitle')}>{CREATE_COPY.editorStoryTitleLabel}</Text>
+            <Text style={typeStyle(tokens, 'body')}>{CREATE_COPY.editorStoryTitleLabel}</Text>
             <View
               style={[
                 styles.fieldRow,
@@ -877,6 +947,7 @@ export default function CreateSubmitScreen() {
               <TextInput
                 value={storyTitle}
                 onChangeText={setStoryTitle}
+                accessibilityLabel={CREATE_COPY.editorStoryTitleLabel}
                 placeholder={CREATE_COPY.editorStoryTitlePlaceholder}
                 placeholderTextColor={titleField.placeholderTextColor}
                 autoCapitalize="sentences"
@@ -892,7 +963,7 @@ export default function CreateSubmitScreen() {
                 ]}
               />
             </View>
-            <Text style={typeStyle(tokens, 'tileTitle')}>{CREATE_COPY.studioDescriptionLabel}</Text>
+            <Text style={typeStyle(tokens, 'body')}>{CREATE_COPY.studioDescriptionLabel}</Text>
             <View
               style={[
                 styles.fieldRow,
@@ -907,6 +978,7 @@ export default function CreateSubmitScreen() {
               <TextInput
                 value={storyCaption}
                 onChangeText={setStoryCaption}
+                accessibilityLabel={CREATE_COPY.studioDescriptionLabel}
                 placeholder={CREATE_COPY.studioDescriptionPlaceholder}
                 placeholderTextColor={titleField.placeholderTextColor}
                 autoCapitalize="sentences"
@@ -918,7 +990,7 @@ export default function CreateSubmitScreen() {
                     fontFamily: tokens.fontFamily.regular,
                     fontSize: tokens.fontSize.body,
                     lineHeight: tokens.lineHeight.body,
-                    minHeight: 80,
+                    minHeight: 96,
                     textAlignVertical: 'top',
                   },
                 ]}
@@ -936,64 +1008,77 @@ export default function CreateSubmitScreen() {
               label={CREATE_COPY.editorPublish}
               variant="filled"
               pending={busy || publishPhase === 'publishing'}
-              disabled={!canPublish || busy}
-              onPress={() => void onPublish()}
+              disabled={!canPublish || busy || publishPhase !== 'idle'}
+              onPress={openPublishConfirm}
             />
-            <ActionButton label={CREATE_COPY.discardCollection} variant="quiet" onPress={onDiscard} />
+            <ActionButton label={CREATE_COPY.discardCollection} variant="quiet" disabled={busy} onPress={onDiscard} />
           </CreateStudioStage>
         </View>
 
         <View
           style={{
-            paddingHorizontal: tokens.space.lg,
+            paddingHorizontal: tokens.space.md,
             gap: tokens.space.sm,
-            paddingTop: tokens.space.xl,
+            paddingTop: tokens.space.md,
           }}
         >
-          <Text style={typeStyle(tokens, 'identityBrand')}>
-            {CREATE_COPY.studioDraftsTitle}
-          </Text>
-          <Text style={[typeStyle(tokens, 'bodyMuted'), { fontSize: tokens.fontSize.caption }]}>
-            {CREATE_COPY.draftsHubSub}
-          </Text>
-          {draftsLoading ? (
-            <ActivityIndicator color={tokens.color.primary} />
-          ) : segmentedDrafts.isEmpty ? (
-            <Text style={typeStyle(tokens, 'bodyMuted')}>{CREATE_COPY.continueEmpty}</Text>
-          ) : (
-            <>
-              {segmentedDrafts.continueCreating.map((row) =>
-                renderDraftRow(row, 'continue', tokens, () =>
-                  router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(row.id)}`),
-                ),
-              )}
-              {segmentedDrafts.processing.map((row) =>
-                renderDraftRow(row, 'processing', tokens, () =>
-                  router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(row.id)}`),
-                ),
-              )}
-              {segmentedDrafts.needsAttention.map((row) =>
-                renderDraftRow(row, 'attention', tokens, () =>
-                  router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(row.id)}`),
-                ),
-              )}
-            </>
-          )}
+          <View style={[styles.dividerRow, { gap: tokens.space.sm, marginBottom: tokens.space.xs }]}>
+            <Text style={typeStyle(tokens, 'identityBrand')}>{CREATE_COPY.studioDraftsTitle}</Text>
+            <View style={[styles.divider, { backgroundColor: tokens.color.divider }]} />
+          </View>
+          <View style={[objectSurface(tokens), { backgroundColor: tokens.color.surfaceSubtle, padding: tokens.space.md, gap: tokens.space.sm }]}>
+            <View style={[styles.draftsIntro, { gap: tokens.space.sm }]}>
+              <Ionicons name="document-text-outline" size={22} color={tokens.color.textMuted} />
+              <Text style={[typeStyle(tokens, 'caption'), { flex: 1 }]}>{CREATE_COPY.draftsHubSub}</Text>
+            </View>
+            {draftsLoading ? (
+              <ActivityIndicator color={tokens.color.primary} />
+            ) : segmentedDrafts.isEmpty ? (
+              <Text style={[typeStyle(tokens, 'caption'), { fontFamily: tokens.fontFamily.medium }]}>{CREATE_COPY.continueEmpty}</Text>
+            ) : (
+              <>
+                {segmentedDrafts.continueCreating.map((row) =>
+                  renderDraftRow(row, 'continue', tokens, () =>
+                    router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(row.id)}`),
+                  ),
+                )}
+                {segmentedDrafts.processing.map((row) =>
+                  renderDraftRow(row, 'processing', tokens, () =>
+                    router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(row.id)}`),
+                  ),
+                )}
+                {segmentedDrafts.needsAttention.map((row) =>
+                  renderDraftRow(row, 'attention', tokens, () =>
+                    router.push(`/(tabs)/create/review?ingestId=${encodeURIComponent(row.id)}`),
+                  ),
+                )}
+              </>
+            )}
+          </View>
         </View>
       </ScrollView>
 
+      <PublishConfirmSheet
+        visible={publishPhase === 'confirm' || publishPhase === 'publishing'}
+        summary={publishSummary}
+        publishing={publishPhase === 'publishing'}
+        onConfirm={() => void onPublish()}
+        onCancel={closePublishConfirm}
+      />
       <PublishSuccessScreen
-        visible={publishPhase === 'success'}
+        visible={publishPhase === 'success' && focused}
+        coverUrl={publishedCoverUrl}
         title={publishedTitle}
         productCountLabel={publishProductCountLabel(publishedProductCount)}
         canViewCollection={Boolean(publishedCollectionId)}
-        onViewFeed={() => exitCreateFlowAfterSuccess(router)}
+        onViewFeed={() => { completeCreateFlow(); exitCreateFlowAfterSuccess(router); }}
         onViewCollection={() => {
+          completeCreateFlow();
           if (publishedCollectionId) exitCreateFlowToCollection(router, publishedCollectionId);
           else exitCreateFlowAfterSuccess(router);
         }}
         onCreateAnother={() => {
-          setPublishPhase('idle');
+          completeCreateFlow();
           exitCreateFlowToCreateAnother(router);
         }}
       />
@@ -1006,7 +1091,7 @@ function objectSurface(tokens: ReturnType<typeof useThemeTokens>) {
   return {
     ...chrome,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: tokens.radius.md,
+    borderRadius: tokens.radius.lg,
   };
 }
 
@@ -1016,6 +1101,7 @@ function renderDraftRow(
   tokens: ReturnType<typeof useThemeTokens>,
   onPress: () => void,
 ) {
+  const styles = createStudioStyles(tokens);
   const action =
     segment === 'processing'
       ? CREATE_COPY.processingAction
@@ -1029,22 +1115,22 @@ function renderDraftRow(
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${action} ${row.videoTitle || row.sourceUrl}`}
-      style={[styles.draftRow, objectSurface(tokens), { padding: tokens.space.sm }]}
+      style={({ pressed }) => [styles.draftRow, objectSurface(tokens), { padding: tokens.space.sm, opacity: pressed ? tokens.motion.pressOpacity : 1 }]}
     >
       {row.thumbnail ? (
         <Image source={{ uri: row.thumbnail }} style={styles.draftThumb} contentFit="cover" />
       ) : (
         <View style={[styles.draftThumb, { backgroundColor: tokens.color.canvasEnd }]} />
       )}
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={1} style={typeStyle(tokens, 'tileTitle')}>
+      <View style={{ flex: 1, gap: tokens.space.xxs }}>
+        <Text numberOfLines={2} style={[typeStyle(tokens, 'tileTitle')]}>
           {row.videoTitle || row.sourceUrl}
         </Text>
         <Text numberOfLines={1} style={typeStyle(tokens, 'tileMeta')}>
           {[draftResumeStatusLabel(row.status), updated].filter(Boolean).join(' · ')}
         </Text>
       </View>
-      <View style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+      <View style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: tokens.space.xxs }}>
         <Text style={typeStyle(tokens, 'link')}>{action}</Text>
         <Ionicons name="chevron-forward-outline" size={14} color={tokens.color.primary} />
       </View>
@@ -1052,35 +1138,42 @@ function renderDraftRow(
   );
 }
 
-const styles = StyleSheet.create({
+function createStudioStyles(tokens: ReturnType<typeof useThemeTokens>) { return StyleSheet.create({
   scroll: { flex: 1 },
   fieldRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    gap: 8,
-    minHeight: 44,
+    paddingHorizontal: tokens.space.md,
+    gap: tokens.space.xs,
+    minHeight: tokens.space.xxl,
   },
   fieldRowMultiline: {
     alignItems: 'flex-start',
-    minHeight: 88,
-    paddingVertical: 8,
+    minHeight: 112,
+    paddingVertical: tokens.space.sm,
   },
   fieldInput: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: tokens.space.xs,
   },
   previewRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: tokens.space.sm,
   },
-  previewThumb: { width: 52, height: 70, borderRadius: 8 },
-  productThumb: { width: 64, height: 64, borderRadius: 8 },
-  miniThumb: { width: 28, height: 28, borderRadius: 6 },
-  previewThumbs: { flexDirection: 'row', gap: 6 },
-  draftRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  draftThumb: { width: 40, height: 40, borderRadius: 8 },
-});
-
+  previewThumb: { width: 56, height: 64, borderRadius: tokens.radius.sm },
+  publishThumb: { width: 88, height: 104, borderRadius: tokens.radius.md },
+  productThumb: { width: 64, height: 64, borderRadius: tokens.radius.md },
+  miniThumb: { width: 36, height: 36, borderRadius: tokens.radius.sm },
+  thumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  rowAction: { minHeight: 44, justifyContent: 'center', borderLeftWidth: StyleSheet.hairlineWidth, paddingLeft: tokens.space.sm },
+  productAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: tokens.space.xxs },
+  emptyProducts: { flexDirection: 'row', alignItems: 'center' },
+  dividerRow: { flexDirection: 'row', alignItems: 'center' },
+  divider: { flex: 1, height: StyleSheet.hairlineWidth },
+  draftsIntro: { flexDirection: 'row', alignItems: 'center' },
+  previewThumbs: { flexDirection: 'row', gap: tokens.space.xs },
+  draftRow: { flexDirection: 'row', alignItems: 'center', gap: tokens.space.sm },
+  draftThumb: { width: 44, height: 52, borderRadius: tokens.radius.sm },
+}); }

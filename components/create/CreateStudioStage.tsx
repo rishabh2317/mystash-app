@@ -4,6 +4,7 @@ import { LayoutAnimation, Platform, Pressable, StyleSheet, UIManager, View } fro
 
 import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { outlineCardChrome } from '@/src/theme/tokens';
 import { typeStyle } from '@/src/theme/typography';
 import {
   STUDIO_STEP_COPY,
@@ -38,7 +39,7 @@ type Props = {
   children: React.ReactNode;
 };
 
-/** Collapsed compact row or expanded editorial stage. */
+/** One numbered card per stage; expansion and locking remain flow-owned. */
 export function CreateStudioStage({
   step,
   expanded,
@@ -56,10 +57,20 @@ export function CreateStudioStage({
   const complete = visual === 'completed';
   const current = visual === 'current';
   const headerDisabled = locked && !complete && !current;
-  const titleColor = locked ? tokens.color.textMuted : tokens.color.text;
+  const titleColor = tokens.color.text;
 
   return (
-    <View style={{ paddingHorizontal: tokens.space.lg }}>
+    <View
+      style={[
+        styles.card,
+        outlineCardChrome(tokens),
+        {
+          marginHorizontal: tokens.space.md,
+          marginBottom: tokens.space.sm,
+          borderRadius: tokens.radius.xl,
+        },
+      ]}
+    >
       <Pressable
         onPress={onPressHeader}
         disabled={headerDisabled}
@@ -69,24 +80,30 @@ export function CreateStudioStage({
         style={({ pressed }) => [
           styles.header,
           {
-            paddingVertical: expanded ? tokens.space.md : tokens.space.sm + 2,
+            padding: tokens.space.md,
+            gap: tokens.space.sm,
             opacity: pressed && !headerDisabled ? tokens.motion.pressOpacity : 1,
           },
         ]}
       >
-        <View style={styles.indexCol}>
+        <View
+          style={[
+            styles.indexCol,
+            {
+              backgroundColor: current || complete ? tokens.color.primarySurface : tokens.color.surfaceSubtle,
+              borderRadius: tokens.radius.pill,
+            },
+          ]}
+        >
           {complete && !expanded ? (
-            <Ionicons name="checkmark" size={14} color={tokens.color.primary} />
-          ) : locked && !expanded ? (
-            <Ionicons name="lock-closed-outline" size={13} color={tokens.color.textMuted} />
+            <Ionicons name="checkmark" size={18} color={tokens.color.onPrimarySurface} />
           ) : (
             <Text
               style={[
-                typeStyle(tokens, 'tileMeta'),
+                typeStyle(tokens, 'caption'),
                 {
-                  color: current ? tokens.color.primary : tokens.color.textMuted,
+                  color: current ? tokens.color.onPrimarySurface : tokens.color.textMuted,
                   fontFamily: tokens.fontFamily.semibold,
-                  letterSpacing: 1,
                 },
               ]}
             >
@@ -94,48 +111,43 @@ export function CreateStudioStage({
             </Text>
           )}
         </View>
-        <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flex: 1, gap: tokens.space.xxs }}>
           <Text
             style={[
               typeStyle(tokens, 'sectionTitle'),
-              { color: titleColor, fontSize: expanded ? tokens.fontSize.title : tokens.fontSize.bodyStrong },
+              { color: titleColor },
             ]}
           >
             {copy.label}
           </Text>
           <Text
-            style={[
-              typeStyle(tokens, 'bodyMuted'),
-              { fontSize: tokens.fontSize.caption, lineHeight: tokens.lineHeight.caption },
-            ]}
+            style={typeStyle(tokens, 'caption')}
             numberOfLines={2}
           >
             {expanded ? subhead : summary}
           </Text>
         </View>
-        {headerDisabled ? null : (
+        <View style={[styles.accessories, { gap: tokens.space.xs, paddingTop: tokens.space.xs }]}>
+          {locked ? <Ionicons name="lock-closed-outline" size={16} color={tokens.color.textMuted} /> : null}
           <Ionicons
-            name={expanded ? 'chevron-down-outline' : 'chevron-forward-outline'}
-            size={16}
+            name={expanded ? 'chevron-up-outline' : 'chevron-down-outline'}
+            size={18}
             color={tokens.color.textMuted}
           />
-        )}
+        </View>
       </Pressable>
-      {expanded ? <View style={{ gap: tokens.space.md, paddingBottom: tokens.space.xl }}>{children}</View> : null}
-      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: tokens.color.divider }} />
+      {expanded ? (
+        <View style={{ gap: tokens.space.sm, padding: tokens.space.md, paddingTop: tokens.space.xs }}>
+          {children}
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  indexCol: {
-    width: 22,
-    paddingTop: 4,
-    alignItems: 'center',
-  },
+  card: { borderWidth: StyleSheet.hairlineWidth },
+  header: { flexDirection: 'row', alignItems: 'flex-start' },
+  indexCol: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  accessories: { flexDirection: 'row', alignItems: 'center' },
 });

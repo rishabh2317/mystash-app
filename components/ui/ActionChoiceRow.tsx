@@ -9,6 +9,8 @@ import { typeStyle } from '@/src/theme/typography';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 
 type Props = {
+  /** Roomier card treatment for the single-scroll Creator Studio. */
+  appearance?: 'default' | 'studio';
   title: string;
   body: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -26,6 +28,7 @@ type Props = {
  * Hairline + radius.md + chevron — not an object card.
  */
 export function ActionChoiceRow({
+  appearance = 'default',
   title,
   body,
   icon,
@@ -38,6 +41,7 @@ export function ActionChoiceRow({
   accessibilityLabel,
 }: Props) {
   const { tokens } = useThemeMode();
+  const studio = appearance === 'studio';
   const inert = disabled || locked || !onPress;
   const chrome = outlineCardChrome(tokens);
 
@@ -58,26 +62,57 @@ export function ActionChoiceRow({
           backgroundColor: selected ? tokens.color.primarySurface : chrome.backgroundColor,
           paddingHorizontal: tokens.space.md,
           paddingVertical: tokens.space.sm,
+          minHeight: studio ? 72 : 56,
           gap: tokens.space.sm,
-          opacity: controlOpacity(
+          opacity: studio && locked ? 1 : controlOpacity(
             resolveControlPhase({ pressed, disabled: inert, pending }),
             tokens.motion.pressOpacity,
           ),
         },
       ]}
     >
-      <Ionicons
-        name={icon}
-        size={20}
-        color={locked ? tokens.color.textMuted : tokens.color.primary}
-      />
-      <View style={styles.copy}>
-        <View style={styles.titleRow}>
-          <Text style={[typeStyle(tokens, 'tileTitle'), { flex: 1 }]} numberOfLines={1}>
+      <View
+        style={studio ? {
+          width: 36,
+          height: 36,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: tokens.radius.pill,
+          backgroundColor: locked ? tokens.color.surfaceSubtle : tokens.color.primarySurface,
+        } : undefined}
+      >
+        <Ionicons
+          name={icon}
+          size={studio ? 22 : 20}
+          color={locked ? tokens.color.textMuted : studio ? tokens.color.onPrimarySurface : tokens.color.primary}
+        />
+      </View>
+      <View style={[styles.copy, { gap: tokens.space.xxs }]}>
+        <View style={[styles.titleRow, { gap: tokens.space.xs }, studio && { flexWrap: 'wrap' }]}>
+          <Text
+            style={[
+              typeStyle(tokens, 'tileTitle'),
+              { flex: 1 },
+              studio && { minWidth: tokens.space.xxl * 2 },
+              studio && { color: locked ? tokens.color.textMuted : tokens.color.text },
+            ]}
+            numberOfLines={studio ? undefined : 1}
+          >
             {title}
           </Text>
           {badge ? (
-            <Text style={[typeStyle(tokens, 'tileMeta'), { textTransform: 'uppercase', letterSpacing: 0.4 }]}>
+            <Text
+              style={[
+                typeStyle(tokens, 'tileMeta'),
+                { textTransform: 'uppercase', letterSpacing: 0.4 },
+                studio && {
+                  backgroundColor: tokens.color.surfaceSubtle,
+                  borderRadius: tokens.radius.pill,
+                  paddingHorizontal: tokens.space.xs,
+                  paddingVertical: tokens.space.xxs,
+                },
+              ]}
+            >
               {badge}
             </Text>
           ) : null}
@@ -87,7 +122,7 @@ export function ActionChoiceRow({
             typeStyle(tokens, 'bodyMuted'),
             { fontSize: tokens.fontSize.caption, lineHeight: tokens.lineHeight.caption },
           ]}
-          numberOfLines={2}
+          numberOfLines={studio ? undefined : 2}
         >
           {body}
         </Text>
@@ -112,11 +147,9 @@ const styles = StyleSheet.create({
   copy: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
 });

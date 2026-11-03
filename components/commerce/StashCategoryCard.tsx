@@ -1,5 +1,7 @@
 import { Image } from 'expo-image';
-import React from 'react';
+import React, { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { PRODUCT_CARD_LAYOUT } from '@/src/ui/productCardLayout';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui/Text';
@@ -10,9 +12,11 @@ import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
 import type { StashCategoryCardModel } from '@/src/ui/bag';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 
-type Props = {
-  category: StashCategoryCardModel;
-  onPress: (category: StashCategoryCardModel) => void;
+type CategorySummary = Pick<StashCategoryCardModel, 'key' | 'title' | 'count' | 'previewUrls'>;
+type Props<T extends CategorySummary> = {
+  category: T;
+  onPress: (category: T) => void;
+  placeholder?: 'product' | 'place';
   /**
    * Optional meta override. When omitted, shows product count only
    * (Stash home). Search maps CreatorProductShelf → this prop at the edge.
@@ -28,12 +32,13 @@ const COLLAGE_GUTTER = 3;
  * padding, 2×2 collage with gutters in the card fill and corner radii matching
  * the tile.
  */
-export function StashCategoryCard({ category, onPress, metaLabel: metaOverride }: Props) {
+export function StashCategoryCard<T extends CategorySummary>({ category, onPress, metaLabel: metaOverride, placeholder = 'product' }: Props<T>) {
   const { tokens } = useThemeMode();
+  const [failedImages, setFailedImages] = useState<string[]>([]);
   const slots = [0, 1, 2, 3].map((index) => category.previewUrls[index] ?? null);
   const countLabel = category.count === 1 ? '1 product' : `${category.count} products`;
   const metaLabel = metaOverride ?? countLabel;
-  const inset = 6;
+  const inset = PRODUCT_CARD_LAYOUT.relatedInset;
   const collageRadius = tokens.radius.md;
   const innerRadius = Math.max(4, Math.round(collageRadius * 0.55));
 
@@ -71,7 +76,8 @@ export function StashCategoryCard({ category, onPress, metaLabel: metaOverride }
   };
 
   const renderCell = (index: number) => {
-    const uri = slots[index];
+    const candidate = slots[index];
+    const uri = candidate && !failedImages.includes(candidate) ? candidate : null;
     return (
       <View
         key={`${category.key}-${index}`}
@@ -83,11 +89,17 @@ export function StashCategoryCard({ category, onPress, metaLabel: metaOverride }
           },
         ]}
       >
-        <Image
+        {!uri && placeholder === 'place' ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons accessible={false} name="location-outline" size={18} color={tokens.color.textMuted} />
+          </View>
+        ) : <Image
           source={{ uri: uri && uri.startsWith('http') ? uri : CATALOG_IMAGE_PLACEHOLDER }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
-        />
+          {...(placeholder === 'place' ? { accessible: false, cachePolicy: 'memory-disk' as const,
+            onError: () => { if (uri) setFailedImages(previous => [...previous, uri]); } } : {})}
+        />}
       </View>
     );
   };

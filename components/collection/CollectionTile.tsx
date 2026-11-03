@@ -1,5 +1,6 @@
 import { useQualifiedExposure } from '@/src/analytics/hooks';
-import React from 'react';
+import React, { useCallback, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -53,6 +54,10 @@ export function CollectionTile({
 }: Props) {
   const exposureRef=useQualifiedExposure('collection.impression','collection',collection.collectionId);
   const { tokens } = useThemeMode();
+  const [failedThumbnail, setFailedThumbnail] = useState<string | null>(null);
+  useFocusEffect(useCallback(() => { setFailedThumbnail(null); }, []));
+  const thumbnailKey = `${collection.collectionId}:${collection.heroThumbnailUrl ?? ''}`;
+  const showThumbnail = Boolean(collection.heroThumbnailUrl && failedThumbnail !== thumbnailKey);
   const title = collection.title?.trim() || 'Untitled collection';
   const creatorLabel =
     collection.creator.displayName?.trim() ||
@@ -62,14 +67,18 @@ export function CollectionTile({
   const productLabel = personalProductCountLabel(productCount);
   const a11yLabel = `${title} by ${creatorLabel}, ${views} view${views === 1 ? '' : 's'}`;
 
-  const thumbnail = collection.heroThumbnailUrl ? (
+  const thumbnail = showThumbnail ? (
     <Image
-      source={{ uri: collection.heroThumbnailUrl }}
+      source={{ uri: collection.heroThumbnailUrl! }}
+      recyclingKey={thumbnailKey}
+      onError={() => setFailedThumbnail(thumbnailKey)}
       style={StyleSheet.absoluteFill}
       contentFit="cover"
     />
   ) : (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: IMMERSIVE_TOKENS.surfaceSubtle }]} />
+    <View accessibilityLabel="Preview unavailable" style={[StyleSheet.absoluteFill, {
+      backgroundColor: IMMERSIVE_TOKENS.surfaceSubtle, alignItems: 'center', justifyContent: 'center',
+    }]}><Ionicons name="image-outline" size={24} color={IMMERSIVE_TOKENS.textMuted} /></View>
   );
 
   if (variant === 'public') {
@@ -412,16 +421,19 @@ export function CollectionTile({
       ]}
     >
       <View>
-        {collection.heroThumbnailUrl ? (
+        {showThumbnail ? (
           <Image
-            source={{ uri: collection.heroThumbnailUrl }}
+            source={{ uri: collection.heroThumbnailUrl! }}
+            recyclingKey={thumbnailKey}
+            onError={() => setFailedThumbnail(thumbnailKey)}
             style={styles.thumb}
             contentFit="cover"
           />
         ) : (
           <View
-            style={[styles.thumb, { backgroundColor: tokens.color.canvasEnd }]}
-          />
+            accessibilityLabel="Preview unavailable"
+            style={[styles.thumb, { backgroundColor: tokens.color.canvasEnd, alignItems: 'center', justifyContent: 'center' }]}
+          ><Ionicons name="image-outline" size={24} color={tokens.color.textMuted} /></View>
         )}
         <View style={styles.legacyBadge} accessibilityElementsHidden>
           <Ionicons name="eye-outline" size={12} color="#F8FAFC" />

@@ -41,7 +41,7 @@ export function PublishConfirmSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={publishing ? undefined : onCancel}>
-      <View style={[styles.backdrop, { backgroundColor: tokens.overlay.scrim }]}>
+      <View style={[styles.backdrop, { backgroundColor: tokens.overlay.scrim, paddingHorizontal: tokens.space.lg }]}>
         <View
           style={[
             styles.card,
@@ -51,6 +51,7 @@ export function PublishConfirmSheet({
               borderRadius: tokens.radius.lg,
               padding: tokens.space.md,
               gap: tokens.space.sm,
+              backgroundColor: tokens.color.canvas,
             },
           ]}
         >
@@ -76,7 +77,7 @@ export function PublishConfirmSheet({
           <Text style={typeStyle(tokens, 'tileMeta')}>{publishProductCountLabel(summary.productCount)}</Text>
 
           {publishing ? (
-            <View style={[styles.publishingRow, { minHeight: 48, gap: tokens.space.sm }]}>
+            <View style={[styles.publishingRow, { minHeight: tokens.space.xxl, gap: tokens.space.sm }]}>
               <ActivityIndicator color={tokens.color.primary} />
               <Text style={typeStyle(tokens, 'bodyMuted')}>{CREATE_COPY.publishPublishing}</Text>
             </View>
@@ -106,7 +107,6 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: 24,
   },
   card: {},
   cover: { width: '100%', height: 120 },

@@ -90,3 +90,75 @@ API-only idle approximately 92 MiB; API plus one default decoder approximately
 400 MiB; two default decoders approximately 702 MiB. With FFmpeg threading capped,
 the sampled aggregate stayed below 200 MiB. These are Mac RSS observations,
 exclude full worker/provider overhead and are not Linux cgroup acceptance evidence.
+
+## Deployed trial and observed acceptance — 2026-11-01
+
+- Test API: `https://mystash-free-test.onrender.com`.
+- API service `srv-dbjc8rh42hec73cjrscg`; dedicated Free Key Value
+  `red-dbjc56mtlv9c73cq81f0`. Both are Free in Singapore; no paid resources or DNS
+  changes were made. Redis external access remains blocked.
+- Backend release: `4ac9f08576a00544ca0003759f2c8fe849b1b22c` on
+  `codex/render-free-test`. Frontend working changes and unapplied migration
+  files were excluded from that backend-only checkpoint.
+- All five workers registered and Redis-backed readiness returned HTTP 200.
+  Idle cgroup memory was about 89 MiB. Sampled peak during the authorized failed
+  ingestion was 172,048,384 bytes (164.08 MiB), below 512 MiB.
+- The one authorized video (`uRB-DFpjVIU`) was submitted once. Its original import
+  and source identities were retained through existing automatic queue retries.
+  The source ended FAILED with zero products; product status FAILED, place status
+  COMPLETE, evidence_complete false. No manual retry or second ingestion was run.
+- Logs locate the failure in Stage 2's yt-dlp download/enrichment path. The stored
+  error prefix contains the downloader's age warning and truncates the remaining
+  stderr, so the precise underlying download cause is not established. An age
+  warning alone is not proof of the cause. This was not a container OOM.
+- Authenticated Places, Cart, Creator Analytics, notification inbox, privacy and
+  personalization read routes returned 200. The ordinary test account received
+  403 on admin reporting. Measurement/activity consent stayed false and unchanged;
+  read-only validation sessions were revoked locally after checking.
+- The initial operator polling script used an incorrect response envelope; the
+  application API correctly returns `{ shares }`. Read-only follow-up confirmed
+  the same import's terminal failure, without resubmitting it.
+- Local queue-loss regressions passed: an explicit retry restores QUEUED and
+  PROCESSING jobs using the same source/import identity. Live Redis data-loss and
+  natural idle sleep/wake acceptance remain unverified. No datastore was flushed.
+
+**Reliable extraction acceptance is blocked.** API liveness and low memory do not
+establish successful extraction or worst-case media memory use. Further paid
+extraction testing stopped at this result. The test URL can be used to inspect
+existing data, but must not be presented as a fully verified ingestion service.
+
+The separately authorized `render-test` EAS profile creates an Android APK with
+this test URL. It extends the existing analytics-pilot profile, reuses remote
+signing credentials and preserves both app identifiers and shared EAS preview
+variables. Its flags do not grant admin access or opt anyone into measurement.
+
+## Render Android endpoint correction — 2026-11-02
+
+The first render-test APK (51329c22-1288-46aa-ad14-3dcd8c6ec194,
+versionCode 2) was rejected: binary inspection found api-dev.mystash.in and no
+Render endpoint, despite the EAS profile override. The exact upstream environment
+precedence cause has not been established; native ccache logs do not prove a
+Metro cache cause. Do not distribute it as a Render-connected build.
+
+Only render-test enables scripts/renderBuildEnv.cjs in Babel, pinning direct
+public backend endpoint reads to the URL in eas.json before Expo environment
+inlining. Babel configuration caching is keyed by build profile. Local, preview,
+pilot, production, identifiers and server-side secrets are unchanged. Regressions
+exercise the real Expo production transform with a stale preview URL. A replacement
+APK must pass endpoint and signature inspection before distribution.
+
+Replacement build `84e9d9cd-3915-4675-b762-bb47615ff9f8` completed on
+2026-11-02 (Android versionCode 3). Downloaded APK inspection confirmed the Render
+HTTPS URL is present, the old api-dev endpoint is absent, package remains
+`com.anonymous.Mystash`, and APK signing verification passes with the same
+certificate as the preceding EAS APK. Size: 111,584,643 bytes. Server credential
+value scan found no matching backend secrets. No device installation was performed.
+
+Verification: four endpoint-transform regressions and 84 focused app tests pass;
+changed-file ESLint passes. Client TypeScript retains two pre-existing TS2345
+errors in CreatorAnalyticsScreen.tsx:147 and LegacyAnalyticsScreen.tsx:150.
+Render readiness was verified over public HTTPS before the build; no additional
+extraction or AI/provider requests were made. The previously observed cloud media
+download failure, unverified sleep/recovery behavior, and Mac-owned scheduled jobs
+remain limitations of the backend trial; this APK endpoint correction does not
+resolve them.

@@ -36,12 +36,12 @@ export type CollectionMediaReferenceModel = {
 /** Collection mounts a compact inline embed (not a second full-screen Reel). */
 export const COLLECTION_PAGE_EMBEDS_PLAYER = true;
 
-export function collectionReelPath(collectionId: string): string {
+export function collectionReelPath(collectionId: string): `/reel/${string}` {
   return `/reel/${collectionId}`;
 }
 
 /** Primary tap target for Collection tiles/cards (Focused Reel, not Collection page). */
-export function collectionTilePressPath(collectionId: string): string {
+export function collectionTilePressPath(collectionId: string): `/reel/${string}` {
   return collectionReelPath(collectionId);
 }
 

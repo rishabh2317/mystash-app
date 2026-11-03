@@ -1,6 +1,6 @@
 # Analytics controlled rollout — 2026-10-28
 
-**Current state: backend/schema stage deployed and accepted.** Runtime release `42ddade78a5c66dba6a8b41cc963e575f5655f19` serves the existing API and dedicated maintenance worker. Collection, personalization, creator/admin reporting and optional rollups remain disabled. No mobile client build/update has been issued. Pilot activation is waiting for the verified test account, Android/iOS acceptance and the remaining operational gates.
+**Current state: development/pilot infrastructure enabled and account-validated.** The existing immutable API and Analytics worker now use the coordinated pilot preset. Creator/admin reporting, optional collection capability, rollups and opt-in personalization infrastructure are enabled; user consent remains off. A dedicated client build profile is prepared, and the installed APK still needs rebuilding. See [Analytics pilot activation](ANALYTICS_PILOT.md) for current flags, account validation, independent shutdown controls and remaining device steps. The schema-stage notes below are retained as historical evidence.
 
 The user authorized final preparation and controlled rollout of Phases 1–5. The first release keeps optional collection, personalization and reporting disabled; admin access remains unassigned at the user's explicit request. Pilot activation waits for an identified verified test account and Android/iOS acceptance. No paid services, analytics reset, local iOS tooling installation or application identifier changes are authorized by this rollout.
 
@@ -60,7 +60,9 @@ A real-process check found that the standalone worker exited after its startup R
 - Final regression selection: 356 direct tests plus 24 existing UI-loader compatibility tests pass (380 total). Backend/client typechecks, Node backend compilation and source checks pass. No new lint finding; the two existing Home-feed hook warnings remain. Earlier Expo Doctor passed 18/18 with the same client dependencies.
 - Stopped disposable rehearsal data directories were removed after validation; the permission-restricted recovery archive, manifests and evidence logs remain. No paid plan/service, local iOS tooling, native build or EAS client build was initiated.
 
-## Remaining pilot and broader-release gates
+## Original pilot and broader-release gates (schema-stage history)
+
+Account selection, scoped admin authorization and infrastructure activation were subsequently authorized and completed; the current state is documented in [ANALYTICS_PILOT.md](ANALYTICS_PILOT.md). No account consent was granted and no mobile build was issued during activation.
 
 The user will identify an existing verified test account and explicitly requested that admin access stay disabled. Do not enable collection or profiling, provision an admin, or distribute a client update automatically. Prepare the private Android/iOS pilot against that account, check available free build/hosted-test quota before any build, and verify consent/withdrawal/reconnect, reports, legacy clients, Creator Studio, merchant navigation and the Android share target.
 

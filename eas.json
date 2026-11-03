@@ -27,6 +27,38 @@
         "EXPO_PUBLIC_PUSH_ENABLED": "true"
       }
     },
+    "analytics-pilot": {
+      "extends": "preview",
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_ANALYTICS_ENABLED": "true",
+        "EXPO_PUBLIC_CREATOR_ANALYTICS_ENABLED": "true",
+        "EXPO_PUBLIC_ADMIN_ANALYTICS_ENABLED": "true",
+        "EXPO_PUBLIC_PERSONALIZATION_ENABLED": "true"
+      }
+    },
+    "render-test": {
+      "extends": "analytics-pilot",
+      "distribution": "internal",
+      "environment": "preview",
+      "credentialsSource": "remote",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk",
+        "resourceClass": "medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_MYSTASH_INGEST_URL": "https://mystash-free-test.onrender.com"
+      }
+    },
+    "android-share-validation": {
+      "extends": "render-test",
+      "env": {
+        "EXPO_PUBLIC_NATIVE_SHARE_ENABLED": "true",
+        "EXPO_PUBLIC_SHARE_INTENT_ENABLED": "true",
+        "EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED": "true"
+      }
+    },
     "production": {
       "autoIncrement": true
     }
