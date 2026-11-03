@@ -74,7 +74,7 @@ class ShareActivity : Activity() {
     val scroll = ScrollView(this).apply { isFillViewport = true; clipToPadding = false
       setPadding(s("lg"), s("lg"), s("lg"), s("lg")); fitsSystemWindows = true }
     val centered = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; isFocusableInTouchMode = true }
-    scroll.addView(centered, ScrollView.LayoutParams(-1, -2))
+    scroll.addView(centered, FrameLayout.LayoutParams(-1, -2))
     val content = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL; setPadding(s("lg"), s("lg"), s("lg"), s("lg"))
       background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(color("canvas"), color("canvasEnd"))).apply {

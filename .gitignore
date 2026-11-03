@@ -59,6 +59,7 @@ app-example
 # generated native folders
 /ios
 /android
+/modules/mystash-share/android/build/
 
 # Private rollout backups, connection plans and rehearsal evidence
 backend/.analytics-release-private/
