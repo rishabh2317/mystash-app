@@ -1,7 +1,7 @@
-import type { ImportProgressRepository } from './ImportProgressRepository';
+import { findPresentation } from './find/presentation';
+import { type FindMembershipCounts } from './find/outcome';
 import { rankForIntent } from './share/intentRanking';
 import { getEnv } from '../env';
-import { enqueueUserImportTimeout } from '../content-source/jobs/contentSourceQueue';
 import { buildUserImportEventPayload } from './domain/events';
 import {
   normalizeSharedInput,
@@ -15,10 +15,6 @@ import type {
   SubmitUserImportResult,
   UserImportRecord,
 } from './domain/types';
-import {
-  resolveShareProgressState,
-  shouldPersistImportTimeout,
-} from './domain/shareProgress';
 import { emitUserImportEvent } from './observability';
 import type { UserImportBagSyncPort, UserImportContentSourcePort } from './ports';
 import type { UserImportRepository } from './UserImportRepository';
@@ -85,14 +81,11 @@ export class UserImportService {
     private readonly repo: UserImportRepository,
     private readonly contentSource: UserImportContentSourcePort,
     private readonly bagSync: UserImportBagSyncPort | null = null,
-    private readonly scheduleTimeout: (userImportId: string) => Promise<void> = defaultScheduleTimeout,
-    private readonly nowMs: () => number = () => Date.now(),
-    private readonly countPlaceCards: (userImportId: string) => Promise<number> = async () => 0,
     private readonly results?: {
-      progress: ImportProgressRepository;
-      placeCounts(sourceId: string): Promise<{ total: number; resolved: number; unverified: number }>;
+      memberships(userId: string, ids: string[]): Promise<Map<string, FindMembershipCounts>>;
       syncPlaces(row: { id: string; userId: string; contentSourceId: string | null }): Promise<void>;
     },
+    private readonly nowMs: () => number = () => Date.now(),
   ) {}
 
   async submit(
@@ -125,11 +118,10 @@ export class UserImportService {
 
     const existing = await this.repo.findByUserAndDedupeKey(userId, dedupeKey);
     if (existing) {
-      // Deliberate re-share: clear a prior timeout freeze and retry processing.
+      // Deliberate re-share: start a new capture attempt and retry processing.
       await this.repo.restart(existing.id, new Date(this.nowMs()).toISOString());
       await this.retryProcessing(existing);
       await this.syncBag(existing);
-      await this.scheduleTimeout(existing.id);
       const refreshed = (await this.repo.findById(existing.id)) ?? existing;
       return this.received(refreshed, false);
     }
@@ -152,7 +144,6 @@ export class UserImportService {
         userImportId: record.id,
       });
       await this.syncBag(record);
-      await this.scheduleTimeout(record.id);
       return this.received(record, true);
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
@@ -161,7 +152,6 @@ export class UserImportService {
       await this.repo.restart(raced.id, new Date(this.nowMs()).toISOString());
       await this.retryProcessing(raced);
       await this.syncBag(raced);
-      await this.scheduleTimeout(raced.id);
       const refreshed = (await this.repo.findById(raced.id)) ?? raced;
       return this.received(refreshed, false);
     }
@@ -180,7 +170,7 @@ export class UserImportService {
     try {
       await this.results?.syncPlaces(input);
     } catch {
-      // A later submission or processing fan-out retries place membership.
+      // Durable consumer recovery retries this membership independently of extraction.
     }
     if (!this.bagSync) return;
     try {
@@ -190,7 +180,7 @@ export class UserImportService {
         contentSourceId: record.contentSourceId,
       });
     } catch {
-      // Membership is retried on the next share of this source.
+      // The persisted sync marker remains retryable by consumer recovery.
     }
   }
 
@@ -215,120 +205,44 @@ export class UserImportService {
   async listRecent(userId: string): Promise<ShareProgressItem[]> {
     if (!userId) throw new UserImportServiceError('userId required', 401);
     const rows = await this.repo.listByUser(userId, 20);
-    const out: ShareProgressItem[] = [];
-    const nowMs = this.nowMs();
-    for (const row of rows) {
-      const source = row.contentSourceId
-        ? await this.contentSource.getById(row.contentSourceId)
-        : null;
-      // Read completion first, then committed entities. Reading counts first can
-      // observe zero followed by COMPLETE and incorrectly stop frontend polling.
-      const progress = row.contentSourceId ? await this.results?.progress.get(row.contentSourceId) : null;
-      const currentProgress = progress && (!source?.queuedAt || Date.parse(progress.startedAt) >= Date.parse(source.queuedAt))
-        ? progress : null;
-      const placeCardCount = await this.countPlaceCards(row.id);
-      const progressSource = source
-        ? {
-            processingStatus: source.processingStatus,
-            candidateCount: source.candidateCount,
-            placeCardCount,
-          }
-        : null;
-      const progressInput = {
-        source: progressSource,
-        timedOutAt: row.timedOutAt,
-        createdAt: row.createdAt,
-        attemptStartedAt: row.attemptStartedAt,
-        nowMs,
-      };
-      if (shouldPersistImportTimeout(progressInput)) {
-        const current = await this.repo.markTimedOut(row.id, new Date(nowMs).toISOString(), row.attemptStartedAt ?? null);
-        row.timedOutAt = current?.timedOutAt ?? null;
-        progressInput.attemptStartedAt = current?.attemptStartedAt;
-      }
-      const state = resolveShareProgressState({
-        ...progressInput,
-        timedOutAt: row.timedOutAt,
-      });
-      const productCount =
-        state === 'ready' && source && source.processingStatus === 'READY'
-          ? source.candidateCount
-          : 0;
-      const discoveredResults = row.contentSourceId
-        ? mapBoundProducts(await this.contentSource.listProducts(row.contentSourceId)) : [];
-      const resultProducts = getEnv('SHARE_INTENT_ENABLED') === 'true'
-        ? rankForIntent(discoveredResults,{kind:row.interestKind??null,note:row.interestNote??null},p=>p.title)
-        : discoveredResults;
-      const products = state === 'ready' && productCount > 0 ? resultProducts : [];
-      // New consumers get persisted discoveries even while the sibling branch is
-      // running or failed. Legacy fields above deliberately retain their old contract.
-      const uniqueProducts = [...new Map(resultProducts.map((p) => [p.productId, p])).values()];
-      const places = row.contentSourceId && this.results
-        ? await this.results.placeCounts(row.contentSourceId)
-        : { total: placeCardCount, resolved: 0, unverified: placeCardCount };
-      const fallbackStatus = source?.processingStatus === 'FAILED' ? 'failed'
-        : source?.processingStatus === 'READY' ? 'complete' : 'running';
-      let productStatus = currentProgress?.products ?? fallbackStatus;
-      let placeStatus: 'running' | 'complete' | 'failed' | 'unknown' = currentProgress?.places
-        ?? (source?.mediaKind === 'WEB_PAGE' ? 'complete'
-          : fallbackStatus === 'complete' ? 'unknown' : fallbackStatus);
-      if (row.timedOutAt) {
-        if (productStatus === 'running') productStatus = 'failed';
-        if (placeStatus === 'running') placeStatus = 'failed';
-      }
-      out.push({
-        resultVersion: 1,
-        timedOut: Boolean(row.timedOutAt),
-        resultProductCount: uniqueProducts.length,
-        resultProducts: uniqueProducts,
-        placeCount: places.total,
-        resolvedPlaceCount: places.resolved,
-        unverifiedPlaceCount: places.unverified,
-        productStatus,
-        placeStatus,
-        hasInFlight: !row.timedOutAt && (productStatus === 'running' || placeStatus === 'running'
-          || (source?.processingStatus === 'PROCESSING' && currentProgress?.evidenceComplete === false)),
-        canRetry: productStatus !== 'running' && placeStatus !== 'running'
-          && (productStatus === 'failed' || placeStatus === 'failed' || Boolean(row.timedOutAt)),
-        importId: row.id,
-        state,
+    if (!this.results) throw new UserImportServiceError('Find status unavailable', 503);
+    const memberships = await this.results.memberships(userId, rows.map(r => r.id));
+    return Promise.all(rows.map(async row => {
+      const membership = memberships.get(row.id);
+      if (!membership) throw new UserImportServiceError('Find status unavailable', 503);
+      const outcome = membership.outcome;
+      const bound = [...(row.contentSourceId ? mapBoundProducts(await this.contentSource.listProducts(row.contentSourceId)) : []), ...membership.selectedProducts];
+      const ranked = getEnv('SHARE_INTENT_ENABLED') === 'true'
+        ? rankForIntent(bound, { kind: row.interestKind ?? null, note: row.interestNote ?? null }, p => p.title) : bound;
+      const products = [...new Map(ranked.map(p => [p.productId, p])).values()];
+      return { ...findPresentation(outcome, products), importId: row.id,
         kind: row.platform === 'instagram' || row.platform === 'youtube' ? row.platform : 'web',
-        createdAt: row.createdAt,
-        productCount: state === 'ready' ? productCount : 0,
-        contentSourceId: row.contentSourceId,
-        sourceUrl: row.sourceUrl,
-        primaryProduct: products[0] ?? null,
-        products,
-      });
-    }
-    return out;
+        createdAt: row.createdAt, contentSourceId: row.contentSourceId, sourceUrl: row.sourceUrl };
+    }));
   }
 
-  /** Apply timeout from the delayed worker. Idempotent; never touches content_sources. */
-  async applyTimeout(userImportId: string): Promise<boolean> {
-    const row = await this.repo.findById(userImportId);
-    if (!row || row.timedOutAt) return false;
-    const source = row.contentSourceId
-      ? await this.contentSource.getById(row.contentSourceId)
-      : null;
-    const input = { source, timedOutAt: row.timedOutAt, createdAt: row.createdAt,
-      attemptStartedAt: row.attemptStartedAt, nowMs: this.nowMs() };
-    if (!shouldPersistImportTimeout(input)) return false;
-    const current = await this.repo.markTimedOut(row.id, new Date(this.nowMs()).toISOString(), row.attemptStartedAt ?? null);
-    return Boolean(current?.timedOutAt);
-  }
 
   /**
-   * Explicit retry from Activity/Shares. Clears timeout freeze, re-queues processing,
+   * Explicit retry from Activity/Shares. Re-queues failed extraction,
    * syncs Bag if already resolved. Idempotent cart adds prevent duplicate Bag lines.
    */
-  async retry(userId: string, importId: string): Promise<UserImportRecord> {
+  async retry(userId: string, importId: string, mode: 'auto' | 'extraction' | 'saving' = 'auto'): Promise<UserImportRecord> {
     if (!userId) throw new UserImportServiceError('userId required', 401);
     if (!importId) throw new UserImportServiceError('importId required', 400);
     const row = await this.repo.findById(importId);
     if (!row || row.userId !== userId || row.hiddenAt) {
       throw new UserImportServiceError('Import not found', 404);
     }
+    if (!this.results) throw new UserImportServiceError('Find status unavailable', 503);
+    const membership = (await this.results.memberships(userId, [row.id])).get(row.id);
+    if (!membership) throw new UserImportServiceError('Find status unavailable', 503);
+    const outcome = membership.outcome;
+    if (mode === 'saving' || (mode === 'auto' && outcome.canRetrySaving && !outcome.canRetryExtraction)) {
+      if (!outcome.canRetrySaving) throw new UserImportServiceError('Saving cannot be retried for this find', 409);
+      await this.syncBag(row);
+      return (await this.repo.findById(row.id)) ?? row;
+    }
+    if (!outcome.canRetryExtraction) throw new UserImportServiceError('This find cannot be retried while work is active or complete', 409);
     await this.repo.restart(row.id, new Date(this.nowMs()).toISOString());
     if (row.contentSourceId) {
       const contentSource = await this.contentSource.getById(row.contentSourceId);
@@ -341,7 +255,6 @@ export class UserImportService {
     }
     const refreshed = (await this.repo.findById(row.id)) ?? row;
     await this.syncBag(refreshed);
-    await this.scheduleTimeout(refreshed.id);
     return refreshed;
   }
 
@@ -355,13 +268,5 @@ export class UserImportService {
     }
     const deleted = await this.repo.deleteForUser(importId, userId);
     if (!deleted) throw new UserImportServiceError('Import not found', 404);
-  }
-}
-
-async function defaultScheduleTimeout(userImportId: string): Promise<void> {
-  try {
-    await enqueueUserImportTimeout({ userImportId });
-  } catch {
-    // Best-effort; GET /imports self-heals.
   }
 }

@@ -128,8 +128,8 @@ describe('share capture acknowledgement surface', () => {
 
     assert.match(code, /submitUserImport/);
     assert.match(code, /SHARE_IMPORT_COPY\.acknowledgement/);
-    assert.match(code, /BAG_COPY\.view/);
-    assert.match(code, /replace\('\/cart'\)/);
+    assert.match(code, /View Finds/);
+    assert.match(code, /replace\('\/\(tabs\)\/find'/);
     assert.doesNotMatch(code, /VerificationBadge|verificationStatus|confidence/i);
     assert.doesNotMatch(code, /ProductCard|ProductDetailsSheet|catalogProductId/);
     assert.doesNotMatch(code, /useCart|addCartItem|cartApi/);

@@ -44,7 +44,7 @@ describe('resolveShareProgressState timeout', () => {
     );
   });
 
-  it('forces couldnt_finish after 10 minutes while still looking', () => {
+  it('does not freeze active work or persist a presentation timeout', () => {
     const nowMs = Date.parse(createdAt) + USER_IMPORT_TIMEOUT_MS;
     assert.equal(
       resolveShareProgressState({
@@ -53,7 +53,7 @@ describe('resolveShareProgressState timeout', () => {
         createdAt,
         nowMs,
       }),
-      'couldnt_finish',
+      'looking',
     );
     assert.equal(
       shouldPersistImportTimeout({
@@ -62,11 +62,11 @@ describe('resolveShareProgressState timeout', () => {
         createdAt,
         nowMs,
       }),
-      true,
+      false,
     );
   });
 
-  it('timedOutAt freezes UX even when the source later becomes READY', () => {
+  it('historical timeout markers cannot override late completion', () => {
     assert.equal(
       resolveShareProgressState({
         source: { processingStatus: 'READY', candidateCount: 3 },
@@ -74,7 +74,7 @@ describe('resolveShareProgressState timeout', () => {
         createdAt,
         nowMs: Date.parse(createdAt) + USER_IMPORT_TIMEOUT_MS + 60_000,
       }),
-      'couldnt_finish',
+      'ready',
     );
   });
 

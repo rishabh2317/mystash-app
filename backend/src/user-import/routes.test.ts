@@ -1,3 +1,4 @@
+import { testSnapshots } from './find/testSnapshot';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { Request, Response } from 'express';
@@ -69,7 +70,7 @@ function createHarness(
   const { port, sourceRepo, jobs } = createContentSourcePort({
     enqueueFails: options.enqueueFails,
   });
-  const service = new UserImportService(repo, port, null, async () => undefined);
+  const service = new UserImportService(repo, port, null);
   const handler = createUserImportHandler({
     service,
     authenticate: async (req) =>
@@ -115,7 +116,7 @@ describe('POST /imports', () => {
     const { UnverifiedEmailError } = await import('../auth/emailVerification');
     const repo = new InMemoryUserImportRepository();
     const { port } = createContentSourcePort();
-    const service = new UserImportService(repo, port, null, async () => undefined);
+    const service = new UserImportService(repo, port, null);
     const handler = createUserImportHandler({
       service,
       authenticate: async () => {
@@ -273,7 +274,7 @@ describe('GET /imports', () => {
         }),
       },
       null,
-      async () => undefined,
+      { memberships: testSnapshots(repo, { getById: id => sourceRepo.findById(id), listProducts: id => sourceRepo.listProducts(id) }), syncPlaces: async () => {} },
     );
     const listHandler = createUserImportListHandler({
       service,

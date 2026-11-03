@@ -30,6 +30,7 @@ export type PlaceStashSnapshot = {
 };
 
 export type PlaceRepository = {
+  setMembership(userId: string, saveId: string, restore: boolean): Promise<UserPlaceSaveRecord>;
   loadStash(userId: string): Promise<PlaceStashSnapshot>;
   insertPlace(row: InsertPlaceRow): Promise<PlaceRecord>;
   findPlaceById(id: string): Promise<PlaceRecord | null>;

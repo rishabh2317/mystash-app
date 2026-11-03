@@ -347,11 +347,13 @@ export class ContentSourceResolutionService {
   async fanOutAll(contentSourceId: string): Promise<void> {
     const imports = await this.userImports.listByContentSourceId(contentSourceId);
     for (const row of imports) {
-      await this.fanOutUser({
-        id: row.id,
-        userId: row.userId,
-        contentSourceId,
-      });
+      try {
+        await this.fanOutUser({ id: row.id, userId: row.userId, contentSourceId });
+      } catch {
+        assertImportWorkActive();
+        // Durable per-import synchronization retries delivery, not provider extraction.
+        logger.warn({ userImportId: row.id }, 'content_source.stash_sync.deferred');
+      }
     }
   }
 
@@ -361,10 +363,20 @@ export class ContentSourceResolutionService {
     contentSourceId: string | null;
   }): Promise<void> {
     if (!row.contentSourceId || !row.userId) return;
-    const products = await this.sources.listProducts(row.contentSourceId);
-    for (const product of products) {
-      await this.attachValidatedBagLine(row, product);
+    if (this.userImports.findById) {
+      const current = await this.userImports.findById(row.id);
+      if (!current || current.userId !== row.userId || current.hiddenAt) return;
     }
+    const products = await this.sources.listProducts(row.contentSourceId);
+    let failed = false;
+    for (const product of products) {
+      try { await this.attachValidatedBagLine(row, product); }
+      catch {
+        assertImportWorkActive();
+        failed = true;
+      }
+    }
+    if (failed) throw new Error('Stash product delivery incomplete');
   }
 
   /**
@@ -401,7 +413,7 @@ export class ContentSourceResolutionService {
     }
     try {
       await this.cart.addItem(row.userId, {
-        ...item,
+        ...item, automatic: true,
         source: {
           surface: 'USER_IMPORT',
           contentSourceId: row.contentSourceId,
@@ -420,6 +432,7 @@ export class ContentSourceResolutionService {
         },
         'content_source.bag.fan_out_failed',
       );
+      throw err;
     }
   }
 }

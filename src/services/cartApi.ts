@@ -1,4 +1,5 @@
 import { supabase } from '@/src/services/supabase';
+import { withRequestTimeout } from './requestTimeout';
 import {
   hydrateCartLines,
   type CartItemSource,
@@ -37,18 +38,18 @@ function cartApiBase(): string {
   return base;
 }
 
-async function bearerToken(): Promise<string> {
+async function bearerToken(expectedOwner?: string): Promise<string> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
-  if (!token) {
+  if (!token || (expectedOwner && data.session?.user.id !== expectedOwner)) {
     throw new CartApiError('Not authenticated', 401);
   }
   return token;
 }
 
-async function cartFetch(path: string, init?: RequestInit): Promise<Response> {
-  const token = await bearerToken();
-  return fetch(`${cartApiBase()}${path}`, {
+async function cartFetch(path: string, init?: RequestInit, expectedOwner?: string): Promise<Response> {
+  const token = await bearerToken(expectedOwner);
+  const response = await fetch(`${cartApiBase()}${path}`, {
     ...init,
     headers: {
       Accept: 'application/json',
@@ -57,6 +58,11 @@ async function cartFetch(path: string, init?: RequestInit): Promise<Response> {
       ...(init?.headers ?? {}),
     },
   });
+  if (expectedOwner) {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.user.id !== expectedOwner) throw new CartApiError('Your account changed. Refresh My Stash.',401);
+  }
+  return response;
 }
 
 async function readError(res: Response): Promise<string> {
@@ -69,8 +75,8 @@ async function readError(res: Response): Promise<string> {
   return `Cart request failed (${res.status})`;
 }
 
-export async function fetchCart(): Promise<CartSnapshot> {
-  const res = await cartFetch('/cart');
+export async function fetchCart(expectedOwner?: string): Promise<CartSnapshot> {
+  const res = await withRequestTimeout(20_000, signal => cartFetch('/cart', { signal }, expectedOwner));
   if (!res.ok) throw new CartApiError(await readError(res), res.status);
   const body = (await res.json()) as { items?: unknown[]; itemCount?: number };
   const items = hydrateCartLines(body.items ?? []);

@@ -1,6 +1,8 @@
-import type { CartItemRecord } from './domain/types';
+import type { AddCartItemResult, CartItemRecord } from './domain/types';
 
 export type CartRepository = {
+  /** Required atomic persistence, serialized with removal. */
+  putMembership: (row: Omit<CartItemRecord, 'id' | 'addedAt' | 'updatedAt' | 'schemaVersion'>, automatic: boolean) => Promise<AddCartItemResult>;
   listByUser(userId: string): Promise<CartItemRecord[]>;
   findByUserAndProduct(
     userId: string,

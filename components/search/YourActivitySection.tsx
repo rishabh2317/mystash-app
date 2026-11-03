@@ -9,6 +9,7 @@ import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { deleteUserImport, retryUserImport } from '@/src/services/userImportApi';
 import { typeStyle } from '@/src/theme/typography';
+import { FIND_ROUTES } from '@/src/ui/find';
 import {
   SHARE_ACTIVITY_COPY,
   type ShareActivityView,
@@ -49,7 +50,7 @@ export function YourActivitySection({ items, loading, onRefresh }: Props) {
       <SectionHeader
         title={SHARE_ACTIVITY_COPY.sectionTitle}
         actionLabel={SHARE_ACTIVITY_COPY.seeAll}
-        onActionPress={() => router.push('/shares' as Href)}
+        onActionPress={() => router.push(FIND_ROUTES.history as Href)}
       />
       {loading ? (
         <ShareActivityCardSkeleton />

@@ -44,8 +44,8 @@ export type ContentSourceResolutionPort = {
 };
 
 export type UserImportLookupPort = {
-  listByContentSourceId(contentSourceId: string): Promise<Array<{ id: string; userId: string }>>;
-  findById?(id: string): Promise<{ id: string; userId: string } | null>;
+  listByContentSourceId(contentSourceId: string): Promise<Array<{ id: string; userId: string; hiddenAt?: string | null }>>;
+  findById?(id: string): Promise<{ id: string; userId: string; hiddenAt?: string | null } | null>;
 };
 
 /** Optional port so enrichment can resolve the importing user's commerce country. */

@@ -1,3 +1,4 @@
+import type { FindOutcome, StashSyncState } from '../find/outcome';
 /**
  * User Import domain types — "this user shared this URL".
  *
@@ -9,6 +10,8 @@
 export type UserImportStatus = 'RECEIVED';
 
 export type UserImportRecord = {
+  stashSyncState?: StashSyncState | null;
+  stashSyncAttemptId?: string | null;
   id: string;
   userId: string;
   rawInput: string;
@@ -19,7 +22,7 @@ export type UserImportRecord = {
   /** Global content identity. NULL only for pre-Phase-2 rows. */
   contentSourceId: string | null;
   status: UserImportStatus;
-  /** When set, user-facing state is frozen at couldnt_finish. */
+  /** Historical delay marker; never overrides current processing facts. */
   timedOutAt: string | null;
   attemptStartedAt?: string | null;
   hiddenAt?: string | null;
@@ -62,7 +65,9 @@ export type ShareProgressPrimaryProduct = {
 
 /** Bag + Activity share progress. No queue or resolver vocabulary. */
 export type ShareProgressItem = {
-  /** Additive result contract; legacy state/product fields retain their semantics. */
+  /** Authoritative outcome. Other status/count fields are presentation aliases. */
+  findOutcome: FindOutcome;
+  /** Screen aliases, derived from findOutcome. */
   resultVersion?: 1;
   timedOut?: boolean;
   resultProductCount?: number;
@@ -78,13 +83,13 @@ export type ShareProgressItem = {
   state: 'looking' | 'ready' | 'nothing_yet' | 'couldnt_finish';
   kind: 'instagram' | 'youtube' | 'web';
   createdAt: string;
-  /** Candidate count when READY and not timed out; otherwise 0. */
+  /** Authoritative found-product count, including partial results. */
   productCount: number;
   contentSourceId: string | null;
   /** Original shared / source URL for Your Shares expanded view. */
   sourceUrl: string;
   /** Display + single-product nav only; never navigate here when productCount >= 2. */
   primaryProduct: ShareProgressPrimaryProduct | null;
-  /** Bound products for expanded Your Shares (empty when none / still looking / timed out). */
+  /** Available bound product previews, including partial results. */
   products: ShareProgressPrimaryProduct[];
 };

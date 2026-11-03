@@ -8,7 +8,6 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { submitUserImport } from '@/src/services/userImportApi';
-import { BAG_COPY } from '@/src/ui/contracts';
 import {
   SHARE_IMPORT_COPY,
   extractSharedLink,
@@ -110,7 +109,7 @@ export default function ImportScreen() {
           <Text style={[styles.body, { color: tokens.color.textMuted, fontSize: tokens.fontSize.body }]}>
             {SHARE_IMPORT_COPY.acknowledgementDetail}
           </Text>
-          <ActionButton label={BAG_COPY.view} onPress={() => router.replace('/cart')} />
+          <ActionButton label="View Finds" onPress={() => router.replace('/(tabs)/find' as import('expo-router').Href)} />
           <ActionButton
             label={SHARE_IMPORT_COPY.doneAction}
             variant="quiet"

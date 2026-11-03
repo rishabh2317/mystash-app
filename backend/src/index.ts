@@ -1,3 +1,5 @@
+import { registerFindRoutes } from './user-import/find/routes';
+import { assertFindSchema } from './user-import/find/schema';
 import { analyticsContextMiddleware } from './analytics/context';
 import { registerAnalyticsRoutes } from './analytics/routes';
 import { Buffer } from 'node:buffer';
@@ -64,6 +66,16 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+// Cache the startup verdict; a schema change requires restarting the release together.
+const findSchemaReady = assertFindSchema(createSupabaseAdmin()).then(() => true, error => {
+  logger.error({ message: error.message }, 'find.schema.incompatible');
+  return false;
+});
+app.use(async (_req, res, next) => {
+  if (!(await findSchemaReady)) { res.status(503).json({ error: 'Find schema incompatible', ready: false }); return; }
+  next();
+});
+
 // Liveness stays backward compatible; readiness also checks an ingestion consumer.
 app.get('/ready/ingestion', async (_req, res) => {
   const redis = getBullmqCommandRedis();
@@ -86,6 +98,7 @@ registerSearchRoutes(app);
 registerCartRoutes(app);
 registerPlaceRoutes(app);
 registerUserImportRoutes(app);
+registerFindRoutes(app);
 registerShareAcceptanceRoutes(app);
 registerShareReviewRoutes(app);
 registerConnectedAccountRoutes(app);
@@ -648,6 +661,7 @@ app.post('/ingest', async (req, res) => {
 
 if (getEnv('INGEST_WORKER_EMBEDDED') !== 'false') {
   void (async () => {
+    if (!(await findSchemaReady)) return;
     try {
       const worker = await startEmbeddedIngestPipelineWorker();
       if (worker) trackFreeTestWorker(worker);

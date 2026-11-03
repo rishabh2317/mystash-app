@@ -1,3 +1,4 @@
+import { createStashSyncPort, reconcileStashSync } from '../find/stashSync';
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getEnv } from '../../env';
@@ -64,13 +65,14 @@ export async function dispatchAcceptedShares(db: SupabaseClient): Promise<number
   return dispatched;
 }
 export function startShareRecovery(db: SupabaseClient, stopped: () => boolean): () => void {
-  if (getEnv('SHARE_ACCEPT_ENABLED') !== 'true') return () => {};
   let timer: ReturnType<typeof setTimeout> | undefined;
   const tick = async () => {
     if (stopped()) return;
     if (getEnv('SHARE_ACCEPT_ENABLED') === 'true') {
       try { await dispatchAcceptedShares(db); } catch { logger.warn({ event: 'share.dispatch.unavailable' }, 'share.dispatch.unavailable'); }
     }
+    try { await reconcileStashSync(createStashSyncPort(db)); }
+    catch { logger.warn({ event: 'find.stash_sync.deferred' }, 'find.stash_sync.deferred'); }
     if (!stopped()) { timer = setTimeout(() => void tick(), 30_000); timer.unref(); }
   };
   void tick();

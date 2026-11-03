@@ -1,3 +1,4 @@
+import { createOwnerReadFence } from '@/src/state/ownerReadFence';
 import React, {
   createContext,
   useCallback,
@@ -46,6 +47,12 @@ const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const { user, session, loading: authLoading } = useAuth();
+  const fenceRef = useRef<ReturnType<typeof createOwnerReadFence> | null>(null);
+  if (!fenceRef.current) fenceRef.current = createOwnerReadFence();
+  const fence = fenceRef.current;
+  fence.configure(user?.id ?? null);
+  const [dataOwner,setDataOwner] = useState<string | null>(null);
+  const dataOwnerRef = useRef<string | null>(null);
   const [items, setItems] = useState<CartLine[]>([]);
   const [itemCount, setItemCount] = useState(0);
   const [status, setStatus] = useState<CartStatus>('idle');
@@ -58,6 +65,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const leftForMerchantRef = useRef(false);
 
   const clearLocal = useCallback(() => {
+    fence.invalidate(); dataOwnerRef.current = null; setDataOwner(null);
     setItems([]);
     setItemCount(0);
     setStatus('idle');
@@ -65,26 +73,41 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setAwaitingConfirmationProductId(null);
     setPurchaseConfirmVisible(false);
     leftForMerchantRef.current = false;
-  }, []);
+  }, [fence]);
 
   const refresh = useCallback(async () => {
+    if (!fence.isOwner(user?.id ?? null)) return;
     if (!user || !session?.access_token) {
       clearLocal();
       return;
     }
+    if (dataOwnerRef.current !== user.id) {
+      dataOwnerRef.current = user.id;
+      setDataOwner(user.id);
+      setItems([]);
+      setItemCount(0);
+      setStatus('loading');
+      setAwaitingConfirmationProductId(null);
+      setPurchaseConfirmVisible(false);
+      leftForMerchantRef.current = false;
+    }
+    const token = fence.begin();
     setStatus((prev) => (prev === 'ready' ? 'ready' : 'loading'));
     setErrorMessage(null);
     try {
-      const snapshot = await fetchCart();
+      const snapshot = await fetchCart(user.id);
+      if (!fence.accepts(token)) return;
+      setDataOwner(user.id);
       setItems(snapshot.items);
       setItemCount(snapshot.itemCount);
       setStatus('ready');
     } catch (e) {
+      if (!fence.accepts(token)) return;
       const message = e instanceof CartApiError ? e.message : BAG_COPY.loadError;
       setErrorMessage(message);
       setStatus('error');
     }
-  }, [clearLocal, session?.access_token, user]);
+  }, [clearLocal, fence, session?.access_token, user]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -131,6 +154,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     async (catalogProductId: string, reason: RemoveCartItemReason = 'user_remove') => {
       const id = catalogProductId.trim();
       if (!id) return;
+      const account = user?.id ?? null;
+      if (!fence.isOwner(account)) return;
+      const token = fence.begin();
       const previous = items;
       const previousCount = itemCount;
       setItems((curr) => curr.filter((line) => line.productId !== id));
@@ -138,6 +164,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       try {
         await removeCartItem(id, reason);
       } catch (e) {
+        if (!fence.accepts(token)) throw e;
         setItems(previous);
         setItemCount(previousCount);
         setErrorMessage(e instanceof CartApiError ? e.message : BAG_COPY.removeError);
@@ -145,7 +172,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         throw e;
       }
     },
-    [itemCount, items, refresh],
+    [fence, itemCount, items, refresh, user?.id],
   );
 
   const beginBuy = useCallback(async (product: CatalogProductViewModel) => {
@@ -184,12 +211,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<CartContextValue>(
     () => ({
-      items,
-      itemCount,
-      status,
-      errorMessage,
-      awaitingConfirmationProductId,
-      purchaseConfirmVisible,
+      items: dataOwner === user?.id ? items : [],
+      itemCount: dataOwner === user?.id ? itemCount : 0,
+      status: dataOwner === user?.id ? status : user ? 'loading' : 'idle',
+      errorMessage: dataOwner === user?.id ? errorMessage : null,
+      awaitingConfirmationProductId: dataOwner === user?.id ? awaitingConfirmationProductId : null,
+      purchaseConfirmVisible: dataOwner === user?.id && purchaseConfirmVisible,
       refresh,
       addItem,
       removeItem,
@@ -198,6 +225,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       dismissPurchaseConfirmation,
     }),
     [
+      dataOwner, user,
       items,
       itemCount,
       status,

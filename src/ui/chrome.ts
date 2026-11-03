@@ -9,7 +9,7 @@ export type TopBarMode = 'immersive' | 'page';
 export const APP_TAB_ITEMS = [
   { name: 'index', title: 'Watch', icon: 'play-outline' },
   { name: 'search', title: 'Search', icon: 'search-outline' },
-  { name: 'create', title: 'Create', icon: 'add-outline' },
+  { name: 'find', title: 'Find', icon: 'sparkles-outline' },
   { name: 'stash', title: 'Stash', icon: 'bag-handle-outline' },
   { name: 'profile', title: 'Profile', icon: 'person-outline' },
 ] as const;

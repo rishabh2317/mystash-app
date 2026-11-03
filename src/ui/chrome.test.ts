@@ -17,14 +17,14 @@ import {
 const ROOT = process.cwd();
 
 describe('UX-B.2 chrome contracts', () => {
-  it('keeps five footer tabs: Watch · Search · Create · Stash · Profile', () => {
+  it('keeps five footer tabs: Watch · Search · Find · Stash · Profile', () => {
     assert.deepEqual(
       APP_TAB_ITEMS.map((t) => t.title),
-      ['Watch', 'Search', 'Create', 'Stash', 'Profile'],
+      ['Watch', 'Search', 'Find', 'Stash', 'Profile'],
     );
     assert.deepEqual(
       APP_TAB_ITEMS.map((t) => t.name),
-      ['index', 'search', 'create', 'stash', 'profile'],
+      ['index', 'search', 'find', 'stash', 'profile'],
     );
     assert.equal(APP_TAB_ITEMS[0].icon, 'play-outline');
     assert.equal(APP_TAB_ITEMS[3].icon, 'bag-handle-outline');

@@ -8,7 +8,6 @@ import { ContentSourceResolutionService } from '../processing/ContentSourceResol
 import { createCartService } from '../../cart/factory';
 import { createDiscoveredProductService } from '../../discovered/factory';
 import { createProductIntelligence } from '../../product-intelligence/factory';
-import { shareProgressState, shouldPersistImportTimeout } from '../../user-import/domain/shareProgress';
 import { SupabaseUserImportRepository } from '../../user-import/SupabaseUserImportRepository';
 import { SupabaseUserRepository } from '../../user/SupabaseUserRepository';
 import { SupabaseContentSourceRepository } from '../SupabaseContentSourceRepository';
@@ -19,7 +18,6 @@ import {
   type ContentSourceEnrichmentJobData,
   type ContentSourceProcessingJobData,
   type ContentSourceQueueJobData,
-  type UserImportTimeoutJobData,
 } from './contentSourceQueue';
 
 /** Retain the embedded worker so the consume loop is not eligible for GC. */
@@ -51,7 +49,7 @@ function createEnrichmentService(admin: SupabaseClient): ContentSourceResolution
 
 /**
  * Worker: process = extract + fast Bag path; enrich = background merchant offers;
- * user-import-timeout = freeze LOOKING imports after 10 minutes.
+ * user-import-timeout = drain historical presentation timers.
  */
 export function startContentSourceProcessingWorker(
   admin: SupabaseClient,
@@ -63,8 +61,6 @@ export function startContentSourceProcessingWorker(
 
   const processor = createResolvingContentSourceProcessor(admin);
   const enrichment = createEnrichmentService(admin);
-  const userImports = new SupabaseUserImportRepository(admin);
-  const sources = new SupabaseContentSourceRepository(admin);
   const connection = duplicateBullmqWorkerRedis('content-source-worker');
   logger.info(
     {
@@ -79,32 +75,7 @@ export function startContentSourceProcessingWorker(
     CONTENT_SOURCE_QUEUE,
     async (job: Job<ContentSourceQueueJobData>) => {
       if (job.name === 'user-import-timeout') {
-        const data = job.data as UserImportTimeoutJobData;
-        logger.info({ userImportId: data.userImportId, jobId: job.id }, 'user_import.timeout.start');
-        const row = await userImports.findById(data.userImportId);
-        if (!row) {
-          logger.info({ userImportId: data.userImportId }, 'user_import.timeout.missing');
-          return;
-        }
-        if (row.timedOutAt) {
-          logger.info({ userImportId: data.userImportId }, 'user_import.timeout.already');
-          return;
-        }
-        const source = row.contentSourceId
-          ? await sources.findById(row.contentSourceId)
-          : null;
-        const state = shareProgressState(source);
-        if (state !== 'looking') {
-          logger.info(
-            { userImportId: data.userImportId, state },
-            'user_import.timeout.skip_terminal',
-          );
-          return;
-        }
-        if (!shouldPersistImportTimeout({ source, timedOutAt: row.timedOutAt,
-          createdAt: row.createdAt, attemptStartedAt: row.attemptStartedAt })) return;
-        await userImports.markTimedOut(row.id, new Date().toISOString(), row.attemptStartedAt ?? null);
-        logger.info({ userImportId: data.userImportId }, 'user_import.timeout.applied');
+        // Drain historical presentation timers without freezing a find or cancelling active work.
         return;
       }
 

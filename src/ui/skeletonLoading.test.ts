@@ -57,7 +57,8 @@ describe('skeleton loading contracts', () => {
     assert.doesNotMatch(notifications, /ActivityIndicator/);
 
     const shares = read('app/shares.tsx');
-    assert.match(shares, /ShareActivityCardSkeleton/);
+    assert.match(shares, /Redirect/);
+    assert.match(read('components/find/FindDashboard.tsx'), /SkeletonBlock/);
     assert.doesNotMatch(shares, /ActivityIndicator/);
 
     const discover = read('app/profile/discover-creators.tsx');

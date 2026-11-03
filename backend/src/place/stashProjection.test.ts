@@ -93,6 +93,7 @@ function fakeDatabase(tables: Record<string, Row[]>, failCache = false) {
     const query = {
       select(value: string) { fields = value; return query; },
       eq(key: string, value: unknown) { filters.push([key, value]); return query; },
+      is(key: string, value: unknown) { filters.push([key, value]); return query; },
       in(key: string, value: unknown[]) { filters.push([key, value]); return query; },
       order() { return query; },
       or(value: string) { or = value; return query; },
@@ -101,7 +102,7 @@ function fakeDatabase(tables: Record<string, Row[]>, failCache = false) {
         reads.push({ table, select: fields, filters });
         if (table === 'video_extraction_cache' && failCache) return Promise.resolve(resolve({ data: null, error: { message: 'unavailable' } }));
         const rows = (tables[table] ?? []).filter(row => filters.every(([key, value]) =>
-          Array.isArray(value) ? value.includes(row[key]) : value === row[key]))
+          Array.isArray(value) ? value.includes(row[key]) : value === (row[key] ?? null)))
           .filter(row => !or || [row.url, row.embed_url].some(url => typeof url === 'string' && or.includes(JSON.stringify(url))))
           .slice(from, to + 1).map(row => fields.includes('metadata:') ? { ...row, metadata: (row.payload as { youtubeMetadata?: unknown })?.youtubeMetadata } : row);
         return Promise.resolve(resolve({ data: rows, error: null }));

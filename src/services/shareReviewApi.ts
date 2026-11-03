@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { withRequestTimeout } from './requestTimeout';
 import { hydrateImportShares, type ImportShare } from './importShareMap';
 export type ShareIntentValue = { kind: 'product' | 'place' | 'both' | null; note: string | null; revision: number };
 export type SimilarSuggestionView = { key: string; title: string; image: string | null; score: number };
@@ -9,9 +10,9 @@ export async function shareRequest<T>(path: string, method = 'GET', body?: unkno
   const base = process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL?.replace(/\/$/, '');
   const { data } = await supabase.auth.getSession();
   if (!base || !data.session) throw new Error('Sign in to continue.');
-  const response = await fetch(`${base}/imports${path}`, { method, signal: AbortSignal.timeout(15_000),
+  const response = await withRequestTimeout(15_000, signal => fetch(`${base}/imports${path}`, { method, signal,
     headers: { Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body) });
+    body: body === undefined ? undefined : JSON.stringify(body) }));
   const current = await supabase.auth.getSession();
   if (current.data.session?.user.id !== data.session.user.id) throw new Error('Your account changed. Please reopen this share.');
   if (!response.ok) throw new Error(response.status === 409 ? 'This share changed. Refresh before trying again.' : 'Could not confirm this change. Please try again.');

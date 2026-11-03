@@ -193,60 +193,65 @@ export class PlaceResolver {
   ): Promise<{ leads: number }> {
     let leads = 0;
     for (const userImport of imports) {
-      const existing = await this.repository.findSaveByUserAndHypothesis(userImport.userId, contentSourcePlaceId);
-      // A canonical card/hypothesis may already exist for another URL imported by
-      // this user. The current import still needs its own attribution edge.
-      const attach = () => this.repository.insertLead({ userId: userImport.userId,
-        contentSourcePlaceId, contentSourceId, userImportId: userImport.id });
-      if (placeId) {
-        if (existing?.placeId === placeId) { await attach(); continue; }
-        if (existing) {
-          const upgraded = await this.repository.upgradeLead(existing.id, placeId);
-          await attach();
-          logger.info(
-            {
-              contentSourceId,
+      try {
+        const existing = await this.repository.findSaveByUserAndHypothesis(userImport.userId, contentSourcePlaceId);
+        // A canonical card/hypothesis may already exist for another URL imported by
+        // this user. The current import still needs its own attribution edge.
+        const attach = () => this.repository.insertLead({ userId: userImport.userId,
+          contentSourcePlaceId, contentSourceId, userImportId: userImport.id });
+        if (placeId) {
+          if (existing?.placeId === placeId) { await attach(); continue; }
+          if (existing) {
+            const upgraded = await this.repository.upgradeLead(existing.id, placeId);
+            await attach();
+            logger.info(
+              {
+                contentSourceId,
+                userId: userImport.userId,
+                placeId,
+                merged: upgraded.merged,
+              },
+              upgraded.merged ? 'place.lead.upgraded' : 'place.attached',
+            );
+            continue;
+          }
+          try {
+            await this.repository.insertLead({
               userId: userImport.userId,
-              placeId,
-              merged: upgraded.merged,
-            },
-            upgraded.merged ? 'place.lead.upgraded' : 'place.attached',
-          );
+              contentSourcePlaceId,
+              contentSourceId,
+              userImportId: userImport.id,
+            });
+            logger.info({ contentSourceId, userId: userImport.userId, placeId }, 'place.attached');
+          } catch (err) {
+            if (err instanceof PlaceRepositoryError && err.code === 'duplicate') {
+              logger.info(
+                { contentSourceId, userId: userImport.userId, placeId, merged: true },
+                'place.lead.upgraded',
+              );
+              continue;
+            }
+            throw err;
+          }
           continue;
         }
+
+        if (existing) { await attach(); continue; }
         try {
-          await this.repository.insertLead({
+          const save = await this.repository.insertLead({
             userId: userImport.userId,
             contentSourcePlaceId,
             contentSourceId,
             userImportId: userImport.id,
           });
-          logger.info({ contentSourceId, userId: userImport.userId, placeId }, 'place.attached');
+          if (!save.placeId) leads += 1;
         } catch (err) {
-          if (err instanceof PlaceRepositoryError && err.code === 'duplicate') {
-            logger.info(
-              { contentSourceId, userId: userImport.userId, placeId, merged: true },
-              'place.lead.upgraded',
-            );
-            continue;
-          }
+          if (err instanceof PlaceRepositoryError && err.code === 'duplicate') continue;
           throw err;
         }
-        continue;
-      }
-
-      if (existing) { await attach(); continue; }
-      try {
-        const save = await this.repository.insertLead({
-          userId: userImport.userId,
-          contentSourcePlaceId,
-          contentSourceId,
-          userImportId: userImport.id,
-        });
-        if (!save.placeId) leads += 1;
-      } catch (err) {
-        if (err instanceof PlaceRepositoryError && err.code === 'duplicate') continue;
-        throw err;
+      } catch {
+        assertImportWorkActive();
+        logger.warn({ userImportId: userImport.id }, 'place.stash_sync.deferred');
       }
     }
     return { leads };

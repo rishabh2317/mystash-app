@@ -9,6 +9,7 @@ it('reads every authenticated saved-product page with stable ordering beyond the
   const client = { from(table: string) {
     assert.equal(table, 'cart_items');
     const query = { select(value: string) { assert.equal(value, '*'); return query; },
+      is(field: string, value: unknown) { assert.equal(field, 'removed_at'); assert.equal(value, null); return query; },
       eq(field: string, value: string) { assert.equal(field, 'user_id'); assert.equal(value, 'owner'); return query; },
       order(field: string) { ordering.push(field); return query; },
       async range(from: number, to: number) {
@@ -27,7 +28,7 @@ it('reads every authenticated saved-product page with stable ordering beyond the
 
 it('propagates a later-page error rather than pretending an incomplete saved list is complete', async () => {
   const client = { from() {
-    const query = { select() { return query; }, eq() { return query; }, order() { return query; },
+    const query = { select() { return query; }, eq() { return query; }, is() { return query; }, order() { return query; },
       async range(from: number) { return from ? { data: null, error: new Error('database unavailable') }
         : { data: Array.from({ length: 500 }, (_, i) => ({ id: String(i) })), error: null }; } };
     return query;

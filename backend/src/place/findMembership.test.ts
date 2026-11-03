@@ -1,0 +1,51 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { InMemoryPlaceRepository } from './InMemoryPlaceRepository';
+import { PlaceService } from './PlaceService';
+import { sourcePlaceCounts, syncImportPlaces } from './syncImportPlaces';
+
+test('place removal preserves extraction counts and provenance; retries do not restore; explicit restore does', async () => {
+  const repo = new InMemoryPlaceRepository(), service = new PlaceService(repo);
+  await repo.upsertHypothesis({ contentSourceId: 'source', extractedName: 'Fixture cafe', unresolvedReason: 'ambiguous' });
+  const row = { id: 'import', userId: 'owner', contentSourceId: 'source' };
+  await syncImportPlaces(repo, row);
+  const save = (await repo.listSavesByUser('owner'))[0];
+  await repo.setMembership('owner', save.id, false);
+  await syncImportPlaces(repo, row);
+  assert.equal((await service.listForUser('owner')).itemCount, 0);
+  assert.equal((await sourcePlaceCounts(repo, 'source')).total, 1);
+  assert.equal((await repo.listSourcesByUser('owner')).length, 1);
+  await assert.rejects(repo.setMembership('other', save.id, true), /not found/);
+  await repo.setMembership('owner', save.id, true);
+  assert.equal((await service.listForUser('owner')).itemCount, 1);
+});
+test('lead promotion merges removal intent into canonical save and old save IDs still restore', async () => {
+  const repo = new InMemoryPlaceRepository();
+  const place = await repo.insertPlace({ provider: 'fixture', providerPlaceId: 'canonical', name: 'Fixture cafe' });
+  const a = await repo.upsertHypothesis({ contentSourceId: 'a', extractedName: 'Fixture cafe', unresolvedReason: 'ambiguous' });
+  const b = await repo.upsertHypothesis({ contentSourceId: 'b', extractedName: 'Fixture cafe', unresolvedReason: 'ambiguous' });
+  await repo.markHypothesisResolved(a.id, place.id);
+  await syncImportPlaces(repo, { id: 'import-a', userId: 'owner', contentSourceId: 'a' });
+  await syncImportPlaces(repo, { id: 'import-b', userId: 'owner', contentSourceId: 'b' });
+  const lead = (await repo.findSaveByUserAndHypothesis('owner', b.id))!;
+  await repo.setMembership('owner', lead.id, false);
+  await repo.markHypothesisResolved(b.id, place.id);
+  assert.equal((await repo.listSavesByUser('owner')).length, 0);
+  assert.equal((await repo.listSourcesByUser('owner')).length, 2);
+  await repo.setMembership('owner', lead.id, true);
+  assert.equal((await repo.listSavesByUser('owner')).length, 1);
+});
+test('retired evidence cannot erase a removal marker; reappearance reuses it', async () => {
+  const repo = new InMemoryPlaceRepository(), service = new PlaceService(repo);
+  const input = { contentSourceId: 'source', extractedName: 'Fixture cafe', unresolvedReason: 'ambiguous' as const };
+  const h = await repo.upsertHypothesis(input);
+  await syncImportPlaces(repo, { id: 'import', userId: 'owner', contentSourceId: 'source' });
+  const save = (await repo.listSavesByUser('owner'))[0];
+  await repo.setMembership('owner', save.id, false);
+  await repo.deleteUnresolvedExcept('source', []);
+  assert.equal((await repo.listHypotheses('source')).length, 0);
+  await assert.rejects(repo.setMembership('owner', save.id, true), /retired/);
+  assert.equal((await repo.upsertHypothesis(input)).id, h.id);
+  await syncImportPlaces(repo, { id: 'import', userId: 'owner', contentSourceId: 'source' });
+  assert.equal((await service.listForUser('owner')).itemCount, 0);
+});

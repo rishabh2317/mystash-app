@@ -1,99 +1,73 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { hydrateImportShares, type ImportShare } from '@/src/services/importShareMap';
+import type { FindOutcome } from '../../backend/src/user-import/find/contract';
 import { mapImportShareToActivity, shareActivityDestination } from '@/src/ui/shareActivity';
 import { importResultsChanged } from '@/src/hooks/importSharePoll';
 import { bagHasInFlightShares } from '@/src/ui/bag';
 
-function share(partial: Partial<ImportShare> = {}): ImportShare {
-  return {
-    importId: 'fixture', state: 'ready', kind: 'youtube', createdAt: '2026-10-28T00:00:00Z',
-    contentSourceId: 'source', sourceUrl: 'https://example.invalid', productCount: 0,
-    primaryProduct: null, products: [], resultVersion: 1, resultProductCount: 0,
-    resultProducts: [], placeCount: 0, resolvedPlaceCount: 0, unverifiedPlaceCount: 0,
-    productStatus: 'complete', placeStatus: 'complete', hasInFlight: false, canRetry: false,
-    ...partial,
-  };
+function share(outcome: Partial<FindOutcome> = {}, products: ImportShare['products'] = []): ImportShare {
+  return hydrateImportShares([{ importId: 'fixture', kind: 'youtube', createdAt: '2026-11-03T00:00:00Z', products,
+    findOutcome: { version: 1, category: 'completed', result: 'empty', products: 'complete', places: 'complete',
+      foundProducts: 0, foundPlaces: 0, resolvedPlaces: 0, unverifiedPlaces: 0, savedProducts: 0, savedPlaces: 0, stashSync: 'complete',
+      canRetryExtraction: false, canRetrySaving: false, extractionActive: false, delayed: false, finishedAt: null, ...outcome } }])[0];
 }
-
-it('labels place-only and mixed outcomes accurately without inventing products', () => {
-  const placeOnly = share({ placeCount: 1, unverifiedPlaceCount: 1 });
-  const view = mapImportShareToActivity(placeOnly);
-  assert.equal(view.userState, 'places_found');
-  assert.equal(view.subtitle, '1 place found');
-  assert.equal(view.productCount, 0);
-  assert.deepEqual(shareActivityDestination(placeOnly), { kind: 'places', path: '/stash?segment=places' });
-  assert.equal(mapImportShareToActivity(share({ resultProductCount: 2, placeCount: 1 })).subtitle,
-    '2 products · 1 place found');
+it('labels place-only, mixed and empty outcomes using authoritative counts', () => {
+  const place = share({ foundPlaces: 1, result: 'found' });
+  assert.equal(mapImportShareToActivity(place).userState, 'places_found');
+  assert.equal(mapImportShareToActivity(place).subtitle, '1 place found');
+  assert.deepEqual(shareActivityDestination(place), { kind: 'places', path: '/stash?segment=places' });
+  assert.equal(mapImportShareToActivity(share({ foundProducts: 2, foundPlaces: 1 })).subtitle, '2 products · 1 place found');
   assert.equal(mapImportShareToActivity(share()).subtitle, 'No products or places found');
 });
-
-it('shows partial successes while polling and after sibling failure', () => {
-  const running = share({ state: 'looking', placeCount: 1, productStatus: 'running', hasInFlight: true });
-  const view = mapImportShareToActivity(running);
-  assert.equal(view.userState, 'partial');
-  assert.match(view.subtitle, /1 place found.*Finding products/);
-  assert.equal(bagHasInFlightShares([running]), true);
-  const failed = share({ state: 'couldnt_finish', placeCount: 1, productStatus: 'failed', canRetry: true });
+it('retains partial successes and polls until active work finishes', () => {
+  const active = share({ category: 'processing', foundPlaces: 1, products: 'running', extractionActive: true });
+  assert.equal(mapImportShareToActivity(active).userState, 'partial');
+  assert.match(mapImportShareToActivity(active).subtitle, /1 place found.*Finding products/);
+  assert.equal(bagHasInFlightShares([active]), true);
+  const failed = share({ category: 'attention', result: 'partial', foundPlaces: 1, products: 'failed', canRetryExtraction: true });
   assert.equal(mapImportShareToActivity(failed).userState, 'partial');
-  assert.match(mapImportShareToActivity(failed).subtitle, /1 place found.*Products couldn’t finish/);
   assert.equal(bagHasInFlightShares([failed]), false);
 });
-
-it('does not describe verification failures as successful empty searches', () => {
-  const view = mapImportShareToActivity(share({ resultProductCount: 1, placeCount: 1,
-    unverifiedPlaceCount: 1, placeStatus: 'failed', canRetry: true }));
-  assert.match(view.subtitle, /1 product · 1 place found.*verification couldn’t finish/);
-  assert.equal(view.canRetry, true);
-  assert.doesNotMatch(view.subtitle, /No products|No places/);
+it('saving failure is distinct from extraction failure and remains retryable', () => {
+  const failed = share({ category: 'attention', result: 'found', foundProducts: 1, stashSync: 'failed', canRetrySaving: true });
+  assert.match(mapImportShareToActivity(failed).subtitle, /Saving needs another try/);
+  assert.equal(failed.canRetry, true); assert.equal(failed.productStatus, 'complete');
 });
-
-it('retains legacy API and product-navigation compatibility; unknown zero-product READY is neutral', () => {
-  const legacy = { ...share(), resultVersion: undefined, resultProductCount: undefined, resultProducts: undefined,
-    productCount: 1, primaryProduct: { productId: 'p', title: 'Camera', imageUrl: null } };
-  assert.equal(shareActivityDestination(legacy).kind, 'product');
-  assert.equal(mapImportShareToActivity(legacy).subtitle, 'Camera');
-  assert.equal(mapImportShareToActivity({ ...legacy, productCount: 0, primaryProduct: null }).subtitle, 'Results ready');
-  const [oldWire] = hydrateImportShares([{ importId: 'old', state: 'ready', productCount: 2 }]);
-  assert.equal(oldWire.productCount, 2);
-  assert.equal(oldWire.resultVersion, undefined);
+it('requires the current contract and rejects malformed outcomes instead of guessing completion', () => {
+  assert.throws(() => hydrateImportShares([{ importId: 'old', state: 'ready', productCount: 2 }]), /outcome unavailable/);
+  assert.throws(() => hydrateImportShares([{ ...share(), findOutcome: { ...share().findOutcome, foundProducts: -1 } }]), /Incompatible/);
 });
-
-it('hydrates additive fields defensively and preserves partial product cards', () => {
-  const [wire] = hydrateImportShares([share({ productCount: 0, resultProductCount: 1, resultProducts: [
-    { productId: 'p', title: 'Camera', imageUrl: null },
-  ], productStatus: 'complete', placeStatus: 'running', hasInFlight: true })]);
-  const view = mapImportShareToActivity(wire);
-  assert.equal(wire.productCount, 0);
-  assert.equal(view.productCount, 1);
-  assert.equal(view.products[0].productId, 'p');
-  const [invalid] = hydrateImportShares([{ ...share(), placeCount: Infinity, resultProductCount: -2,
-    productStatus: 'garbage', resultProducts: [{}] }]);
-  assert.equal(invalid.placeCount, 0);
-  assert.equal(invalid.resultProductCount, 0);
-  assert.equal(invalid.productStatus, 'unknown');
-  assert.deepEqual(invalid.resultProducts, []);
+it('hydrates partial product cards and ignores contradictory legacy aliases', () => {
+  const original = share({ foundProducts: 1, places: 'running', category: 'processing', extractionActive: true },
+    [{ productId: 'p', title: 'Camera', imageUrl: null }]);
+  const wire = hydrateImportShares([{ ...original, state: 'couldnt_finish', productCount: 88, hasInFlight: false }])[0];
+  assert.equal(wire.productCount, 1); assert.equal(wire.hasInFlight, true);
+  assert.equal(mapImportShareToActivity(wire).products[0].productId, 'p');
+  assert.equal(shareActivityDestination(wire).kind, 'product');
 });
-
-it('refreshes committed Places changes and promotions without an overall READY transition', () => {
-  const before = share({ state: 'looking', placeStatus: 'running', productStatus: 'running', hasInFlight: true });
-  const after = { ...before, placeCount: 1, unverifiedPlaceCount: 1, placeStatus: 'complete' as const };
+it('refreshes saved counts, save recovery, and late completion without relying on state transitions', () => {
+  const before = share({ foundProducts: 1, stashSync: 'failed', canRetrySaving: true });
+  const after = share({ foundProducts: 1, savedProducts: 1 });
   assert.equal(importResultsChanged([before], [after]), true);
   assert.equal(importResultsChanged([after], [{ ...after }]), false);
-  assert.equal(importResultsChanged([after], [{ ...after, unverifiedPlaceCount: 0, resolvedPlaceCount: 1 }]), true);
+});
+it('delayed work keeps polling and late success clears the delay notice', () => {
+  const delayed = share({ category: 'attention', products: 'running', extractionActive: true, delayed: true });
+  assert.match(mapImportShareToActivity(delayed).subtitle, /Taking longer/);
+  assert.equal(bagHasInFlightShares([delayed]), true); assert.equal(delayed.canRetry, false);
+  const done = share({ foundProducts: 1, result: 'found' });
+  assert.doesNotMatch(mapImportShareToActivity(done).subtitle, /longer|finish in time/);
+  assert.equal(bagHasInFlightShares([done]), false);
+});
+it('does not claim empty results while source evidence is finishing', () => {
+  const value = share({ category: 'processing', extractionActive: true });
+  assert.equal(mapImportShareToActivity(value).subtitle, 'Finishing discovery…');
 });
 
-it('late results do not erase the timed-out activity notice or restart polling', () => {
-  const late = share({ state: 'couldnt_finish', timedOut: true, resultProductCount: 1,
-    canRetry: true, hasInFlight: false });
-  const view = mapImportShareToActivity(late);
-  assert.equal(view.userState, 'partial');
-  assert.match(view.subtitle, /1 product found.*Couldn’t finish in time/);
-  assert.equal(bagHasInFlightShares([late]), false);
-});
-
-it('does not claim empty results while shared evidence is still finishing', () => {
-  const view = mapImportShareToActivity(share({ state: 'looking', hasInFlight: true }));
-  assert.equal(view.userState, 'processing');
-  assert.equal(view.subtitle, 'Finishing discovery…');
+it('refreshes Stash when a place is verified without changing its total count', () => {
+  const lead = share({ foundPlaces: 1, unverifiedPlaces: 1 });
+  const verified = share({ foundPlaces: 1, resolvedPlaces: 1 });
+  assert.equal(importResultsChanged([lead], [verified]), true);
+  assert.equal(verified.resolvedPlaceCount, 1); assert.equal(verified.unverifiedPlaceCount, 0);
 });

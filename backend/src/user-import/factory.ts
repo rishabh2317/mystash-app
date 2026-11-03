@@ -1,5 +1,5 @@
-import { SupabaseImportProgressRepository } from './ImportProgressRepository';
-import { sourcePlaceCounts, syncImportPlaces } from '../place/syncImportPlaces';
+import { readFindMemberships } from './find/membershipQuery';
+import { syncImportPlaces } from '../place/syncImportPlaces';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createContentSourceService } from '../content-source/factory';
 import { createUserImportBagSync } from '../content-source/processing/userImportBagSync';
@@ -31,12 +31,8 @@ export function createUserImportService(
     new SupabaseUserImportRepository(admin),
     contentSource ?? createUserImportContentSourcePort(admin),
     bagSync === undefined ? createUserImportBagSync(admin) : bagSync,
-    undefined,
-    undefined,
-    (userImportId) => places.countByUserImport(userImportId),
     {
-      progress: new SupabaseImportProgressRepository(admin),
-      placeCounts: (sourceId) => sourcePlaceCounts(places, sourceId),
+      memberships: (userId: string, ids: string[]) => readFindMemberships(admin, userId, ids),
       syncPlaces: (row) => syncImportPlaces(places, row),
     },
   );

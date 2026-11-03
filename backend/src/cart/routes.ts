@@ -67,6 +67,7 @@ export function registerCartRoutes(app: Express): void {
       const body = req.body as {
         catalogProductId?: string;
         catalog_product_id?: string;
+        discoveredProductId?: string;
         source?: CartItemSource;
         userId?: string;
         user_id?: string;
@@ -79,13 +80,17 @@ export function registerCartRoutes(app: Express): void {
       }
 
       const catalogProductId = body.catalogProductId ?? body.catalog_product_id;
-      if (!catalogProductId || typeof catalogProductId !== 'string') {
-        res.status(400).json({ error: 'catalogProductId required' });
+      const discoveredProductId = body.discoveredProductId;
+      if ((!catalogProductId && !discoveredProductId) || (catalogProductId && discoveredProductId)
+        || (catalogProductId != null && typeof catalogProductId !== 'string')
+        || (discoveredProductId != null && typeof discoveredProductId !== 'string')) {
+        res.status(400).json({ error: 'Provide one valid product identity' });
         return;
       }
 
+      // Explicit user action. Never accept the internal automatic flag from a request body.
       const result = await cart.addItem(userId, {
-        catalogProductId,
+        catalogProductId, discoveredProductId,
         source: body.source ?? null,
       });
 
@@ -95,6 +100,7 @@ export function registerCartRoutes(app: Express): void {
         item: {
           cartItemId: result.item.id,
           catalogProductId: result.item.catalogProductId,
+          ...(result.item.discoveredProductId ? { discoveredProductId: result.item.discoveredProductId } : {}),
           addedAt: result.item.addedAt,
           source: {
             collectionId: result.item.sourceCollectionId,

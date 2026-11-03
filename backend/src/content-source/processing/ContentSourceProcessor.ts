@@ -205,7 +205,11 @@ export class ContentSourceProcessor {
           throw err;
         }
         if (this.deps.places) for (const row of await this.deps.userImports.listByContentSourceId(claimed.id)) {
-          await syncImportPlaces(this.deps.places, { ...row, contentSourceId: claimed.id });
+          try { await syncImportPlaces(this.deps.places, { ...row, contentSourceId: claimed.id }); }
+          catch {
+            assertImportWorkActive();
+            logger.warn({ userImportId: row.id }, 'place.stash_sync.deferred');
+          }
         }
       }));
       const [placeOutcome, productOutcome] = await Promise.all([placesTask, productsTask!]);

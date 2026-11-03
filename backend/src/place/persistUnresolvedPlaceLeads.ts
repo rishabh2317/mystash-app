@@ -1,3 +1,4 @@
+import { assertImportWorkActive } from '../user-import/workContext';
 import type { ExtractedPlaceMention } from './parseReasonerPayload';
 import { placeNameIsSpecific } from './placeNameIsSpecific';
 import { PlaceRepositoryError, type PlaceRepository } from './PlaceRepository';
@@ -58,7 +59,7 @@ export async function persistUnresolvedPlaceLeads(input: {
         if (!save.placeId) leads += 1;
       } catch (err) {
         if (err instanceof PlaceRepositoryError && err.code === 'duplicate') continue;
-        throw err;
+        assertImportWorkActive();
       }
     }
   }

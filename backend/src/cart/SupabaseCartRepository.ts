@@ -16,6 +16,8 @@ type CartItemRow = {
   source_content_source_id: string | null;
   source_user_import_id: string | null;
   schema_version: number;
+  removed_at?: string | null;
+  explicit_action_at?: string | null;
 };
 
 function mapRow(row: CartItemRow): CartItemRecord {
@@ -33,17 +35,32 @@ function mapRow(row: CartItemRow): CartItemRecord {
     sourceContentSourceId: row.source_content_source_id,
     sourceUserImportId: row.source_user_import_id,
     schemaVersion: row.schema_version,
+    removedAt: row.removed_at ?? null, explicitActionAt: row.explicit_action_at ?? null,
   };
 }
 
 export class SupabaseCartRepository implements CartRepository {
-  constructor(private readonly admin: SupabaseClient) {}
+  readonly putMembership: CartRepository['putMembership'];
+  constructor(private readonly admin: SupabaseClient) {
+    this.putMembership = async (row, automatic) => {
+      const { data, error } = await this.admin.rpc('find_cart_put', {
+        p_user: row.userId, p_catalog: row.catalogProductId, p_discovered: row.discoveredProductId, p_automatic: automatic,
+        p_source: { source_surface: row.sourceSurface, source_collection_id: row.sourceCollectionId,
+          source_creator_id: row.sourceCreatorId, source_collection_product_tag_id: row.sourceCollectionProductTagId,
+          source_content_source_id: row.sourceContentSourceId, source_user_import_id: row.sourceUserImportId },
+      });
+      if (error || !data) throw new Error('Stash membership could not be saved');
+      return { item: mapRow(data.item), created: data.created === true, suppressed: data.suppressed === true };
+    };
+  }
 
   async listByUser(userId: string): Promise<CartItemRecord[]> {
     const rows: CartItemRecord[] = [];
     const pageSize = 500;
     for (let offset = 0; ; offset += pageSize) {
-      const { data, error } = await this.admin.from('cart_items').select('*').eq('user_id', userId)
+      let query = this.admin.from('cart_items').select('*').eq('user_id', userId);
+      query = query.is('removed_at', null);
+      const { data, error } = await query
         .order('added_at', { ascending: false }).order('id').range(offset, offset + pageSize - 1);
       if (error) throw error;
       const page = (data ?? []) as CartItemRow[];
@@ -88,51 +105,19 @@ export class SupabaseCartRepository implements CartRepository {
       schemaVersion?: number;
     },
   ): Promise<CartItemRecord> {
-    const payload: Record<string, unknown> = {
-      user_id: row.userId,
-      catalog_product_id: row.catalogProductId,
-      discovered_product_id: row.discoveredProductId,
-      source_collection_id: row.sourceCollectionId,
-      source_creator_id: row.sourceCreatorId,
-      source_collection_product_tag_id: row.sourceCollectionProductTagId,
-      source_surface: row.sourceSurface,
-      source_content_source_id: row.sourceContentSourceId,
-      source_user_import_id: row.sourceUserImportId,
-      schema_version: row.schemaVersion ?? 1,
-    };
-    if (row.id) payload.id = row.id;
-    if (row.addedAt) payload.added_at = row.addedAt;
-    if (row.updatedAt) payload.updated_at = row.updatedAt;
-
-    const { data, error } = await this.admin
-      .from('cart_items')
-      .insert(payload)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return mapRow(data as CartItemRow);
+    return (await this.putMembership(row, false)).item;
   }
 
   async deleteByUserAndProduct(userId: string, catalogProductId: string): Promise<boolean> {
-    const { data, error } = await this.admin
-      .from('cart_items')
-      .delete()
-      .eq('user_id', userId)
-      .eq('catalog_product_id', catalogProductId)
-      .select('id');
-    if (error) throw error;
-    return (data?.length ?? 0) > 0;
+    const { data, error } = await this.admin.rpc('find_cart_remove', { p_user: userId, p_catalog: catalogProductId, p_discovered: null });
+    if (error) throw new Error('Stash membership could not be removed');
+    return data === true;
   }
 
   async deleteByUserAndDiscovered(userId: string, discoveredProductId: string): Promise<boolean> {
-    const { data, error } = await this.admin
-      .from('cart_items')
-      .delete()
-      .eq('user_id', userId)
-      .eq('discovered_product_id', discoveredProductId)
-      .select('id');
-    if (error) throw error;
-    return (data?.length ?? 0) > 0;
+    const { data, error } = await this.admin.rpc('find_cart_remove', { p_user: userId, p_catalog: null, p_discovered: discoveredProductId });
+    if (error) throw new Error('Stash membership could not be removed');
+    return data === true;
   }
 
   async remapCatalogProduct(
@@ -140,43 +125,8 @@ export class SupabaseCartRepository implements CartRepository {
     targetId: string,
   ): Promise<{ remapped: number; collisionsResolved: number }> {
     if (sourceId === targetId) return { remapped: 0, collisionsResolved: 0 };
-
-    const { data: rows, error } = await this.admin
-      .from('cart_items')
-      .select('*')
-      .eq('catalog_product_id', sourceId);
-    if (error) throw error;
-
-    let remapped = 0;
-    let collisionsResolved = 0;
-
-    for (const row of (rows ?? []) as CartItemRow[]) {
-      const { data: existingTarget, error: findErr } = await this.admin
-        .from('cart_items')
-        .select('id')
-        .eq('user_id', row.user_id)
-        .eq('catalog_product_id', targetId)
-        .maybeSingle();
-      if (findErr) throw findErr;
-
-      if (existingTarget && (existingTarget as { id: string }).id !== row.id) {
-        const { error: delErr } = await this.admin.from('cart_items').delete().eq('id', row.id);
-        if (delErr) throw delErr;
-        collisionsResolved += 1;
-        continue;
-      }
-
-      const { error: updErr } = await this.admin
-        .from('cart_items')
-        .update({
-          catalog_product_id: targetId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.id);
-      if (updErr) throw updErr;
-      remapped += 1;
-    }
-
-    return { remapped, collisionsResolved };
+    const { data, error } = await this.admin.rpc('find_cart_remap', { p_source: sourceId, p_target: targetId });
+    if (error || !data) throw new Error('Stash identities could not be merged');
+    return data;
   }
 }

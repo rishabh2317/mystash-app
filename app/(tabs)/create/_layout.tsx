@@ -1,9 +1,10 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 
 import { TopBar } from '@/components/chrome/TopBar';
 import { CREATE_STACK_TITLES } from '@/src/ui/createCopy';
 
 export default function CreateStackLayout() {
+  const router = useRouter();
   return (
     <Stack
       screenOptions={{
@@ -11,9 +12,9 @@ export default function CreateStackLayout() {
           <TopBar
             mode="page"
             title={typeof options.title === 'string' ? options.title : ''}
-            showBack={Boolean(back)}
+            showBack
             showBag={false}
-            onBack={() => navigation.goBack()}
+            onBack={() => back ? navigation.goBack() : router.replace('/(tabs)/profile')}
             trailing={
               typeof options.headerRight === 'function'
                 ? options.headerRight({ canGoBack: Boolean(back) } as never)

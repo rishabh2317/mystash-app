@@ -4,6 +4,8 @@ import { assertEmailVerified } from '../auth/emailVerification';
 import { createSupabaseAdmin, createSupabaseUserClient } from '../supabase';
 import { PlaceService, PlacePageError, type PlacePageOptions } from './PlaceService';
 import { SupabasePlaceRepository } from './SupabasePlaceRepository';
+import { PlaceRepositoryError, type PlaceRepository } from './PlaceRepository';
+import { uuid } from '../user-import/share/contracts';
 
 export type PlaceAuthenticator = (req: Request) => Promise<{ userId: string } | null>;
 
@@ -70,4 +72,29 @@ export function registerPlaceRoutes(app: Express): void {
       authenticate: supabasePlaceAuthenticator(),
     }),
   );
+  const membership = (restore: boolean) => createPlaceMembershipHandler({ repository: new SupabasePlaceRepository(admin),
+    authenticate: supabasePlaceAuthenticator(), restore });
+  app.delete('/places/:saveId', membership(false));
+  app.post('/places/:saveId/restore', membership(true));
+}
+
+/** Owner comes from the verified session; save redirects are resolved inside the transaction. */
+export function createPlaceMembershipHandler(deps: {
+  repository: Pick<PlaceRepository, 'setMembership'>; authenticate: PlaceAuthenticator;
+  restore: boolean;
+}) {
+  return async (req: Request, res: Response): Promise<void> => {
+    try {
+      const auth = await deps.authenticate(req);
+      if (!auth) { res.status(401).json({ error: 'Unauthorized' }); return; }
+      const id = String(req.params.saveId);
+      if (!uuid.test(id)) { res.status(404).json({ error: 'Place save not found' }); return; }
+      await deps.repository.setMembership(auth.userId, id, deps.restore);
+      res.json({ ok: true });
+    } catch (error) {
+      if (sendAuthError(res, error)) return;
+      const status = error instanceof PlaceRepositoryError ? error.code === 'not_found' ? 404 : 409 : 503;
+      res.status(status).json({ error: status === 404 ? 'Place save not found' : 'Place membership could not be changed' });
+    }
+  };
 }

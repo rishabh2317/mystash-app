@@ -1,3 +1,4 @@
+import type { StashSyncState } from './find/outcome';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { InsertUserImportRow, UserImportRecord, UserImportStatus } from './domain/types';
 import type { UserImportRepository } from './UserImportRepository';
@@ -18,6 +19,8 @@ type UserImportRow = {
   created_at: string;
   updated_at: string;
   schema_version: number;
+  stash_sync_state?: StashSyncState | null;
+  stash_sync_attempt_id?: string | null;
   interest_kind?: 'product' | 'place' | 'both' | null;
   interest_note?: string | null;
   intent_revision?: number;
@@ -40,6 +43,7 @@ function mapRow(row: UserImportRow): UserImportRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     schemaVersion: row.schema_version,
+    stashSyncState: row.stash_sync_state ?? null, stashSyncAttemptId: row.stash_sync_attempt_id ?? null,
     interestKind: row.interest_kind ?? null,
     interestNote: row.interest_note ?? null,
     intentRevision: row.intent_revision ?? 0,
@@ -105,11 +109,9 @@ export class SupabaseUserImportRepository implements UserImportRepository {
   }
 
   async listByContentSourceId(contentSourceId: string): Promise<UserImportRecord[]> {
-    const { data, error } = await this.admin
-      .from('user_imports')
-      .select('*')
-      .eq('content_source_id', contentSourceId)
-      .order('created_at', { ascending: true });
+    let query = this.admin.from('user_imports').select('*').eq('content_source_id', contentSourceId);
+    query = query.is('hidden_at', null);
+    const { data, error } = await query.order('created_at', { ascending: true });
     if (error) throw error;
     return ((data ?? []) as UserImportRow[]).map(mapRow);
   }

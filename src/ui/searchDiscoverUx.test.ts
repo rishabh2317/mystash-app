@@ -36,16 +36,15 @@ describe('Search Discover UX wiring', () => {
   it('uses mode switch, Paste URL import path, Activity, and Stash typography', () => {
     const search = readFileSync(join(ROOT, 'app/(tabs)/search.tsx'), 'utf8');
     assert.match(search, /SearchModeSwitch/);
-    assert.match(search, /Paste a product, Reel or Short URL/);
+    assert.match(search, /FIND_ROUTES\.capture/);
     assert.match(search, /Search products, creators, collections/);
-    assert.match(search, /submitUserImport/);
-    assert.match(search, /extractSharedLink/);
+    assert.doesNotMatch(search, /submitUserImport/);
     assert.match(search, /shareActivityLandingItems/);
     assert.match(search, /YourActivitySection/);
     assert.match(search, /sharesLoaded/);
     assert.doesNotMatch(search, /activityItems\.length > 0/);
     const activity = readFileSync(join(ROOT, 'components/search/YourActivitySection.tsx'), 'utf8');
-    assert.match(activity, /\/shares/);
+    assert.match(activity, /FIND_ROUTES\.history/);
     assert.match(search, /productPagePath/);
     assert.match(search, /typeStyle/);
     assert.match(search, /SectionHeader/);
@@ -70,14 +69,12 @@ describe('Search Discover UX wiring', () => {
     assert.match(creator, /CreatorProfileTab/);
   });
 
-  it('Your Shares and Search Activity use the same expandable card', () => {
+  it('legacy Your Shares opens Find while Search retains its expandable activity summary', () => {
     const shares = readFileSync(join(ROOT, 'app/shares.tsx'), 'utf8');
     const search = readFileSync(join(ROOT, 'app/(tabs)/search.tsx'), 'utf8');
     const card = readFileSync(join(ROOT, 'components/search/ShareActivityCard.tsx'), 'utf8');
-    assert.match(shares, /ShareActivityCard/);
-    assert.match(shares, /expandable/);
-    assert.match(shares, /onRetry/);
-    assert.match(shares, /onDelete/);
+    assert.match(shares, /Redirect/);
+    assert.match(shares, /\/find\?filter=all/);
     const activity = readFileSync(join(ROOT, 'components/search/YourActivitySection.tsx'), 'utf8');
     assert.match(search, /YourActivitySection/);
     assert.match(activity, /ShareActivityCard/);

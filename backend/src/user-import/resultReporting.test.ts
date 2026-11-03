@@ -1,3 +1,4 @@
+import { testSnapshots } from './find/testSnapshot';
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { InMemoryContentSourceRepository } from '../content-source/InMemoryContentSourceRepository';
@@ -5,7 +6,7 @@ import { ContentSourceService } from '../content-source/ContentSourceService';
 import { ContentSourceProcessor } from '../content-source/processing/ContentSourceProcessor';
 import { InMemoryPlaceRepository } from '../place/InMemoryPlaceRepository';
 import { PlaceResolver } from '../place/PlaceResolver';
-import { sourcePlaceCounts, syncImportPlaces } from '../place/syncImportPlaces';
+import { syncImportPlaces } from '../place/syncImportPlaces';
 import { InMemoryUserImportRepository } from './InMemoryUserImportRepository';
 import { InMemoryImportProgressRepository } from './ImportProgressRepository';
 import { UserImportService } from './UserImportService';
@@ -37,9 +38,10 @@ function harness(options: { products?: boolean; places?: boolean; productGate?: 
     listProducts: (id) => sources.listProducts(id),
     requestProcessing: (params) => sourceService.requestProcessing(params),
     requestReprocessing: (params) => sourceService.requestReprocessing(params),
-  }, null, async () => {}, () => clock, (id) => places.countByUserImport(id), {
-    progress, placeCounts: (id) => sourcePlaceCounts(places, id), syncPlaces: (row) => syncImportPlaces(places, row),
-  });
+  }, null, {
+    memberships: testSnapshots(imports, { getById: id => sources.findById(id), listProducts: id => sources.listProducts(id) },
+      { progress, places: id => places.countByUserImport(id), now: () => clock }), syncPlaces: (row) => syncImportPlaces(places, row),
+  }, () => clock);
   const processor = new ContentSourceProcessor({
     sources, userImports: imports, places, progress,
     video: { extract: async () => {
@@ -80,8 +82,6 @@ for (const [products, places] of [[false, false], [true, false], [false, true], 
     const [result] = await h.service.listRecent(USER);
     assert.equal(result.productCount, products ? 1 : 0);
     assert.equal(result.placeCount, places ? 1 : 0);
-    assert.equal(result.resolvedPlaceCount, places ? 1 : 0);
-    assert.equal(result.unverifiedPlaceCount, 0);
     assert.equal(result.productStatus, 'complete');
     assert.equal(result.placeStatus, 'complete');
     assert.equal(result.state, products || places ? 'ready' : 'nothing_yet');
@@ -106,7 +106,7 @@ it('reports place completion while products run, then preserves places on produc
   assert.equal(partial.placeStatus, 'complete');
   assert.equal(partial.productStatus, 'running');
   assert.equal(partial.placeCount, 1);
-  assert.equal(partial.state, 'looking');
+  assert.equal(partial.state, 'ready');
   assert.equal(partial.hasInFlight, true);
   reject(new Error('fixture product failure'));
   await assert.rejects(processing, /fixture product failure/);
@@ -131,13 +131,13 @@ it('keeps products and unverified leads on provider failure; retry does not re-e
   const [partial] = await h.service.listRecent(USER);
   assert.equal(partial.productCount, 1);
   assert.equal(partial.placeCount, 1);
-  assert.equal(partial.unverifiedPlaceCount, 1);
+  assert.equal(partial.findOutcome.foundPlaces, 1);
   assert.equal(partial.placeStatus, 'failed');
   h.failProvider(false);
   await h.service.retry(USER, record.id);
   await h.process(record);
   assert.deepEqual(h.calls(), { extractionCalls: 1, productCalls: 1, searchCalls: 2 });
-  assert.equal((await h.service.listRecent(USER))[0].resolvedPlaceCount, 1);
+  assert.equal((await h.service.listRecent(USER))[0].findOutcome.places, 'complete');
 });
 
 it('late users receive existing places, and repeated imports do not stack cards or provider calls', async () => {
@@ -165,17 +165,14 @@ it('history removal preserves saves/source and deliberate re-share restores the 
   assert.equal((await h.service.listRecent(USER)).length, 1);
 });
 
-it('retry starts a fresh timeout clock; an old delayed timeout cannot freeze it early', async () => {
+it('delayed work stays active and cannot be retried prematurely', async () => {
   const h = harness();
   const { record } = await h.service.submit(USER, { rawInput: URL });
-  const expired = Date.parse(record.createdAt) + USER_IMPORT_TIMEOUT_MS + 1;
-  h.setClock(expired);
-  assert.equal(await h.service.applyTimeout(record.id), true);
-  await h.service.retry(USER, record.id);
-  assert.equal(await h.service.applyTimeout(record.id), false);
-  assert.equal((await h.service.listRecent(USER))[0].state, 'looking');
-  h.setClock(expired + USER_IMPORT_TIMEOUT_MS);
-  assert.equal(await h.service.applyTimeout(record.id), true);
+  h.setClock(Date.parse(record.createdAt) + USER_IMPORT_TIMEOUT_MS + 1000);
+  const result = (await h.service.listRecent(USER))[0];
+  assert.equal(result.findOutcome.delayed, true);
+  await assert.rejects(h.service.retry(USER, record.id), /cannot be retried/);
+  assert.equal((await h.imports.findById(record.id))?.timedOutAt, null);
 });
 
 it('late reporting from a previous attempt cannot overwrite the current attempt', async () => {
@@ -198,7 +195,7 @@ it('products are visible while Places is still running; a mid-flight importer re
     await new Promise((resolve) => setImmediate(resolve));
   }
   const [partial] = await h.service.listRecent(USER);
-  assert.equal(partial.productCount, 0); // Legacy counts remain hidden until READY.
+  assert.equal(partial.productCount, 1);
   assert.equal(partial.resultProductCount, 1);
   assert.equal(partial.resultProducts?.[0].productId, PRODUCT);
   assert.equal(partial.placeStatus, 'running');
@@ -208,20 +205,12 @@ it('products are visible while Places is still running; a mid-flight importer re
   assert.equal((await h.places.listSavesByUser(OTHER)).length, 1);
 });
 
-it('a stale timeout compare-and-set loses to a concurrent explicit retry', async () => {
+it('reporting never writes a historical timeout marker', async () => {
   const h = harness();
   const { record } = await h.service.submit(USER, { rawInput: URL });
-  const expired = Date.parse(record.createdAt) + USER_IMPORT_TIMEOUT_MS + 1;
-  h.setClock(expired);
-  const original = h.imports.markTimedOut.bind(h.imports);
-  h.imports.markTimedOut = async (id, at, expected) => {
-    await h.imports.restart(id, new Date(expired).toISOString());
-    return original(id, at, expected);
-  };
-  const [result] = await h.service.listRecent(USER);
-  assert.equal(result.state, 'looking');
-  assert.equal(result.timedOut, false);
-  assert.equal((await h.imports.findById(record.id))?.timedOutAt, null);
+  h.setClock(Date.parse(record.createdAt) + USER_IMPORT_TIMEOUT_MS + 1000);
+  h.imports.markTimedOut = async () => { throw new Error('Unexpected reporting write'); };
+  assert.equal((await h.service.listRecent(USER))[0].findOutcome.delayed, true);
 });
 
 it('reports a place found on another source even when the canonical card was already saved', async () => {
@@ -233,7 +222,6 @@ it('reports a place found on another source even when the canonical card was alr
   assert.equal((await h.places.listSavesByUser(USER)).length, 1);
   const result = (await h.service.listRecent(USER)).find((row) => row.importId === second.record.id)!;
   assert.equal(result.placeCount, 1);
-  assert.equal(result.resolvedPlaceCount, 1);
 });
 
 it('completion racing the progress request cannot return COMPLETE with a stale zero count', async () => {
@@ -286,5 +274,5 @@ it('early branch completion cannot stop polling before shared evidence is final'
   await h.progress.finish(record.contentSourceId!, early.attemptId, 'places', 'complete');
   assert.equal((await h.service.listRecent(USER))[0].hasInFlight, true);
   await h.progress.completeEvidence(record.contentSourceId!, early.attemptId);
-  assert.equal((await h.service.listRecent(USER))[0].hasInFlight, false);
+  assert.equal((await h.service.listRecent(USER))[0].hasInFlight, true); // Source owner has not finished yet.
 });

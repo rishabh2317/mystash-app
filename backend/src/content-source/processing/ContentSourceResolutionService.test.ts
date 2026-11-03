@@ -897,3 +897,30 @@ describe('ContentSourceResolutionService', () => {
     assert.doesNotMatch(src, /resolveForUserImportFast\(/);
   });
 });
+
+
+it('Find foundations defer one importer save failure without failing extraction or repeating search', async () => {
+    const h = createHarness();
+    const source = await insertSource(h.sources, 'find-fixture');
+    const imported = await addImport(h.imports, USER_A, source.id, source.canonicalUrl);
+    await addImport(h.imports, USER_B, source.id, source.canonicalUrl);
+    await h.sources.replaceProducts(source.id, [candidate(source.id, {
+      name: 'Sony WH-1000XM5', brand: 'Sony', model: 'WH-1000XM5', externalId: 'fixture', position: 0,
+      catalogProductId: CATALOG_XM5,
+    })]);
+    const add = h.cart.addItem.bind(h.cart);
+    let failing = true;
+    h.cart.addItem = async (user, input) => {
+      assert.equal(input.automatic, true);
+      if (failing && user === USER_A) throw new Error('fixture membership unavailable');
+      return add(user, input);
+    };
+    assert.equal(await h.service.resolveAndFanOut(source.id, imported.id), 1);
+    assert.equal((await h.cart.getCart(USER_A)).itemCount, 0);
+    assert.equal((await h.cart.getCart(USER_B)).itemCount, 1);
+    await assert.rejects(h.service.fanOutUser(imported), /delivery incomplete/);
+    failing = false;
+    await h.service.fanOutUser(imported);
+    assert.equal((await h.cart.getCart(USER_A)).itemCount, 1);
+    assert.equal(h.searched(), 0);
+});

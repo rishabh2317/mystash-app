@@ -1,3 +1,4 @@
+import { assertFindSchema } from './user-import/find/schema';
 /** Ingestion role only. Analytics and notification workers keep their existing owners. */
 import 'dotenv/config';
 import { readFileSync, statfsSync } from 'node:fs';
@@ -43,6 +44,7 @@ async function main() {
   if (!redisPersistenceHealthy(await redis.info('persistence'))) throw new Error('Redis persistence unhealthy; no workers started');
   assertPendingJobsApproved(await pendingIngestionJobs(redis), policy);
   const admin = createSupabaseAdmin();
+  await assertFindSchema(admin);
   add(startIngestPipelineWorker());
   add(startProductResolveWorker(admin));
   add(startProductAiReviewWorker(admin));

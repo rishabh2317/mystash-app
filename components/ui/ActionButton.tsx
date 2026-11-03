@@ -23,6 +23,10 @@ type Props = {
   leadingIcon?: React.ComponentProps<typeof Ionicons>['name'];
   /** Trailing affordance for actions that open a destination or sheet. */
   trailingIcon?: React.ComponentProps<typeof Ionicons>['name'];
+  /** Optional larger touch target for accessible screen actions. */
+  minTouchHeight?: number;
+  /** Let longer accessible labels wrap without changing existing compact controls. */
+  wrapLabel?: boolean;
   pending?: boolean;
   disabled?: boolean;
   accessibilityLabel?: string;
@@ -41,6 +45,8 @@ export function ActionButton({
   radius,
   leadingIcon,
   trailingIcon,
+  minTouchHeight,
+  wrapLabel = false,
   pending = false,
   disabled = false,
   accessibilityLabel,
@@ -79,7 +85,7 @@ export function ActionButton({
         {
           paddingVertical: isQuiet ? tokens.space.xs : isCompact ? tokens.space.xxs + 2 : tokens.space.sm,
           paddingHorizontal: isCompact ? tokens.space.sm : tokens.space.md,
-          minHeight: isCompact ? COMPACT_HEIGHT : undefined,
+          minHeight: minTouchHeight ?? (isCompact ? COMPACT_HEIGHT : undefined),
           width: isCompact || isFilled || isOutlinePrimary ? '100%' : undefined,
           borderRadius:
             radius === 'md'
@@ -107,7 +113,7 @@ export function ActionButton({
         },
       ]}
     >
-      <View style={[styles.inner, { gap: isCompact ? tokens.space.xxs : tokens.space.xs }]}>
+      <View style={[styles.inner, wrapLabel && { flexShrink: 1 }, { gap: isCompact ? tokens.space.xxs : tokens.space.xs }]}>
         {pending ? <ActivityIndicator size="small" color={fg} /> : null}
         {!pending && leadingIcon ? (
           <Ionicons name={leadingIcon} size={iconSize} color={fg} />
@@ -121,9 +127,10 @@ export function ActionButton({
               lineHeight: isCompact ? tokens.lineHeight.caption : tokens.lineHeight.bodyStrong,
               fontFamily: tokens.fontFamily.semibold,
               letterSpacing: isCompact ? 0.2 : 0,
+              ...(wrapLabel ? { flexShrink: 1, textAlign: 'center' as const } : {}),
             },
           ]}
-          numberOfLines={1}
+          numberOfLines={wrapLabel ? undefined : 1}
         >
           {label}
         </Text>

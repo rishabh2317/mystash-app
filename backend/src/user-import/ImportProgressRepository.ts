@@ -10,6 +10,7 @@ export function importExtractionVersion(): string {
 
 export type ImportBranchStatus = 'running' | 'complete' | 'failed';
 export type ImportProgress = {
+  finishedAt?: string | null;
   attemptId: string;
   evidenceComplete?: boolean;
   extractionVersion: string;
@@ -41,7 +42,7 @@ export class SupabaseImportProgressRepository implements ImportProgressRepositor
     if (error) throw new Error(error.message);
     const map = (r: Record<string, string>): ImportProgress => ({ attemptId: r.attempt_id,
       extractionVersion: r.extraction_version, startedAt: r.started_at, evidenceComplete: r.evidence_complete === 'true' || (r.evidence_complete as unknown) === true,
-      products: r.product_status as ImportBranchStatus, places: r.place_status as ImportBranchStatus });
+      finishedAt: r.finished_at ?? null, products: r.product_status as ImportBranchStatus, places: r.place_status as ImportBranchStatus });
     return data ? { progress: map(data.progress), previous: data.previous ? map(data.previous) : null } : null;
   }
   async completeEvidence(sourceId: string, attemptId: string) {
@@ -81,10 +82,10 @@ export class SupabaseImportProgressRepository implements ImportProgressRepositor
 
   async get(sourceId: string): Promise<ImportProgress | null> {
     const { data, error } = await this.admin.from('content_source_import_progress')
-      .select('attempt_id, started_at, extraction_version, product_status, place_status, evidence_complete').eq('content_source_id', sourceId).maybeSingle();
+      .select('*').eq('content_source_id', sourceId).maybeSingle();
     if (error) throw new Error(`Could not read import reporting: ${error.message}`);
     return data ? {
-      attemptId: data.attempt_id, startedAt: data.started_at, extractionVersion: data.extraction_version, evidenceComplete: data.evidence_complete === true,
+      attemptId: data.attempt_id, startedAt: data.started_at, finishedAt: data.finished_at ?? null, extractionVersion: data.extraction_version, evidenceComplete: data.evidence_complete === true,
       products: data.product_status, places: data.place_status,
     } : null;
   }
@@ -141,7 +142,11 @@ export class InMemoryImportProgressRepository implements ImportProgressRepositor
   }
   async finish(sourceId: string, attemptId: string, branch: 'products' | 'places', status: ImportBranchStatus): Promise<void> {
     const row = this.rows.get(sourceId);
-    if (row?.attemptId === attemptId) row[branch] = status;
+    if (row?.attemptId === attemptId) {
+      row[branch] = status;
+      row.finishedAt = row.products !== 'running' && row.places !== 'running'
+        ? row.finishedAt ?? new Date(this.nowMs()).toISOString() : null;
+    }
   }
 }
 

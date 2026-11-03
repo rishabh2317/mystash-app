@@ -81,19 +81,8 @@ describe('hydrateCartLines', () => {
 });
 
 describe('hydrateImportShares', () => {
-  it('keeps Bag-facing share states and drops unknown rows', () => {
-    const shares = hydrateImportShares([
-      { importId: 'i1', state: 'looking', kind: 'instagram' },
-      { importId: 'i2', state: 'ready', kind: 'youtube' },
-      { importId: 'bad', state: 'QUEUED', kind: 'web' },
-      { state: 'looking' },
-    ]);
-    assert.equal(shares.length, 2);
-    assert.equal(shares[0]?.kind, 'instagram');
-    assert.equal(shares[1]?.state, 'ready');
-    assert.equal(
-      JSON.stringify(shares).includes('QUEUED'),
-      false,
-    );
+  it('requires the current outcome contract for Bag-facing shares', () => {
+    assert.throws(() => hydrateImportShares([{ importId: 'i1', state: 'looking' }]), /outcome unavailable/);
+    assert.deepEqual(hydrateImportShares([{ state: 'looking' }, null]), []);
   });
 });

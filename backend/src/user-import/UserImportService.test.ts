@@ -1,3 +1,4 @@
+import { testSnapshots } from './find/testSnapshot';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,7 +32,6 @@ function createHarness(
     enqueue?: ContentProcessingQueuePort['enqueue'];
     repo?: InMemoryUserImportRepository;
     bagSync?: UserImportBagSyncPort | null;
-    scheduleTimeout?: (userImportId: string) => Promise<void>;
     nowMs?: () => number;
     countPlaceCards?: (userImportId: string) => Promise<number>;
   } = {},
@@ -39,7 +39,6 @@ function createHarness(
   const repo = options.repo ?? new InMemoryUserImportRepository();
   const sourceRepo = new InMemoryContentSourceRepository();
   const jobs: RecordedJob[] = [];
-  const timeoutJobs: string[] = [];
   const queue: ContentProcessingQueuePort = {
     enqueue: async (data) => {
       const jobId = options.enqueue
@@ -57,23 +56,17 @@ function createHarness(
     requestProcessing: (params) => contentSource.requestProcessing(params),
     requestReprocessing: (params) => contentSource.requestReprocessing(params),
   };
-  const scheduleTimeout =
-    options.scheduleTimeout ??
-    (async (userImportId: string) => {
-      timeoutJobs.push(userImportId);
-    });
   return {
     repo,
     sourceRepo,
     jobs,
-    timeoutJobs,
     service: new UserImportService(
       repo,
       port,
       options.bagSync ?? null,
-      scheduleTimeout,
+      { memberships: testSnapshots(repo, port, { places: options.countPlaceCards, now: options.nowMs }),
+        syncPlaces: async () => {} },
       options.nowMs,
-      options.countPlaceCards,
     ),
   };
 }
@@ -468,7 +461,7 @@ describe('UserImportService content source relationship', () => {
     });
 
     sourceRepo.sources.set(source.id, { ...source, processingStatus: 'FAILED', candidateCount: 0 });
-    assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
+    assert.equal((await service.listRecent(USER_A))[0]?.findOutcome.result, 'partial');
   });
 
   it('uses discovered product id when catalog id is absent', async () => {
@@ -505,26 +498,18 @@ describe('UserImportService content source relationship', () => {
     assert.equal(items[0]?.productCount, 1);
   });
 
-  it('retries a timed-out import without creating a second submission', async () => {
-    const { service, repo, jobs, sourceRepo } = createHarness();
-    const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
-    await repo.markTimedOut(submitted.record.id, new Date().toISOString());
-    assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
-
-    const beforeJobs = jobs.length;
-    const retried = await service.retry(USER_A, submitted.record.id);
-    assert.equal(retried.id, submitted.record.id);
+  it('retries failed extraction but refuses active or completed work', async () => {
+    const { service, repo, sourceRepo } = createHarness();
+    const { record } = await service.submit(USER_A, { rawInput: REEL_URL });
+    await repo.markTimedOut(record.id, new Date().toISOString());
+    await assert.rejects(service.retry(USER_A, record.id), /cannot be retried/);
+    const source = (await sourceRepo.findById(record.contentSourceId!))!;
+    sourceRepo.sources.set(source.id, { ...source, processingStatus: 'FAILED' });
+    await service.retry(USER_A, record.id);
     assert.equal(repo.imports.size, 1);
-    assert.equal(repo.imports.get(submitted.record.id)?.timedOutAt, null);
-    assert.ok(jobs.length >= beforeJobs);
-    assert.equal((await service.listRecent(USER_A))[0]?.state, 'looking');
-
-    // READY late path: bag sync is idempotent — still one import row.
-    const source = await sourceRepo.findById(submitted.record.contentSourceId!);
-    assert.ok(source);
-    sourceRepo.sources.set(source.id, { ...source, processingStatus: 'READY', candidateCount: 1 });
-    await service.retry(USER_A, submitted.record.id);
-    assert.equal(repo.imports.size, 1);
+    assert.equal((await service.listRecent(USER_A))[0].state, 'looking');
+    sourceRepo.sources.set(source.id, { ...source, processingStatus: 'READY' });
+    await assert.rejects(service.retry(USER_A, record.id), /cannot be retried/);
   });
 
   it('hides history while preserving the import identity and referenced source', async () => {
@@ -539,68 +524,24 @@ describe('UserImportService content source relationship', () => {
   });
 
   it('enqueues content-source processing on submit', async () => {
-    const { service, jobs, timeoutJobs } = createHarness();
+    const { service, jobs } = createHarness();
     const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0]?.contentSourceId, submitted.record.contentSourceId);
     assert.equal(jobs[0]?.userImportId, submitted.record.id);
-    assert.deepEqual(timeoutJobs, [submitted.record.id]);
   });
 
-  it('times out looking imports after 10 minutes via listRecent self-heal', async () => {
-    const createdAt = '2026-09-22T10:00:00.000Z';
-    let nowMs = Date.parse(createdAt) + 1000;
-    const { service, repo, sourceRepo } = createHarness({
-      nowMs: () => nowMs,
-    });
-    const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
-    // Pin createdAt for age calculation.
-    const row = repo.imports.get(submitted.record.id)!;
-    repo.imports.set(submitted.record.id, { ...row, createdAt });
-
-    assert.equal((await service.listRecent(USER_A))[0]?.state, 'looking');
-
-    nowMs = Date.parse(createdAt) + USER_IMPORT_TIMEOUT_MS;
-    const timedOut = await service.listRecent(USER_A);
-    assert.equal(timedOut[0]?.state, 'couldnt_finish');
-    assert.ok(repo.imports.get(submitted.record.id)?.timedOutAt);
-
-    // Late READY must not resurrect the timed-out import.
-    const source = await sourceRepo.findById(submitted.record.contentSourceId!);
-    assert.ok(source);
-    sourceRepo.sources.set(source.id, {
-      ...source,
-      processingStatus: 'READY',
-      candidateCount: 2,
-    });
-    assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
-  });
-
-  it('applyTimeout freezes looking imports without mutating content_sources', async () => {
-    const { service, repo, sourceRepo } = createHarness();
-    const submitted = await service.submit(USER_A, { rawInput: REEL_URL });
-    const before = await sourceRepo.findById(submitted.record.contentSourceId!);
-    assert.ok(before);
-    assert.equal(before.processingStatus, 'QUEUED');
-
-    const row = repo.imports.get(submitted.record.id)!;
-    repo.imports.set(row.id, { ...row, createdAt: new Date(Date.now() - USER_IMPORT_TIMEOUT_MS - 1000).toISOString() });
-    const applied = await service.applyTimeout(submitted.record.id);
-    assert.equal(applied, true);
-    assert.ok(repo.imports.get(submitted.record.id)?.timedOutAt);
-    assert.equal(
-      (await sourceRepo.findById(submitted.record.contentSourceId!))?.processingStatus,
-      'QUEUED',
-    );
-    assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
-
-    // Late worker READY still does not resurrect.
-    sourceRepo.sources.set(before.id, {
-      ...before,
-      processingStatus: 'READY',
-      candidateCount: 1,
-    });
-    assert.equal((await service.listRecent(USER_A))[0]?.state, 'couldnt_finish');
-    assert.equal(await service.applyTimeout(submitted.record.id), false);
+  it('derives delay without writes and allows late completion', async () => {
+    let now = Date.now();
+    const { service, repo, sourceRepo } = createHarness({ nowMs: () => now });
+    const { record } = await service.submit(USER_A, { rawInput: REEL_URL });
+    const source = (await sourceRepo.findById(record.contentSourceId!))!;
+    now += USER_IMPORT_TIMEOUT_MS + 1000;
+    const delayed = (await service.listRecent(USER_A))[0];
+    assert.equal(delayed.findOutcome.delayed, true); assert.equal(delayed.state, 'looking');
+    assert.equal((await repo.findById(record.id))?.timedOutAt, null);
+    sourceRepo.sources.set(source.id, { ...source, processingStatus: 'READY' });
+    assert.equal((await service.listRecent(USER_A))[0].findOutcome.category, 'completed');
+    assert.equal((await service.listRecent(USER_A))[0].findOutcome.delayed, false);
   });
 });

@@ -31,6 +31,8 @@ export type CartItemRecord = {
   sourceContentSourceId: string | null;
   sourceUserImportId: string | null;
   schemaVersion: number;
+  removedAt?: string | null;
+  explicitActionAt?: string | null;
 };
 
 /** FE-aligned Catalog projection embedded on GET /cart (not Cart-owned SoT). */
@@ -72,6 +74,8 @@ export type CartView = {
 };
 
 export type AddCartItemInput = {
+  /** Internal only: automatic materialization must never undo an explicit removal. */
+  automatic?: boolean;
   catalogProductId?: string | null;
   discoveredProductId?: string | null;
   source?: CartItemSource | null;
@@ -80,6 +84,7 @@ export type AddCartItemInput = {
 export type RemoveCartItemReason = 'user_remove' | 'purchase_confirmed';
 
 export type AddCartItemResult = {
+  suppressed?: boolean;
   item: CartItemRecord;
   created: boolean;
 };

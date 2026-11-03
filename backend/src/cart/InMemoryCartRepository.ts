@@ -8,6 +8,21 @@ function now(): string {
 
 export class InMemoryCartRepository implements CartRepository {
   items = new Map<string, CartItemRecord>(); // id → record
+  readonly putMembership: CartRepository['putMembership'];
+  constructor() {
+    this.putMembership = async (row, automatic) => {
+      const existing = [...this.items.values()].find(r => r.userId === row.userId &&
+        (row.catalogProductId ? r.catalogProductId === row.catalogProductId : r.discoveredProductId === row.discoveredProductId));
+      if (existing) {
+        const next = automatic ? existing : { ...existing, removedAt: null, explicitActionAt: now(), updatedAt: now() };
+        this.items.set(next.id, next);
+        return { item: { ...next }, created: false, suppressed: Boolean(next.removedAt) };
+      }
+      const item = await this.insert({ ...row, explicitActionAt: automatic ? null : now() });
+      return { item, created: true, suppressed: false };
+    };
+  }
+
 
   private userProductKey(userId: string, catalogProductId: string): string {
     return `${userId}|c|${catalogProductId}`;
@@ -22,7 +37,7 @@ export class InMemoryCartRepository implements CartRepository {
 
   async listByUser(userId: string): Promise<CartItemRecord[]> {
     return [...this.items.values()]
-      .filter((r) => r.userId === userId)
+      .filter((r) => r.userId === userId && !r.removedAt)
       .sort((a, b) => (a.addedAt < b.addedAt ? 1 : a.addedAt > b.addedAt ? -1 : 0));
   }
 
@@ -83,6 +98,7 @@ export class InMemoryCartRepository implements CartRepository {
       sourceContentSourceId: row.sourceContentSourceId ?? null,
       sourceUserImportId: row.sourceUserImportId ?? null,
       schemaVersion: row.schemaVersion ?? 1,
+      removedAt: row.removedAt ?? null, explicitActionAt: row.explicitActionAt ?? null,
     };
     this.items.set(record.id, record);
     if (record.catalogProductId) {
@@ -98,29 +114,22 @@ export class InMemoryCartRepository implements CartRepository {
   }
 
   async deleteByUserAndProduct(userId: string, catalogProductId: string): Promise<boolean> {
-    const key = this.userProductKey(userId, catalogProductId);
-    const id = this.byUserProduct.get(key);
-    if (!id) return false;
-    const record = this.items.get(id);
-    this.byUserProduct.delete(key);
-    if (record?.discoveredProductId) {
-      this.byUserDiscovered.delete(this.userDiscoveredKey(userId, record.discoveredProductId));
-    }
-    this.items.delete(id);
-    return true;
+    return this.removeMembership(userId, catalogProductId, null);
   }
 
   async deleteByUserAndDiscovered(userId: string, discoveredProductId: string): Promise<boolean> {
-    const key = this.userDiscoveredKey(userId, discoveredProductId);
-    const id = this.byUserDiscovered.get(key);
-    if (!id) return false;
-    const record = this.items.get(id);
-    this.byUserDiscovered.delete(key);
-    if (record?.catalogProductId) {
-      this.byUserProduct.delete(this.userProductKey(userId, record.catalogProductId));
-    }
-    this.items.delete(id);
-    return true;
+    return this.removeMembership(userId, null, discoveredProductId);
+  }
+
+  private async removeMembership(userId: string, catalogProductId: string | null, discoveredProductId: string | null): Promise<boolean> {
+    let row = [...this.items.values()].find(r => r.userId === userId &&
+      (catalogProductId ? r.catalogProductId === catalogProductId : r.discoveredProductId === discoveredProductId));
+    const active = Boolean(row && !row.removedAt);
+    if (!row) row = await this.insert({ userId, catalogProductId, discoveredProductId, sourceCollectionId: null,
+      sourceCreatorId: null, sourceCollectionProductTagId: null, sourceSurface: null,
+      sourceContentSourceId: null, sourceUserImportId: null });
+    this.items.set(row.id, { ...row, removedAt: now(), explicitActionAt: now() });
+    return active;
   }
 
   async remapCatalogProduct(
@@ -144,6 +153,10 @@ export class InMemoryCartRepository implements CartRepository {
       const existingTargetId = this.byUserProduct.get(targetKey);
 
       if (existingTargetId && existingTargetId !== record.id) {
+        const target = this.items.get(existingTargetId)!;
+        if (record.explicitActionAt && (!target.explicitActionAt || record.explicitActionAt > target.explicitActionAt || (record.explicitActionAt === target.explicitActionAt && Boolean(record.removedAt)))) {
+          this.items.set(target.id, { ...target, removedAt: record.removedAt, explicitActionAt: record.explicitActionAt });
+        }
         this.byUserProduct.delete(sourceKey);
         this.items.delete(record.id);
         collisionsResolved += 1;

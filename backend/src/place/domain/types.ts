@@ -49,6 +49,7 @@ export type InsertPlaceRow = {
 };
 
 export type ContentSourcePlaceRecord = {
+  retiredAt?: string | null;
   id: string;
   contentSourceId: string;
   extractedName: string;
@@ -86,6 +87,8 @@ export type InsertUnresolvedHypothesisRow = {
 };
 
 export type UserPlaceSaveRecord = {
+  removedAt?: string | null;
+  explicitActionAt?: string | null;
   id: string;
   userId: string;
   contentSourcePlaceId: string;

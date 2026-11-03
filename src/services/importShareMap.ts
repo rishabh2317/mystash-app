@@ -1,3 +1,4 @@
+import type { FindOutcome } from '../../backend/src/user-import/find/contract';
 export type ImportShareState = 'looking' | 'ready' | 'nothing_yet' | 'couldnt_finish';
 
 export type ImportSharePrimaryProduct = {
@@ -9,6 +10,7 @@ export type ImportSharePrimaryProduct = {
 export type ImportResultStatus = 'running' | 'complete' | 'failed' | 'unknown';
 
 export type ImportShare = {
+  findOutcome: FindOutcome;
   resultVersion?: 1;
   timedOut?: boolean;
   resultProductCount?: number;
@@ -30,18 +32,6 @@ export type ImportShare = {
   primaryProduct: ImportSharePrimaryProduct | null;
   products: ImportSharePrimaryProduct[];
 };
-
-function asShareState(value: unknown): ImportShareState | null {
-  if (
-    value === 'looking' ||
-    value === 'ready' ||
-    value === 'nothing_yet' ||
-    value === 'couldnt_finish'
-  ) {
-    return value;
-  }
-  return null;
-}
 
 function asShareKind(value: unknown): ImportShare['kind'] {
   if (value === 'instagram' || value === 'youtube' || value === 'web') return value;
@@ -68,12 +58,28 @@ function asProducts(value: unknown): ImportSharePrimaryProduct[] {
   return out;
 }
 
-function count(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+function asOutcome(value: unknown): FindOutcome {
+  if (!value || typeof value !== 'object') throw new Error('Find outcome unavailable. Update the app and backend together.');
+  const r = value as Record<string, unknown>;
+  if (r.version !== 1 || !['processing','completed','attention'].includes(String(r.category))
+    || !['found','partial','empty','failed','pending'].includes(String(r.result))
+    || !['pending','complete','failed','unavailable'].includes(String(r.stashSync))
+    || !['products','places'].every(k => ['running','complete','failed','unknown'].includes(String(r[k])))
+    || !['foundProducts','foundPlaces','resolvedPlaces','unverifiedPlaces','savedProducts','savedPlaces'].every(k => Number.isSafeInteger(r[k]) && Number(r[k]) >= 0)
+    || !['canRetryExtraction','canRetrySaving','extractionActive','delayed'].every(k => typeof r[k] === 'boolean')
+    || !(r.finishedAt === null || typeof r.finishedAt === 'string')) throw new Error('Incompatible Find outcome');
+  return r as FindOutcome;
 }
 
-function resultStatus(value: unknown): ImportResultStatus {
-  return value === 'running' || value === 'complete' || value === 'failed' ? value : 'unknown';
+/** Current screens keep a small view model derived from the single outcome contract. */
+function outcomeView(findOutcome: FindOutcome, products: ImportSharePrimaryProduct[]) {
+  const hasInFlight = findOutcome.extractionActive || findOutcome.category === 'processing';
+  const found = findOutcome.foundProducts + findOutcome.foundPlaces > 0;
+  const state: ImportShareState = found ? 'ready' : hasInFlight ? 'looking' : findOutcome.result === 'empty' ? 'nothing_yet' : 'couldnt_finish';
+  return { findOutcome, state, products, primaryProduct: products[0] ?? null, productCount: findOutcome.foundProducts,
+    resultVersion: 1 as const, timedOut: findOutcome.delayed, resultProducts: products, resultProductCount: findOutcome.foundProducts,
+    placeCount: findOutcome.foundPlaces, resolvedPlaceCount: findOutcome.resolvedPlaces, unverifiedPlaceCount: findOutcome.unverifiedPlaces, productStatus: findOutcome.products, placeStatus: findOutcome.places, hasInFlight,
+    canRetry: findOutcome.canRetryExtraction || findOutcome.canRetrySaving };
 }
 
 export function hydrateImportShares(raw: unknown): ImportShare[] {
@@ -83,44 +89,22 @@ export function hydrateImportShares(raw: unknown): ImportShare[] {
     if (!item || typeof item !== 'object') continue;
     const row = item as Record<string, unknown>;
     const importId = typeof row.importId === 'string' ? row.importId : null;
-    const state = asShareState(row.state);
-    if (!importId || !state) continue;
+    if (!importId) continue;
+    const findOutcome = asOutcome(row.findOutcome);
     const createdAt = typeof row.createdAt === 'string' ? row.createdAt : '';
-    const productCount =
-      typeof row.productCount === 'number' && Number.isFinite(row.productCount)
-        ? Math.max(0, Math.floor(row.productCount))
-        : 0;
     const contentSourceId =
       typeof row.contentSourceId === 'string' && row.contentSourceId.trim()
         ? row.contentSourceId.trim()
         : null;
     const sourceUrl = typeof row.sourceUrl === 'string' ? row.sourceUrl.trim() : '';
     const products = asProducts(row.products);
-    const primaryProduct = asPrimaryProduct(row.primaryProduct) ?? products[0] ?? null;
-    const results = row.resultVersion === 1 ? {
-      resultVersion: 1 as const,
-      timedOut: row.timedOut === true,
-      resultProductCount: count(row.resultProductCount),
-      resultProducts: asProducts(row.resultProducts),
-      placeCount: count(row.placeCount),
-      resolvedPlaceCount: count(row.resolvedPlaceCount),
-      unverifiedPlaceCount: count(row.unverifiedPlaceCount),
-      productStatus: resultStatus(row.productStatus),
-      placeStatus: resultStatus(row.placeStatus),
-      hasInFlight: row.hasInFlight === true,
-      canRetry: row.canRetry === true,
-    } : {};
     shares.push({
-      ...results,
+      ...outcomeView(findOutcome, products),
       importId,
-      state,
       kind: asShareKind(row.kind),
       createdAt,
-      productCount,
       contentSourceId,
       sourceUrl,
-      primaryProduct,
-      products,
     });
   }
   return shares;

@@ -1,8 +1,8 @@
+import { FIND_ROUTES } from '@/src/ui/find';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Keyboard,
   Pressable,
@@ -51,10 +51,6 @@ import {
   type SearchResultCard,
 } from '@/src/services/searchApi';
 import { fetchVideos } from '@/src/services/supabase';
-import {
-  submitUserImport,
-  UserImportApiError,
-} from '@/src/services/userImportApi';
 import { shouldResetSearchSession } from '@/src/state/searchSession';
 import { outlineCardChrome } from '@/src/theme/tokens';
 import { typeStyle } from '@/src/theme/typography';
@@ -90,7 +86,6 @@ import {
 } from '@/src/ui/searchSections';
 import { shareActivityLandingItems } from '@/src/ui/shareActivity';
 import { resolveListLoadState, resourceIdentity, retainLoadedContent } from '@/src/ui/contentLoadState';
-import { extractSharedLink, sharedLinkMessage } from '@/src/ui/shareImport';
 
 const DEBOUNCE_MS = 300;
 const PAGE_LIMIT = 20;
@@ -103,7 +98,6 @@ const EMPTY_DISCOVER: SearchDiscoverLanding = {
 };
 
 const SEARCH_PLACEHOLDER = 'Search products, creators, collections';
-const PASTE_PLACEHOLDER = 'Paste a product, Reel or Short URL';
 
 type SearchSections = {
   collections: CollectionViewModel[];
@@ -209,9 +203,6 @@ export default function SearchScreen() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchIntent, setSearchIntent] = useState<string | null>(null);
   const [searchDegraded, setSearchDegraded] = useState<string[]>([]);
-  const [pasteError, setPasteError] = useState<string | null>(null);
-  const [pasteAck, setPasteAck] = useState<string | null>(null);
-  const [pasteSubmitting, setPasteSubmitting] = useState(false);
 
   const loadGen = useRef(0);
   const activeQueryRef = useRef('');
@@ -262,9 +253,6 @@ export default function SearchScreen() {
     setShowSuggestions(false);
     setSearchIntent(null);
     setSearchDegraded([]);
-    setPasteError(null);
-    setPasteAck(null);
-    setPasteSubmitting(false);
   }, []);
 
   useEffect(() => {
@@ -525,47 +513,11 @@ export default function SearchScreen() {
     [debouncedQuery, emitClick, nextCursor, router, sections.collections],
   );
 
-  const onPasteSubmit = useCallback(async () => {
-    setPasteError(null);
-    setPasteAck(null);
-    const extracted = extractSharedLink(input);
-    if (!extracted.ok) {
-      setPasteError(sharedLinkMessage(extracted.reason));
-      return;
-    }
-    if (!user) {
-      setPasteError('Sign in to send links to Mystash.');
-      return;
-    }
-    setPasteSubmitting(true);
-    try {
-      await submitUserImport(extracted.rawInput);
-      setPasteAck('Got it — Mystash received your link.');
-      setInput('');
-      void refreshShares();
-    } catch (e) {
-      const message =
-        e instanceof UserImportApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : 'Mystash could not accept that link.';
-      setPasteError(message);
-    } finally {
-      setPasteSubmitting(false);
-    }
-  }, [input, refreshShares, user]);
-
   const onModeChange = useCallback((next: SearchUtilityMode) => {
+    if (next === 'paste_url') { router.push(FIND_ROUTES.capture as Href); return; }
     setMode(next);
-    setPasteError(null);
-    setPasteAck(null);
     setShowSuggestions(false);
-    if (next === 'paste_url') {
-      setDebouncedQuery('');
-      setSuggestions([]);
-    }
-  }, []);
+  }, [router]);
 
   const onLoadMore = useCallback(() => {
     if (mode !== 'search' || !debouncedQuery || !nextCursor || loading || loadingMore) return;
@@ -694,7 +646,7 @@ export default function SearchScreen() {
     }
   }
 
-  const placeholder = mode === 'search' ? SEARCH_PLACEHOLDER : PASTE_PLACEHOLDER;
+  const placeholder = SEARCH_PLACEHOLDER;
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.color.canvasSoft }]}>
@@ -716,13 +668,13 @@ export default function SearchScreen() {
             styles.inputRow,
             {
               backgroundColor: fieldBg,
-              borderColor: pasteError ? tokens.color.danger : fieldBorder,
+              borderColor: fieldBorder,
               borderRadius: tokens.radius.lg,
             },
           ]}
         >
           <Ionicons
-            name={mode === 'paste_url' ? 'link-outline' : 'search-outline'}
+            name="search-outline"
             size={18}
             color={muted}
           />
@@ -730,25 +682,17 @@ export default function SearchScreen() {
             value={input}
             onChangeText={(v) => {
               setInput(v);
-              setPasteError(null);
-              setPasteAck(null);
-              if (mode === 'search') setShowSuggestions(true);
+                                  if (mode === 'search') setShowSuggestions(true);
             }}
             placeholder={placeholder}
             placeholderTextColor={muted}
-            returnKeyType={mode === 'search' ? 'search' : 'go'}
+            returnKeyType="search"
             autoCorrect={false}
             autoCapitalize="none"
             autoComplete="off"
-            keyboardType={mode === 'paste_url' ? 'url' : 'default'}
+            keyboardType="default"
             clearButtonMode="while-editing"
-            editable={!pasteSubmitting}
             onSubmitEditing={() => {
-              if (mode === 'paste_url') {
-                void onPasteSubmit();
-                Keyboard.dismiss();
-                return;
-              }
               setDebouncedQuery(input.trim());
               setShowSuggestions(false);
               Keyboard.dismiss();
@@ -768,20 +712,6 @@ export default function SearchScreen() {
           />
         </View>
         <SearchModeSwitch mode={mode} onChange={onModeChange} />
-        {pasteError ? (
-          <Text style={[typeStyle(tokens, 'tileMeta'), { color: tokens.color.danger }]}>
-            {pasteError}
-          </Text>
-        ) : null}
-        {pasteAck ? (
-          <Text style={typeStyle(tokens, 'bodyMuted')}>{pasteAck}</Text>
-        ) : null}
-        {pasteSubmitting ? (
-          <View style={styles.pasteBusy}>
-            <ActivityIndicator size="small" color={tokens.color.primary} />
-            <Text style={typeStyle(tokens, 'bodyMuted')}>Sending your link…</Text>
-          </View>
-        ) : null}
         {mode === 'search' && showSuggestions && suggestions.length > 0 ? (
           <View
             style={[
@@ -1016,11 +946,6 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     paddingVertical: 10,
-  },
-  pasteBusy: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
   },
   suggestBox: {
     borderWidth: StyleSheet.hairlineWidth,

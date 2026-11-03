@@ -30,6 +30,14 @@ function requireText(value: string, label: string): string {
 }
 
 export class InMemoryPlaceRepository implements PlaceRepository {
+  async setMembership(userId: string, saveId: string, restore: boolean): Promise<UserPlaceSaveRecord> {
+    const row = this.saves.get(this.redirects.get(saveId) ?? saveId);
+    if (!row || row.userId !== userId) throw new PlaceRepositoryError('Place save not found', 'not_found');
+    if (restore && this.hypotheses.get(row.contentSourcePlaceId)?.retiredAt) throw new PlaceRepositoryError('Place result retired', 'invalid');
+    const next = { ...row, removedAt: restore ? null : now(), explicitActionAt: now() };
+    this.saves.set(row.id, next); return { ...next };
+  }
+
   places = new Map<string, PlaceRecord>();
   hypotheses = new Map<string, ContentSourcePlaceRecord>();
   saves = new Map<string, UserPlaceSaveRecord>();
@@ -120,7 +128,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
 
   async listHypotheses(contentSourceId: string): Promise<ContentSourcePlaceRecord[]> {
     return [...this.hypotheses.values()]
-      .filter((row) => row.contentSourceId === contentSourceId)
+      .filter((row) => row.contentSourceId === contentSourceId && !row.retiredAt)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .map((row) => this.copyHypothesis(row));
   }
@@ -131,7 +139,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
     if (!existing) return this.writeHypothesis(row, key, null);
     const ts = now();
     const next: ContentSourcePlaceRecord = {
-      ...existing,
+      ...existing, retiredAt: null,
       extractedName: requireText(row.extractedName, 'extractedName'),
       category: blank(row.category),
       locality: blank(row.locality),
@@ -174,6 +182,9 @@ export class InMemoryPlaceRepository implements PlaceRepository {
     for (const save of [...this.saves.values()].filter((row) => row.contentSourcePlaceId === id)) {
       const survivor = [...this.saves.values()].find((row) => row.userId === save.userId && row.placeId === placeId && row.id !== save.id);
       if (survivor) {
+        if (save.explicitActionAt && (!survivor.explicitActionAt || save.explicitActionAt > survivor.explicitActionAt || (save.explicitActionAt === survivor.explicitActionAt && Boolean(save.removedAt)))) {
+          this.saves.set(survivor.id, { ...survivor, removedAt: save.removedAt, explicitActionAt: save.explicitActionAt });
+        }
         for (const [key, source] of this.sources) if (source.saveId === save.id) this.sources.set(key, { ...source, saveId: survivor.id });
         for (const [key, target] of this.redirects) if (target === save.id) this.redirects.set(key, survivor.id);
         this.redirects.set(save.id, survivor.id);
@@ -236,7 +247,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
 
   async listSavesByUser(userId: string): Promise<UserPlaceSaveRecord[]> {
     return [...this.saves.values()]
-      .filter((row) => row.userId === userId)
+      .filter((row) => row.userId === userId && !row.removedAt)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((row) => ({ ...row }));
   }
@@ -264,10 +275,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
         !keep.has(row.hypothesisKey),
     );
     for (const row of remove) {
-      this.hypotheses.delete(row.id);
-      for (const save of [...this.saves.values()]) {
-        if (save.contentSourcePlaceId === row.id) this.saves.delete(save.id);
-      }
+      this.hypotheses.set(row.id, { ...row, retiredAt: now() });
     }
     return remove.length;
   }

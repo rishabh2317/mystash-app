@@ -16,6 +16,9 @@ const ROOT = process.cwd();
 
 function share(partial: Partial<ImportShare> & Pick<ImportShare, 'importId' | 'state'>): ImportShare {
   return {
+    findOutcome: { version: 1, category: 'completed', result: 'found', products: 'complete', places: 'complete',
+      foundProducts: 0, foundPlaces: 0, resolvedPlaces: 0, unverifiedPlaces: 0, savedProducts: 0, savedPlaces: 0, stashSync: 'complete',
+      canRetryExtraction: false, canRetrySaving: false, extractionActive: false, delayed: false, finishedAt: null },
     kind: 'web',
     createdAt: '2026-09-22T10:00:00.000Z',
     productCount: 0,
@@ -23,6 +26,11 @@ function share(partial: Partial<ImportShare> & Pick<ImportShare, 'importId' | 's
     sourceUrl: 'https://example.com/x',
     primaryProduct: null,
     products: [],
+    resultVersion: 1,
+    productStatus: partial.state === 'looking' ? 'running' : partial.state === 'couldnt_finish' ? 'failed' : 'complete',
+    placeStatus: 'complete',
+    resultProductCount: partial.productCount ?? 0,
+    hasInFlight: partial.state === 'looking', canRetry: partial.state === 'couldnt_finish',
     ...partial,
   };
 }

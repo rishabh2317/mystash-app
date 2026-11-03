@@ -50,7 +50,7 @@ function StashTabIcon({ color }: { color: string }) {
 }
 
 /**
- * Canonical tab bar: Watch · Search · Create · Stash · Profile.
+ * Canonical tab bar: Watch · Search · Find · Stash · Profile.
  * Watch (feed) keeps a solid black footer; every other screen matches TopBar
  * chrome (`canvasSoft`) so scaffold + header + footer read as one surface.
  */
@@ -96,6 +96,7 @@ export function AppTabBar() {
         }),
       },
       headerShown: false,
+      tabBarHideOnKeyboard: true,
       tabBarButton: HapticTab,
     }),
     [
@@ -159,6 +160,7 @@ export function AppTabBar() {
           ),
         }}
       />
+      <Tabs.Screen name="create" options={{ href: null, headerShown: false }} />
       {/* Nested detail stack — keeps bottom nav; not a tab destination. */}
       <Tabs.Screen name="collection" options={{ href: null, headerShown: false }} />
     </Tabs>

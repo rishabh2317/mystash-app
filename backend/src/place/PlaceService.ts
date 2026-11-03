@@ -93,7 +93,7 @@ export class PlaceService {
     }
     for (const save of saves) {
       const hypothesis = hypotheses.get(save.contentSourcePlaceId);
-      if (!hypothesis) continue;
+      if (!hypothesis || hypothesis.retiredAt) continue;
       const source = {
         contentSourceId: save.contentSourceId,
         userImportId: save.userImportId,

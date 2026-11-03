@@ -71,7 +71,7 @@ export function createImportSharePoller(deps: {
 /** Committed branch results may arrive before overall READY (or alongside failure). */
 export function importResultsChanged(previous: ImportShare[], next: ImportShare[]): boolean {
   const fingerprint = (share: ImportShare) => JSON.stringify([
-    share.state, share.resultProductCount ?? share.productCount, share.placeCount ?? 0,
+    share.findOutcome, share.state, share.resultProductCount ?? share.productCount, share.placeCount ?? 0,
     share.resolvedPlaceCount ?? 0, share.unverifiedPlaceCount ?? 0,
     share.productStatus, share.placeStatus,
   ]);

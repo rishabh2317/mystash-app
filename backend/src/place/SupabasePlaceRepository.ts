@@ -80,6 +80,7 @@ function mapHypothesis(row: Row): ContentSourcePlaceRecord {
   return {
     id: String(row.id),
     contentSourceId: String(row.content_source_id),
+    retiredAt: (row.retired_at as string) ?? null,
     extractedName: String(row.extracted_name),
     category: (row.category as string) ?? null,
     locality: (row.locality as string) ?? null,
@@ -102,6 +103,7 @@ function mapHypothesis(row: Row): ContentSourcePlaceRecord {
 
 function mapSave(row: Row): UserPlaceSaveRecord {
   return {
+    removedAt: (row.removed_at as string) ?? null, explicitActionAt: (row.explicit_action_at as string) ?? null,
     id: String(row.id),
     userId: String(row.user_id),
     contentSourcePlaceId: String(row.content_source_place_id),
@@ -153,10 +155,21 @@ function mediaUrl(value: unknown): string | null {
 export class SupabasePlaceRepository implements PlaceRepository {
   constructor(private readonly admin: SupabaseClient) {}
 
+  async setMembership(userId: string, saveId: string, restore: boolean): Promise<UserPlaceSaveRecord> {
+    const { data, error } = await this.admin.rpc('find_place_membership', { p_user: userId, p_save: saveId, p_restore: restore });
+    if (error?.code === 'P0002') throw new PlaceRepositoryError('Place save not found', 'not_found');
+    if (error?.code === '23514') throw new PlaceRepositoryError('Place save unavailable', 'invalid');
+    if (error || !data) throw new Error('Place membership storage unavailable');
+    return mapSave(data as Row);
+  }
+
   async loadStash(userId: string): Promise<PlaceStashSnapshot> {
     const [saveRows, sourceRows] = await Promise.all([
-      readAll((from, to) => this.admin.from('user_place_saves').select('*').eq('user_id', userId)
-        .order('created_at', { ascending: false }).order('id').range(from, to)),
+      readAll((from, to) => {
+        let query = this.admin.from('user_place_saves').select('*').eq('user_id', userId);
+        query = query.is('removed_at', null);
+        return query
+        .order('created_at', { ascending: false }).order('id').range(from, to); }),
       readAll((from, to) => this.admin.from('user_place_save_sources').select('*').eq('user_id', userId)
         .order('created_at').order('id').range(from, to)),
     ]);
@@ -291,11 +304,9 @@ export class SupabasePlaceRepository implements PlaceRepository {
   }
 
   async listHypotheses(contentSourceId: string): Promise<ContentSourcePlaceRecord[]> {
-    const { data, error } = await this.admin
-      .from('content_source_places')
-      .select('*')
-      .eq('content_source_id', contentSourceId)
-      .order('created_at', { ascending: true });
+    let query = this.admin.from('content_source_places').select('*').eq('content_source_id', contentSourceId);
+    query = query.is('retired_at', null);
+    const { data, error } = await query.order('created_at', { ascending: true });
     if (error) throw new Error(error.message);
     return (data ?? []).map((row) => mapHypothesis(row as Row));
   }
@@ -365,8 +376,11 @@ export class SupabasePlaceRepository implements PlaceRepository {
   }
 
   async listSavesByUser(userId: string): Promise<UserPlaceSaveRecord[]> {
-    const rows = await readAll((from, to) => this.admin.from('user_place_saves').select('*')
-      .eq('user_id', userId).order('created_at', { ascending: false }).order('id').range(from, to));
+    const rows = await readAll((from, to) => {
+      let query = this.admin.from('user_place_saves').select('*').eq('user_id', userId);
+      query = query.is('removed_at', null);
+      return query.order('created_at', { ascending: false }).order('id').range(from, to);
+    });
     return rows.map(mapSave);
   }
 
@@ -383,21 +397,9 @@ export class SupabasePlaceRepository implements PlaceRepository {
   }
 
   async deleteUnresolvedExcept(contentSourceId: string, keepKeys: string[]): Promise<number> {
-    const keep = new Set(keepKeys);
-    const existing = await this.listHypotheses(contentSourceId);
-    const remove = existing.filter(
-      (row) => row.resolutionState === 'unresolved' && !keep.has(row.hypothesisKey),
-    );
-    if (remove.length === 0) return 0;
-    const { error } = await this.admin
-      .from('content_source_places')
-      .delete()
-      .in(
-        'id',
-        remove.map((row) => row.id),
-      );
-    if (error) throw new Error(error.message);
-    return remove.length;
+    const { data, error } = await this.admin.rpc('find_retire_place_hypotheses', { p_source: contentSourceId, p_keep: keepKeys });
+    if (error) throw new Error('Place evidence could not be retired');
+    return Number(data);
   }
 
   async findSourceMedia(contentSourceId: string): Promise<PlaceSourceMedia> {

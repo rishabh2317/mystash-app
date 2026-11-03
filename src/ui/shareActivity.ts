@@ -49,7 +49,7 @@ export const SHARE_ACTIVITY_COPY = {
   retry: 'Retry',
   delete: 'Delete',
   empty: 'No activity yet',
-  emptyHint: 'Paste a product, Reel, or Short URL from Search to get started.',
+  emptyHint: 'Open Find to capture a product, Reel, or Short link.',
 } as const;
 
 export function shareActivityUserState(state: ImportShareState): ShareActivityUserState {
@@ -71,12 +71,6 @@ export function sharePlatformLabel(kind: ImportShare['kind']): string {
   return SHARE_ACTIVITY_COPY.platformLink;
 }
 
-function processingSubtitle(kind: ImportShare['kind']): string {
-  if (kind === 'instagram') return SHARE_ACTIVITY_COPY.processingReel;
-  if (kind === 'youtube') return SHARE_ACTIVITY_COPY.processingShort;
-  return SHARE_ACTIVITY_COPY.processingLink;
-}
-
 function countLabel(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`;
 }
@@ -91,7 +85,8 @@ function resultSubtitle(share: ImportShare): string {
   const failures = [share.productStatus === 'failed' ? 'Products couldn’t finish' : '',
     share.placeStatus === 'failed' ? (places ? 'Place verification couldn’t finish' : 'Places couldn’t finish') : '']
     .filter(Boolean).join(' · ');
-  if (share.timedOut) return [found ? `${found} found` : '', 'Couldn’t finish in time'].filter(Boolean).join(' · ');
+  if (share.findOutcome.delayed) return [found ? `${found} found` : '', 'Taking longer than expected'].filter(Boolean).join(' · ');
+  if (share.findOutcome.stashSync === 'failed') return [found ? `${found} found` : '', 'Saving needs another try'].filter(Boolean).join(' · ');
   if (share.hasInFlight && !running) return [found ? `${found} found` : '', 'Finishing discovery…'].filter(Boolean).join(' · ');
   if (running) return [found ? `${found} found` : '', `Finding ${running}…`, failures].filter(Boolean).join(' · ');
   if (failures) return [found ? `${found} found` : '', failures].filter(Boolean).join(' · ');
@@ -113,24 +108,8 @@ function resultUserState(share: ImportShare): ShareActivityUserState {
   return share.productStatus === 'complete' && share.placeStatus === 'complete' ? 'no_products' : 'results_ready';
 }
 
-function outcomeSubtitle(share: ImportShare, userState: ShareActivityUserState): string {
-  if (userState === 'processing') return processingSubtitle(share.kind);
-  if (userState === 'no_products') return SHARE_ACTIVITY_COPY.noProducts;
-  if (userState === 'failed') return SHARE_ACTIVITY_COPY.failed;
-  if (share.productCount === 1) {
-    return share.primaryProduct?.title?.trim() || SHARE_ACTIVITY_COPY.productsFoundOne;
-  }
-  if (share.productCount > 1) {
-    const name = share.primaryProduct?.title?.trim();
-    if (name) return `${name} · ${SHARE_ACTIVITY_COPY.productsFoundMany(share.productCount)}`;
-    return SHARE_ACTIVITY_COPY.productsFoundMany(share.productCount);
-  }
-  return SHARE_ACTIVITY_COPY.productsFound;
-}
-
 export function mapImportShareToActivity(share: ImportShare): ShareActivityView {
-  const userState = share.resultVersion === 1 ? resultUserState(share)
-    : share.state === 'ready' && share.productCount === 0 ? 'results_ready' : shareActivityUserState(share.state);
+  const userState = resultUserState(share);
   const platformLabel = sharePlatformLabel(share.kind);
   return {
     importId: share.importId,
@@ -144,8 +123,7 @@ export function mapImportShareToActivity(share: ImportShare): ShareActivityView 
     contentSourceId: share.contentSourceId,
     sourceUrl: share.sourceUrl,
     title: platformLabel,
-    subtitle: share.resultVersion === 1 ? resultSubtitle(share)
-      : userState === 'results_ready' ? 'Results ready' : outcomeSubtitle(share, userState),
+    subtitle: resultSubtitle(share),
     imageUrl: share.primaryProduct?.imageUrl ?? share.products[0]?.imageUrl ?? null,
     platformLabel,
     products: share.resultProducts ?? share.products,
@@ -197,8 +175,7 @@ export function shareActivityDestination(
     return { kind: 'places', path: '/stash?segment=places' };
   }
   if (share.state === 'looking') return { kind: 'bag', path: '/cart' };
-  if (share.state === 'nothing_yet' || share.state === 'couldnt_finish') return { kind: 'none' };
-  if (share.state !== 'ready') return { kind: 'none' };
+  if (share.productCount === 0 && share.state !== 'ready') return { kind: 'none' };
 
   if (share.productCount >= 2) return { kind: 'bag', path: '/cart' };
   if (share.productCount === 1 && share.primaryProduct?.productId) {

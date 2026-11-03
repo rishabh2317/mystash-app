@@ -30,7 +30,12 @@ export function createUserImportBagSync(admin: SupabaseClient): UserImportBagSyn
 
   return {
     async applyIfResolved(row) {
-      if (!resolution) return;
+      if (!resolution) {
+        if ((await sources.listProducts(row.contentSourceId ?? '')).some(p => p.catalogProductId || p.discoveredProductId)) {
+          throw new Error('Stash synchronization unavailable');
+        }
+        return;
+      }
       await resolution.fanOutUser(row);
     },
   };

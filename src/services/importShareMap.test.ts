@@ -8,6 +8,9 @@ describe('hydrateImportShares', () => {
     const shares = hydrateImportShares([
       {
         importId: 'i1',
+        findOutcome: { version: 1, category: 'completed', result: 'found', products: 'complete', places: 'complete',
+          foundProducts: 1, foundPlaces: 0, resolvedPlaces: 0, unverifiedPlaces: 0, savedProducts: 1, savedPlaces: 0, stashSync: 'complete',
+          canRetryExtraction: false, canRetrySaving: false, extractionActive: false, delayed: false, finishedAt: null },
         state: 'ready',
         kind: 'instagram',
         createdAt: '2026-09-22T10:00:00.000Z',
@@ -34,13 +37,7 @@ describe('hydrateImportShares', () => {
     assert.equal(shares[0]?.primaryProduct?.productId, 'p1');
   });
 
-  it('tolerates legacy minimal payloads', () => {
-    const shares = hydrateImportShares([{ importId: 'i2', state: 'looking', kind: 'web' }]);
-    assert.equal(shares[0]?.createdAt, '');
-    assert.equal(shares[0]?.productCount, 0);
-    assert.equal(shares[0]?.contentSourceId, null);
-    assert.equal(shares[0]?.sourceUrl, '');
-    assert.equal(shares[0]?.primaryProduct, null);
-    assert.deepEqual(shares[0]?.products, []);
+  it('rejects a missing outcome rather than applying legacy status rules', () => {
+    assert.throws(() => hydrateImportShares([{ importId: 'i2', state: 'looking', kind: 'web' }]), /outcome unavailable/);
   });
 });

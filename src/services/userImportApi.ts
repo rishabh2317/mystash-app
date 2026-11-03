@@ -1,5 +1,6 @@
 import { hydrateImportShares, type ImportShare } from '@/src/services/importShareMap';
 import { supabase } from '@/src/services/supabase';
+import { withRequestTimeout } from './requestTimeout';
 
 /**
  * User Import API client.
@@ -54,18 +55,24 @@ async function readError(res: Response): Promise<string> {
 }
 
 /** `sharedInput` is the raw shared payload: a URL, or text containing one. */
-export async function submitUserImport(sharedInput: string): Promise<UserImportAcknowledgement> {
-  const token = await bearerToken();
-  const res = await fetch(`${importApiBase()}/imports`, {
+export async function submitUserImport(sharedInput: string, expectedOwner?: string): Promise<UserImportAcknowledgement> {
+  const { data: before } = await supabase.auth.getSession();
+  const owner = before.session?.user.id;
+  const token = before.session?.access_token;
+  if (!owner || !token || (expectedOwner && expectedOwner !== owner)) throw new UserImportApiError('Your account changed. Sign in again to capture this link.', 401);
+  const res = await withRequestTimeout(20_000, signal => fetch(`${importApiBase()}/imports`, {
     method: 'POST',
+    signal,
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ text: sharedInput }),
-  });
+  }));
 
+  const { data: after } = await supabase.auth.getSession();
+  if (after.session?.user.id !== owner) throw new UserImportApiError('Your account changed. Reopen Find to continue.', 401);
   if (!res.ok) throw new UserImportApiError(await readError(res), res.status);
 
   const body = (await res.json()) as {

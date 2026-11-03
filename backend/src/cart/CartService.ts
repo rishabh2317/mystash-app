@@ -35,11 +35,6 @@ export class CartServiceError extends Error {
   }
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const e = err as { code?: string; message?: string };
-  return e.code === '23505' || Boolean(e.message?.toLowerCase().includes('duplicate'));
-}
 
 /**
  * Cart application boundary — authenticated membership SoT.
@@ -87,61 +82,7 @@ export class CartService {
     }
 
     const survivorId = resolved.id;
-    const existing = await this.repo.findByUserAndProduct(userId, survivorId);
-    if (existing) {
-      emitCartEvent(
-        'CartItemAdded',
-        buildCartEventPayload({
-          userId,
-          catalogProductId: survivorId,
-          cartItemId: existing.id,
-          created: false,
-          source: sourceFromRecord(existing),
-        }),
-      );
-      return { item: existing, created: false };
-    }
-
-    const source = normalizeCartSource(input.source);
-    try {
-      const item = await this.repo.insert({
-        userId,
-        catalogProductId: survivorId,
-        discoveredProductId: null,
-        sourceCollectionId: source?.sourceCollectionId ?? null,
-        sourceCreatorId: source?.sourceCreatorId ?? null,
-        sourceCollectionProductTagId: source?.sourceCollectionProductTagId ?? null,
-        sourceSurface: source?.sourceSurface ?? null,
-        sourceContentSourceId: source?.sourceContentSourceId ?? null,
-        sourceUserImportId: source?.sourceUserImportId ?? null,
-      });
-      emitCartEvent(
-        'CartItemAdded',
-        buildCartEventPayload({
-          userId,
-          catalogProductId: survivorId,
-          cartItemId: item.id,
-          created: true,
-          source: sourceFromRecord(item),
-        }),
-      );
-      return { item, created: true };
-    } catch (err) {
-      if (!isUniqueViolation(err)) throw err;
-      const raced = await this.repo.findByUserAndProduct(userId, survivorId);
-      if (!raced) throw err;
-      emitCartEvent(
-        'CartItemAdded',
-        buildCartEventPayload({
-          userId,
-          catalogProductId: survivorId,
-          cartItemId: raced.id,
-          created: false,
-          source: sourceFromRecord(raced),
-        }),
-      );
-      return { item: raced, created: false };
-    }
+    return this.putMembership(userId, { catalogProductId: survivorId }, input);
   }
 
   async removeItem(
@@ -227,61 +168,22 @@ export class CartService {
       throw new CartServiceError('Product not found', 404);
     }
 
-    const existing = await this.repo.findByUserAndDiscovered(userId, discoveredProductId);
-    if (existing) {
-      emitCartEvent(
-        'CartItemAdded',
-        buildCartEventPayload({
-          userId,
-          catalogProductId: existing.catalogProductId ?? '',
-          cartItemId: existing.id,
-          created: false,
-          source: sourceFromRecord(existing),
-        }),
-      );
-      return { item: existing, created: false };
-    }
+    return this.putMembership(userId, { discoveredProductId }, input);
+  }
 
+  private async putMembership(userId: string, identity: { catalogProductId?: string; discoveredProductId?: string }, input: AddCartItemInput): Promise<AddCartItemResult> {
     const source = normalizeCartSource(input.source);
-    try {
-      const item = await this.repo.insert({
-        userId,
-        catalogProductId: null,
-        discoveredProductId,
-        sourceCollectionId: source?.sourceCollectionId ?? null,
-        sourceCreatorId: source?.sourceCreatorId ?? null,
-        sourceCollectionProductTagId: source?.sourceCollectionProductTagId ?? null,
-        sourceSurface: source?.sourceSurface ?? null,
-        sourceContentSourceId: source?.sourceContentSourceId ?? null,
-        sourceUserImportId: source?.sourceUserImportId ?? null,
-      });
-      emitCartEvent(
-        'CartItemAdded',
-        buildCartEventPayload({
-          userId,
-          catalogProductId: '',
-          cartItemId: item.id,
-          created: true,
-          source: sourceFromRecord(item),
-        }),
-      );
-      return { item, created: true };
-    } catch (err) {
-      if (!isUniqueViolation(err)) throw err;
-      const raced = await this.repo.findByUserAndDiscovered(userId, discoveredProductId);
-      if (!raced) throw err;
-      emitCartEvent(
-        'CartItemAdded',
-        buildCartEventPayload({
-          userId,
-          catalogProductId: '',
-          cartItemId: raced.id,
-          created: false,
-          source: sourceFromRecord(raced),
-        }),
-      );
-      return { item: raced, created: false };
-    }
+    const result = await this.repo.putMembership({
+      userId, catalogProductId: identity.catalogProductId ?? null, discoveredProductId: identity.discoveredProductId ?? null,
+      sourceCollectionId: source?.sourceCollectionId ?? null, sourceCreatorId: source?.sourceCreatorId ?? null,
+      sourceCollectionProductTagId: source?.sourceCollectionProductTagId ?? null,
+      sourceSurface: source?.sourceSurface ?? null, sourceContentSourceId: source?.sourceContentSourceId ?? null,
+      sourceUserImportId: source?.sourceUserImportId ?? null,
+    }, input.automatic === true);
+    if (!result.suppressed) emitCartEvent('CartItemAdded', buildCartEventPayload({ userId,
+      catalogProductId: result.item.catalogProductId ?? '', cartItemId: result.item.id,
+      created: result.created, source: sourceFromRecord(result.item) }));
+    return result;
   }
 
   async remapAfterCatalogMerge(

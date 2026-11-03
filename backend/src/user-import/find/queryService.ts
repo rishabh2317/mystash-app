@@ -1,0 +1,63 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { ShareError, uuid } from '../share/contracts';
+import { parseHistoryCursor } from '../share/history';
+import { readFindOutcome, readFindCounts } from './contract';
+
+import type { FindItem, FindDetail, FindPage, FindCounts, FindBatch } from './contract';
+export type { FindItem, FindDetail, FindPage, FindCounts, FindBatch } from './contract';
+
+export function findId(id: unknown): string {
+  if (typeof id !== 'string' || !uuid.test(id)) throw new ShareError('find_not_found', 404);
+  return id;
+}
+export function findBatchIds(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.length || value.length > 100 || value.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ShareError('invalid_find_ids');
+  return [...new Set(value as string[])];
+}
+function item(value: unknown): FindItem {
+  if (!value || typeof value !== 'object' || !uuid.test(String((value as FindItem).id))) throw new ShareError('find_unavailable', 503);
+  const row = value as FindItem;
+  return { ...row, outcome: readFindOutcome(row.outcome) };
+}
+
+export class FindQueryService {
+  constructor(private readonly db: SupabaseClient) {}
+  private async rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
+    const { data, error } = await this.db.rpc(name, args).abortSignal(AbortSignal.timeout(25_000));
+    if (error) {
+      if (error.code === 'P0002') throw new ShareError('find_not_found', 404);
+      if (error.code === '23514') throw new ShareError('find_result_unavailable', 409);
+      throw new ShareError('find_unavailable', 503);
+    }
+    if (data == null) throw new ShareError('find_unavailable', 503);
+    return data as T;
+  }
+  async list(userId: string, query: { cursor?: unknown; limit?: unknown; filter?: unknown } = {}): Promise<FindPage> {
+    const limit = query.limit === undefined ? 20 : Number(query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50 || (query.limit !== undefined && typeof query.limit !== 'string' && typeof query.limit !== 'number')) throw new ShareError('invalid_limit');
+    const filter = query.filter ?? 'all';
+    if (!['all','processing','completed','attention','saved'].includes(String(filter)) || typeof filter !== 'string') throw new ShareError('invalid_filter');
+    const after = parseHistoryCursor(query.cursor);
+    const result = await this.rpc<{ items: unknown[]; cursor: unknown; counts: FindCounts }>('find_query', {
+      p_user: userId, p_mode: 'list', p_limit: limit, p_filter: filter, p_before: after?.created_at ?? null, p_before_id: after?.id ?? null,
+    });
+    return { items: result.items.map(item), nextCursor: result.cursor ? Buffer.from(JSON.stringify(result.cursor)).toString('base64url') : null, counts: readFindCounts(result.counts) };
+  }
+  async counts(userId: string): Promise<FindCounts> {
+    return readFindCounts((await this.rpc<{ counts: FindCounts }>('find_query', { p_user: userId, p_mode: 'counts' })).counts);
+  }
+  async batch(userId: string, value: unknown): Promise<FindBatch> {
+    const ids = findBatchIds(value);
+    const result = await this.rpc<{ items: unknown[] }>('find_query', { p_user: userId, p_mode: 'batch', p_ids: ids });
+    const items = result.items.map(item), found = new Set(items.map(row => row.id));
+    return { items, unavailableIds: ids.filter(id => !found.has(id)) };
+  }
+  async detail(userId: string, id: string): Promise<FindDetail> {
+    const result = await this.rpc<FindDetail>('find_detail', { p_user: userId, p_import: findId(id) });
+    return { ...result, ...item(result) };
+  }
+  async resultAction(userId: string, id: string, kind: 'product' | 'place', resultId: string, restore: boolean, expectedIdentity?: unknown, candidateKey?: string): Promise<{ ok: true; saved: boolean }> {
+    if (kind === 'product' && (typeof expectedIdentity !== 'string' || !/^[cd]:/.test(expectedIdentity) || !uuid.test(expectedIdentity.slice(2)))) throw new ShareError('invalid_product_identity');
+    return this.rpc('find_result_action', { p_user: userId, p_import: findId(id), p_kind: kind, p_result: findId(resultId), p_restore: restore, p_expected: expectedIdentity ?? null, p_candidate: candidateKey ?? null });
+  }
+}

@@ -1,3 +1,4 @@
+import { ActionChoiceRow } from '@/components/ui/ActionChoiceRow';
 import React, { useState } from 'react';
 import { FlatList, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
@@ -80,6 +81,7 @@ export function PersonalProfile({
         onSharePress={onSharePress}
         onPressStat={onPressStat}
       />
+      <ActionChoiceRow title="Creator Studio" body="Create, edit and publish your collections." icon="sparkles-outline" onPress={onCreateCollection} />
       <DiscoverCreatorsSection items={discover.items} loading={discover.loading} />
       <ProfileContentTabs tabs={PERSONAL_PROFILE_TABS} active={activeTab} onChange={setActiveTab} />
     </View>
