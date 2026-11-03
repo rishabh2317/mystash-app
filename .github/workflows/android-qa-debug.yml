@@ -1,0 +1,65 @@
+name: Android Universal Find QA (debug signed)
+
+on:
+  push:
+    branches:
+      - codex/share-v2-pilot
+    paths:
+      - .github/workflows/android-qa-debug.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      EAS_BUILD_PROFILE: universal-find-qa-core
+      EXPO_PUBLIC_MYSTASH_INGEST_URL: https://mystash-free-test.onrender.com
+      EXPO_PUBLIC_SUPABASE_URL: https://womdeohfpvzmhomgqwig.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_NATIVE_SHARE_ENABLED: "true"
+      EXPO_PUBLIC_SHARE_INTENT_ENABLED: "true"
+      EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED: "true"
+      EXPO_PUBLIC_FIND_MEASUREMENT_ENABLED: "true"
+      EXPO_PUBLIC_NOTIFICATIONS_ENABLED: "true"
+      EXPO_PUBLIC_PUSH_ENABLED: "false"
+      EXPO_PUBLIC_ANALYTICS_ENABLED: "true"
+      EXPO_PUBLIC_CREATOR_ANALYTICS_ENABLED: "true"
+      EXPO_PUBLIC_ADMIN_ANALYTICS_ENABLED: "true"
+      EXPO_PUBLIC_PERSONALIZATION_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate native Android project
+        run: |
+          test -n "$EXPO_PUBLIC_SUPABASE_ANON_KEY"
+          npx expo prebuild --platform android --no-install
+      - name: Assemble QA APK
+        run: ./gradlew :app:assembleRelease --no-daemon
+        working-directory: android
+      - name: Record APK metadata
+        run: |
+          sha256sum android/app/build/outputs/apk/release/app-release.apk > apk.sha256
+          git rev-parse HEAD > source-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mystash-universal-find-qa-debug-${{ github.run_number }}
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            apk.sha256
+            source-commit.txt
+          retention-days: 7
+          if-no-files-found: error
