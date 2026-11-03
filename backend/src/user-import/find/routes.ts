@@ -9,6 +9,7 @@ import { parseIntent, ShareError } from '../share/contracts';
 import { shareAcceptanceStore, type ShareAcceptanceStore } from '../share/service';
 import { createShareReviewService } from '../share/reviewService';
 import { FindQueryService, findId } from './queryService';
+import {recordFindResultAction} from '../../analytics/serverEvents';
 
 export type FindRouteDependencies = {
   authenticate: UserImportAuthenticator;
@@ -18,6 +19,7 @@ export type FindRouteDependencies = {
   suggestions: ReturnType<typeof createShareReviewService>;
   suggestionsEnabled: () => boolean;
   intentEnabled: () => boolean;
+  measureAction?:(user:string,req:Request,id:string,kind:'product'|'place',restore:boolean)=>Promise<void>;
 };
 function body(req: Request, allowed: string[]): Record<string, unknown> {
   const value = req.body ?? {};
@@ -39,6 +41,10 @@ export function registerFindHandlers(app: Pick<Express, 'get' | 'post' | 'patch'
       res.status(status).json({ error: error instanceof ShareError ? error.code : status === 404 ? 'find_not_found' : status === 409 ? 'find_action_unavailable' : 'find_unavailable' });
     }
   };
+  const resultAction=async(user:string,req:Request,kind:'product'|'place',restore:boolean,expected:unknown,candidate?:string)=>{
+    const id=findId(req.params.findId),result=await deps.queries.resultAction(user,id,kind,findId(req.params.resultId),restore,expected,candidate);
+    try{await deps.measureAction?.(user,req,id,kind,restore);}catch{/* Measurement must not change saving or removal. */}return result;
+  };
   app.get('/finds', route((user, req) => deps.queries.list(user, req.query)));
   app.get('/finds/counts', route(user => deps.queries.counts(user)));
   app.post('/finds/batch', route((user, req) => deps.queries.batch(user, body(req, ['ids']).ids)));
@@ -57,17 +63,17 @@ export function registerFindHandlers(app: Pick<Express, 'get' | 'post' | 'patch'
   }));
   for (const [segment, kind] of [['products', 'product'], ['places', 'place']] as const) {
     app.delete(`/finds/:findId/${segment}/:resultId`, route((user, req) => {
-      const input = body(req, kind === 'product' ? ['expectedIdentity'] : []); return deps.queries.resultAction(user, findId(req.params.findId), kind, findId(req.params.resultId), false, input.expectedIdentity);
+      const input = body(req, kind === 'product' ? ['expectedIdentity'] : []); return resultAction(user,req,kind,false,input.expectedIdentity);
     }));
     app.post(`/finds/:findId/${segment}/:resultId/restore`, route((user, req) => {
-      const input = body(req, kind === 'product' ? ['expectedIdentity'] : []); return deps.queries.resultAction(user, findId(req.params.findId), kind, findId(req.params.resultId), true, input.expectedIdentity);
+      const input = body(req, kind === 'product' ? ['expectedIdentity'] : []); return resultAction(user,req,kind,true,input.expectedIdentity);
     }));
   }
   const selected = (restore: boolean) => route((user, req) => {
     const input = body(req, ['expectedIdentity']);
     const candidate = req.params.candidateKey;
     if (typeof candidate !== 'string' || !/^[a-f0-9]{64}$/.test(candidate)) throw new ShareError('invalid_candidate');
-    return deps.queries.resultAction(user, findId(req.params.findId), 'product', findId(req.params.resultId), restore, input.expectedIdentity, candidate);
+    return resultAction(user,req,'product',restore,input.expectedIdentity,candidate);
   });
   app.delete('/finds/:findId/suggestions/:resultId/:candidateKey', selected(false));
   app.post('/finds/:findId/suggestions/:resultId/:candidateKey/restore', selected(true));
@@ -91,5 +97,5 @@ export function registerFindRoutes(app: Express): void {
   registerFindHandlers(app, { authenticate: supabaseUserImportAuthenticator(), queries: new FindQueryService(db),
     imports: createUserImportService(db), intents: shareAcceptanceStore(db), suggestions: createShareReviewService(db),
     suggestionsEnabled: () => getEnv('SHARE_SUGGESTIONS_ENABLED') === 'true',
-    intentEnabled: () => getEnv('SHARE_INTENT_ENABLED') === 'true' });
+    intentEnabled: () => getEnv('SHARE_INTENT_ENABLED') === 'true',measureAction:(user,req,id,kind,restore)=>recordFindResultAction(db,req,user,id,kind,restore) });
 }

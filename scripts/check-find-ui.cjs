@@ -34,6 +34,8 @@ function load(file){
   if(id==='@/src/services/captureRuntime')return{imageOutbox:{list:async()=>[],remove:async()=>{}},retryImageCaptures:async()=>{}};
   if(id==='@/src/services/nativeShare')return{subscribePendingShares:()=>()=>{},notifyPendingShares(){}};
   if(id==='@/src/services/findApi')return{findApi:api};
+  if(id==='@/src/analytics/findMeasurement')return{observeFind(){}};
+  if(id==='@/src/analytics/hooks')return{useQualifiedExposure:()=>({current:null}),useMeasuredOpen(){}};
   if(id==='@/src/services/supabase'||id==='./supabase')return{supabase:{auth:{getSession:async()=>({data:{session:{user:{id:transportOwner},access_token:'dummy'}}})}}};
   if(id==='@/components/search/NativePendingShares')return{NativePendingShares:()=>null};
   if(id==='@/src/hooks/useDiscoverCreators')return{useDiscoverCreators:()=>({items:[],loading:false})};

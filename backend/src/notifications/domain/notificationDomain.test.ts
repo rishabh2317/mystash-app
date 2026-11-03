@@ -16,6 +16,8 @@ const ID = '3f2b8a5e-1c4d-4e6f-9a0b-1c2d3e4f5a6b';
 const RECIPIENT = '11111111-1111-4111-8111-111111111111';
 
 const SAMPLE_PAYLOADS: Record<NotificationEventType, Record<string, unknown>> = {
+  'find.completed':{findId:'550e8400-e29b-41d4-a716-446655440000',outcome:'found'},
+  'find.failed':{findId:'550e8400-e29b-41d4-a716-446655440000'},
   'collection.publish_succeeded': { collectionId: ID, collectionTitle: 'Summer kit' },
   'collection.publish_failed': { collectionId: ID, ingestId: ID },
   'ingest.ready_for_review': { ingestId: ID, videoTitle: 'My reel' },

@@ -3,6 +3,7 @@ import {
   collectionLink,
   ingestReviewLink,
   safeDeepLink,
+  findLink,
 } from './deepLinks';
 import type {
   ClaimedOutboxEvent,
@@ -67,6 +68,22 @@ function providerLabel(provider: string | null): string {
 }
 
 export const NOTIFICATION_TYPES: Record<NotificationEventType, NotificationTypeDefinition> = {
+  'find.completed': {
+    category:'task',requiresActor:false,groupWindowSeconds:null,
+    render(payload){
+      const findId=requireString(payload,'findId');
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(findId))throw new InvalidNotificationPayloadError('Invalid Find identity');
+      const outcome=payload.outcome;
+      if(typeof outcome!=='string'||!['found','partial','empty'].includes(outcome))throw new InvalidNotificationPayloadError('Invalid Find outcome');
+      return {title:'Your Find is complete',body:outcome==='empty'?'No products or places were identified. Open your Find to see the outcome.'
+        :outcome==='partial'?'Some results are ready. Open your Find to see what was found.':'Your results are ready. Open your Find to see products and places.',deepLink:findLink(findId),data:{findId,outcome}};
+    },
+  },
+  'find.failed': {
+    category:'task',requiresActor:false,groupWindowSeconds:null,
+    render(payload){const findId=requireString(payload,'findId');if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(findId))throw new InvalidNotificationPayloadError('Invalid Find identity');
+      return {title:'Your Find needs attention',body:'Open your Find to see available results or try again.',deepLink:findLink(findId),data:{findId}};},
+  },
   'collection.publish_succeeded': {
     category: 'task',
     requiresActor: false,

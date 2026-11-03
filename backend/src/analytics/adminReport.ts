@@ -1,6 +1,7 @@
 /** Aggregate-only admin contract. Safe to import from the shared native client. */
 import type {CreatorRange} from './creatorReport';
 export const ADMIN_METRICS=['app_sessions','collection_opens','collection_impressions','product_opens','product_impressions',
+ 'find_opens','find_capture_choices','find_submissions','find_cancellations','find_results_opens','find_removals','find_restorations','find_accepted','find_started','find_completed','find_failed','find_stash_synced',
  'place_impressions','place_outbound_requests','profile_opens','search_responses','search_zero_matches','search_with_fallback',
  'search_matching_results','search_fallback_results','search_latency_ms','search_clicks','search_click_rank_sum',
  'merchant_requests','affiliate_requests','saves_added','saves_removed','follows_added','follows_removed','likes_added','likes_removed','collection_shares'] as const;

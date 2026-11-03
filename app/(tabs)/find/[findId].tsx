@@ -14,11 +14,14 @@ import type { ReviewProduct } from '@/src/services/shareReviewApi';
 import { FIND_ROUTES, safeFindUrl } from '@/src/ui/find';
 import { typeStyle } from '@/src/theme/typography';
 import { productPagePath } from '@/src/ui/productPage';
+import {observeFind} from '@/src/analytics/findMeasurement';
 export default function FindDetailScreen() {
   const router = useRouter(), { tokens } = useThemeMode(), { user, loading } = useAuth();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ findId: string }>(), id = typeof params.findId === 'string' ? params.findId : '';
   const detail = useFindDetail(id), owner = user?.id ?? null;
+  const visibleId=detail.data?.id;
+  useFocusEffect(useCallback(()=>{if(visibleId)observeFind(owner,'find.results_opened',{findId:visibleId});},[owner,visibleId]));
   const [options,setOptions] = useState<{ owner: string; id: string; rows: ReviewProduct[] } | null>(null), [optionsLoading,setOptionsLoading] = useState(false), [optionsError,setOptionsError] = useState<string | null>(null);
   const session = useRef({ owner,id, active: false }); session.current.owner = owner; session.current.id = id;
   const optionsGeneration = useRef(0);

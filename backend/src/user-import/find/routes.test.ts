@@ -56,3 +56,9 @@ test('retry kind and intent revisions are forwarded to existing services with th
   f.deps.intents.updateIntent = async () => { throw new ShareError('revision_conflict', 409); };
   assert.equal((await f.request('patch /finds/:findId/intent', { intent: { kind: null, note: null }, expectedRevision: 1 })).status, 409);
 });
+test('result measurement runs only after an authorized action and cannot fail saving/removal',async()=>{
+ const f=fixture();let measured=0;f.deps.measureAction=async(user,_req,findId,kind,restore)=>{assert.equal(user,id);assert.equal(findId,id);assert.equal(kind,'place');assert.equal(restore,true);measured++;throw Error('measurement offline');};
+ assert.equal((await f.request('post /finds/:findId/places/:resultId/restore')).status,200);assert.equal(measured,1);
+ f.deps.queries.resultAction=async()=>{throw new ShareError('find_not_found',404);};
+ assert.equal((await f.request('post /finds/:findId/places/:resultId/restore')).status,404);assert.equal(measured,1);
+});

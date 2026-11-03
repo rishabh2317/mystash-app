@@ -6,7 +6,8 @@ import { assertFindSchema } from './schema';
 import { readFindMemberships } from './membershipQuery';
 const db = (data: unknown, error: unknown = null) => ({ rpc: () => ({ abortSignal: async () => ({ data, error }) }) }) as unknown as SupabaseClient;
 test('schema preflight accepts only the exact release contract and fails closed', async () => {
-  await assertFindSchema(db(3));
+  await assertFindSchema(db(4));
+  await assert.rejects(assertFindSchema(db(3)), /incompatible/);
   await assert.rejects(assertFindSchema(db(2)), /incompatible/);
   await assert.rejects(assertFindSchema(db(0)), /incompatible/);
   await assert.rejects(assertFindSchema(db(1)), /incompatible/);

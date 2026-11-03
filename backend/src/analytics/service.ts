@@ -23,7 +23,10 @@ export async function ingestMeasurement(admin: SupabaseClient, userId:string|nul
   if(!userId&&!ctx.anonymousConsent)return {accepted:[],consent_rejected:true};
   const validated=events.map(e=>validateEvent(e,source));
   if(validated.some(e=>e.session_id!==ctx.sessionId))throw new Error('session_mismatch');
+  const skipped=process.env.FIND_MEASUREMENT_ENABLED==='true'?[]:validated.filter(e=>e.event_name.startsWith('find.')).map(e=>e.event_id);
+  const eligible=validated.filter(e=>!skipped.includes(e.event_id));
+  if(!eligible.length)return {accepted:[],rejected_ids:skipped};
   const {data,error}=await admin.rpc('analytics_ingest',{p_user_id:userId,p_revision:ctx.revision,
-    p_events:validated,p_source:source,p_search_results:searchResults??null});
-  if(error)throw new Error('measurement_unavailable');return data;
+    p_events:eligible,p_source:source,p_search_results:searchResults??null});
+  if(error)throw new Error('measurement_unavailable');return skipped.length?{...data,rejected_ids:[...(data?.rejected_ids??[]),...skipped]}:data;
 }

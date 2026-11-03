@@ -8,6 +8,10 @@ import { NOTIFICATIONS_HREF, isAllowedNotificationLink, resolveNotificationHref 
 const ID = '3f2b8a5e-1c4d-4e6f-9a0b-1c2d3e4f5a6b';
 
 describe('notification deep links on tap', () => {
+  it('opens an opaque Find identity and rejects query strings and private media paths',()=>{
+    assert.equal(resolveNotificationHref(`/find/${ID}`),`/find/${ID}`);
+    for(const link of [`/find/${ID}?token=secret`,`/find/${ID}/media/original`,'/find/not-an-id'])assert.equal(resolveNotificationHref(link),NOTIFICATIONS_HREF);
+  });
   it('falls back to the inbox for anything not allowlisted', () => {
     assert.equal(resolveNotificationHref(null), NOTIFICATIONS_HREF);
     assert.equal(resolveNotificationHref('https://evil.example/collection'), NOTIFICATIONS_HREF);
@@ -20,6 +24,7 @@ describe('notification deep links on tap', () => {
 
   it('accepts every link the server can render, and nothing the server would reject', () => {
     const payload = {
+      findId:ID,outcome:'found',
       collectionId: ID,
       ingestId: ID,
       connectedAccountId: ID,

@@ -138,7 +138,7 @@ export default function ProductPageScreen() {
         </View>
       ) : null}
       {(loadState === 'content' || loadState === 'contentRefreshing') && page ? (
-        <ProductPage page={page} />
+        <ProductPage page={page} measurementSurface={userImportId&&process.env.EXPO_PUBLIC_FIND_MEASUREMENT_ENABLED==='true'?'find':'product'} />
       ) : null}
     </View>
   );

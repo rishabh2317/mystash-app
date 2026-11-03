@@ -111,8 +111,8 @@ function mergeLiveOffer(
   };
 }
 
-export function ProductPage({ page }: Props) {
-  useMeasuredOpen('product.opened','product',page.productId,{namespace:'auto'});
+export function ProductPage({ page,measurementSurface='product' }: Props&{measurementSurface?:'product'|'find'}) {
+  useMeasuredOpen('product.opened','product',page.productId,{namespace:'auto',surface:measurementSurface});
   const router = useRouter();
   const { tokens } = useThemeMode();
   const { width: screenWidth } = useWindowDimensions();
@@ -235,6 +235,7 @@ export function ProductPage({ page }: Props) {
   const onShop = async (offerId: string) => {
     try {
       await openProductShopping({
+        measurementSurface,
         catalogProductId: page.shoppingProductId ?? page.productId,
         offerId,
         country: countryCtx?.country,

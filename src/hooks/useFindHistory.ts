@@ -7,6 +7,7 @@ import { findApi } from '@/src/services/findApi';
 import { subscribePendingShares } from '@/src/services/nativeShare';
 import { createFindHistoryController } from '@/src/state/findHistoryController';
 import type { FindViewFilter } from '@/src/ui/find';
+import {observeFind} from '@/src/analytics/findMeasurement';
 export function useFindHistory(filter: FindViewFilter) {
   const { user } = useAuth(), owner = user?.id ?? null, cart = useCartOptional();
   const membership = useRef<string | null>(null);
@@ -22,6 +23,7 @@ export function useFindHistory(filter: FindViewFilter) {
     const pending = subscribePendingShares(() => { if (AppState.currentState === 'active') void controller.refresh(); });
     return () => { app.remove(); pending(); controller.setActive(false); };
   }, [controller, owner, filter]));
+  useFocusEffect(useCallback(()=>{observeFind(owner,'find.opened');},[owner]));
   useEffect(() => {
     if (state.owner !== owner || !owner || !state.loaded) { membership.current = null; return; }
     const signature = JSON.stringify([owner,state.counts?.completed,state.counts?.processing,state.counts?.attention,

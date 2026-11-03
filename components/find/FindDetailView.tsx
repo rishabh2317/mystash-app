@@ -2,6 +2,7 @@ import React from 'react';
 import { FlatList, Pressable, View } from 'react-native';
 import { FindImage } from './FindImage';
 import {PrivateFindPreview} from './PrivateFindImage';
+import {MeasuredFindResult} from './MeasuredFindResult';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/Text';
 import { ActionButton } from '@/components/ui/ActionButton';
@@ -51,7 +52,7 @@ export function FindDetailView(props: FindDetailViewProps) {
   </View>;
   return <FlatList data={rows} keyExtractor={row => row.key} contentContainerStyle={{ padding: tokens.space.md, paddingBottom: tokens.space.xl, gap: tokens.space.md }}
     keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets refreshing={props.refreshing} onRefresh={props.onRefresh} ListHeaderComponent={header}
-    renderItem={({ item: row }) => <View style={{ ...outlineCardChrome(tokens), borderWidth: tokens.stroke.thin, borderRadius: tokens.radius.xxl, padding: tokens.space.md, gap: tokens.space.sm }}>
+    renderItem={({ item: row }) => <MeasuredFindResult row={row} style={{ ...outlineCardChrome(tokens), borderWidth: tokens.stroke.thin, borderRadius: tokens.radius.xxl, padding: tokens.space.md, gap: tokens.space.sm }}>
       <View style={{ flexDirection: 'row', gap: tokens.space.sm, alignItems: 'center' }}>
         {safeFindUrl(row.image) ? <FindImage url={row.image} cacheKey={row.key} style={{ width: 64, height: 72, borderRadius: tokens.radius.md }} /> : <Ionicons name={row.key.startsWith('place:') ? 'location-outline' : 'cube-outline'} size={24} color={tokens.color.textMuted} />}
         <View style={{ flex: 1, minWidth: 0, gap: tokens.space.xs }}><Text style={typeStyle(tokens,'body')}>{row.title}</Text><Text style={typeStyle(tokens,'caption')}>{row.subtitle}</Text></View>
@@ -60,7 +61,7 @@ export function FindDetailView(props: FindDetailViewProps) {
       {row.membership ? <ActionButton wrapLabel minTouchHeight={48} label={row.removed ? 'Restore to My Stash' : 'Remove from My Stash'} accessibilityLabel={`${row.removed ? 'Restore' : 'Remove'} ${row.title} ${row.removed ? 'to' : 'from'} My Stash`}
         variant="secondary" pending={pending === row.key} disabled={Boolean(pending)} onPress={() => props.onMembership(row.membership!, Boolean(row.removed))} /> : null}
       {row.candidate ? <View style={{ gap: tokens.space.sm }}><ActionButton wrapLabel minTouchHeight={48} label="Save similar product" pending={pending === row.key} disabled={Boolean(pending)} onPress={() => props.onDecide(row.candidate!.sourceId,row.candidate!.key,'save')} /><ActionButton wrapLabel minTouchHeight={48} label="Dismiss suggestion" variant="quiet" disabled={Boolean(pending)} onPress={() => props.onDecide(row.candidate!.sourceId,row.candidate!.key,'dismiss')} /></View> : null}
-    </View>}
+    </MeasuredFindResult>}
     ListFooterComponent={<View style={{ gap: tokens.space.md, marginTop: tokens.space.md }}>
       {data.capabilities.suggestions ? <><ActionButton wrapLabel minTouchHeight={48} label={props.optionsLoaded ? 'Refresh similar options' : 'See similar options'} variant="secondary" pending={props.optionsLoading} disabled={Boolean(pending)} onPress={props.onOptions} />
         {props.optionsLoaded && !rows.some(row => row.candidate) ? <Text style={typeStyle(tokens,'caption')}>No additional similar options are available for this find.</Text> : null}

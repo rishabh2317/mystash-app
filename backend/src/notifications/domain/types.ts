@@ -2,6 +2,8 @@ export type NotificationCategory = 'social' | 'task' | 'account' | 'security' | 
 export type NotificationChannel = 'inbox' | 'push';
 
 export type NotificationEventType =
+  | 'find.completed'
+  | 'find.failed'
   | 'collection.publish_succeeded'
   | 'collection.publish_failed'
   | 'ingest.ready_for_review'

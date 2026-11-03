@@ -6,12 +6,12 @@ import { usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AnalyticsEvent } from '@/backend/src/analytics/contracts';
 import { analyticsSnapshot,subscribeAnalytics,recordOnce } from './client';
-export const analyticsSurface=(path:string)=>path.includes('search')?'search':path.includes('product')?'product':path.includes('creator')||path.includes('profile')?'creator':path.includes('stash')||path.includes('cart')||path.includes('bag')?'stash':path.includes('collection')?'collection':path==='/'||path.includes('reel')?'watch':'other';
+export const analyticsSurface=(path:string)=>path.includes('find')?'find':path.includes('search')?'search':path.includes('product')?'product':path.includes('creator')||path.includes('profile')?'creator':path.includes('stash')||path.includes('cart')||path.includes('bag')?'stash':path.includes('collection')?'collection':path==='/'||path.includes('reel')?'watch':'other';
 export function useMeasuredOpen(name:AnalyticsEvent['event_name'],type:AnalyticsEvent['entity_type'],id:string|undefined,extra:Partial<AnalyticsEvent>={}){
   const state=useSyncExternalStore(subscribeAnalytics,analyticsSnapshot,analyticsSnapshot),focused=useIsFocused(),path=usePathname();
-  const namespace=extra.namespace,collectionId=extra.collection_id;
-  useEffect(()=>{if(state.enabled&&state.generation===analyticsSnapshot().generation&&focused&&id)recordOnce(name,type,id,analyticsSurface(path),{namespace,collection_id:collectionId});},
-    [state.enabled,state.generation,focused,id,name,type,path,namespace,collectionId]);
+  const namespace=extra.namespace,collectionId=extra.collection_id,surface=extra.surface;
+  useEffect(()=>{if(state.enabled&&state.generation===analyticsSnapshot().generation&&focused&&id)recordOnce(name,type,id,surface??analyticsSurface(path),{namespace,collection_id:collectionId});},
+    [state.enabled,state.generation,focused,id,name,type,path,namespace,collectionId,surface]);
 }
 type Candidate={ref:React.RefObject<View|null>;run:(fraction:number,now:number)=>void;top:number;bottom:number;right:number;visibleSince:number|null;dwell:ExposureDwell};
 const candidates=new Set<Candidate>();let timer:ReturnType<typeof setInterval>|null=null;let cursor=0;let appStateSubscription:{remove():void}|null=null;
@@ -31,7 +31,7 @@ function start(){if(timer)return;
 export function useQualifiedExposure(name:AnalyticsEvent['event_name'],type:AnalyticsEvent['entity_type'],id:string|undefined,extra:Partial<AnalyticsEvent>={}){
   const ref=useRef<View>(null),state=useSyncExternalStore(subscribeAnalytics,analyticsSnapshot,analyticsSnapshot);
   const focused=useIsFocused(),path=usePathname(),{height,width}=useWindowDimensions(),insets=useSafeAreaInsets();
-  const namespace=extra.namespace,collectionId=extra.collection_id;
+  const namespace=extra.namespace,collectionId=extra.collection_id,surface=extra.surface;
   useEffect(()=>{
     if(!state.enabled||!focused||!id||candidates.size>=128)return;
     let alive=true;
@@ -39,9 +39,9 @@ export function useQualifiedExposure(name:AnalyticsEvent['event_name'],type:Anal
       if(!alive||state.generation!==analyticsSnapshot().generation||AppState.currentState!=='active')return;
       const qualified=c.dwell.observe(fraction,true,now);
       c.visibleSince=fraction>=0.5?now:null;
-      if(qualified){recordOnce(name,type,id,analyticsSurface(path),{namespace,collection_id:collectionId});candidates.delete(c);}
+      if(qualified){recordOnce(name,type,id,surface??analyticsSurface(path),{namespace,collection_id:collectionId});candidates.delete(c);}
     }};
     candidates.add(c);start();return()=>{alive=false;candidates.delete(c);};
-  },[state.enabled,state.generation,focused,id,name,type,path,namespace,collectionId,height,width,insets.top,insets.bottom]);
+  },[state.enabled,state.generation,focused,id,name,type,path,namespace,collectionId,surface,height,width,insets.top,insets.bottom]);
   return ref;
 }

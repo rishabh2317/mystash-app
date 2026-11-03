@@ -6,6 +6,7 @@ import { router, type Href } from 'expo-router';
 import { merchantBrowserPath } from '@/src/ui/merchantBrowser';
 
 export type ShoppingClickContext = {
+  measurementSurface?:'product'|'find';
   catalogProductId: string;
   /** Server-issued offer id. Never a merchant URL. */
   offerId?: string | null;
@@ -66,6 +67,7 @@ export async function resolveProductShoppingDestination(
   const res = await fetch(endpoint, {
     headers: { Accept: 'application/json',...measurement,
       ...(measurement['x-mystash-session']?{'x-mystash-outbound-id':newEventId()}:{}),
+      ...(measurement['x-mystash-session']&&context.measurementSurface==='find'?{'x-mystash-surface':'find'}:{}),
       ...(token?{Authorization:`Bearer ${token}`}:{}) },
   });
   if (!res.ok) {

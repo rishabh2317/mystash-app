@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 
-def main(verify_queries=False, verify_images=False):
+def main(verify_queries=False, verify_images=False, verify_delivery=False):
     root = Path(__file__).resolve().parents[2]
     binaries = Path('/opt/homebrew/opt/postgresql@17/bin')
     for name in ('initdb', 'pg_ctl', 'psql'):
@@ -31,7 +31,7 @@ def main(verify_queries=False, verify_images=False):
         run('pg_ctl', '-D', work / 'data', '-l', work / 'postgres.log', '-w', 'start',
             '-o', f"-k {work} -p 55443 -c listen_addresses='' -c unix_socket_permissions=0700")
         started = True
-        connection = ('-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-h', work, '-p', '55443', '-U', 'postgres')
+        connection = ('-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-h', work, '-p', '55443', '-U', 'postgres')
 
         def sql(text):
             return run('psql', *connection, sql=text)
@@ -160,6 +160,26 @@ INSERT INTO users(id) SELECT id FROM auth.users;
             if image_test.returncode:
                 raise RuntimeError(image_test.stderr[-5000:] or image_test.stdout[-5000:])
             print(image_test.stdout.strip())
+
+        if verify_delivery:
+            sql((root / 'backend/scripts/sql/find_delivery_fixture.sql').read_text())
+            for migration in ('20261012120000_notifications_inbox.sql', '20261013120000_notifications_push.sql',
+                              '20261014120000_notifications_push_revocation.sql', '20261015120000_notifications_campaigns.sql',
+                              '20261027130000_behavioral_measurement.sql', '20261027140000_creator_analytics.sql',
+                              '20261027150000_admin_analytics.sql', '20261103160000_find_notifications_measurement.sql'):
+                sql((root / 'supabase/migrations' / migration).read_text())
+            print(sql((root / 'backend/scripts/sql/find_delivery_checks.sql').read_text()))
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                list(pool.map(sql, ['SELECT find_reconcile_delivery(true,true,25);'] * 2))
+            print(sql("SELECT find_test_assert((SELECT count(*)=1 FROM notification_outbox WHERE payload->>'findId'='dddddddd-4444-4444-8444-444444444444'),'concurrent terminal reconciliation creates one capture notification');"))
+            print('PASS concurrent Find delivery through the existing notification outbox')
+            owner = '77777777-7777-4777-8777-777777777777'
+            sql(f"SELECT find_test_empty('{owner}','dddddddd-8888-4888-8888-888888888888','cccccccc-8888-4888-8888-888888888888');")
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                list(pool.map(sql, ['SELECT find_reconcile_delivery(true,true,25);',
+                                    f"SELECT analytics_set_preferences('{owner}',false,false);"]))
+            print(sql(f"SELECT find_test_assert(NOT EXISTS(SELECT 1 FROM analytics_events WHERE actor_id='{owner}') AND (SELECT find_measurement_revision IS NULL FROM user_imports WHERE id='dddddddd-8888-4888-8888-888888888888'),'concurrent withdrawal fences operational measurement');"))
+            print('PASS concurrent consent withdrawal and terminal reconciliation')
 
 
 

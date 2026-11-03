@@ -1,6 +1,7 @@
 import type { FindScreenDetail } from '@/src/services/findClient';
 import type { ReviewProduct } from '@/src/services/shareReviewApi';
 export type FindDetailRow = { key: string; title: string; subtitle: string; image: string | null; saved?: boolean; removed?: boolean;
+  placeId?:string|null;
   openProductId?: string | null; membership?: { kind: 'products' | 'places' | 'suggestion'; id: string; identity?: string; candidate?: string };
   candidate?: { sourceId: string; key: string } };
 export function findDetailRows(detail: FindScreenDetail, options: ReviewProduct[] = []): FindDetailRow[] {
@@ -20,7 +21,7 @@ export function findDetailRows(detail: FindScreenDetail, options: ReviewProduct[
       saved: selected.saved, removed: selected.removed, openProductId: selected.identityKey.slice(2),
       ...({ membership: { kind: 'suggestion' as const, id: selected.sourceProductId, identity: selected.identityKey, candidate: selected.candidateKey } }) });
   }
-  for (const place of detail.places) rows.push({ key: `place:${place.id}`, title: place.name, image: null,
+  for (const place of detail.places) rows.push({ key: `place:${place.id}`, title: place.name, image: null,placeId:place.placeId,
     subtitle: [place.resolution === 'resolved' ? 'Place identified' : 'Unverified place', [place.locality,place.city].filter(Boolean).join(', '), place.saved ? 'In My Stash' : place.removed ? 'Removed from My Stash' : 'Automatic saving is pending'].filter(Boolean).join(' · '),
     saved: place.saved, removed: place.removed, ...({ membership: { kind: 'places' as const, id: place.id } }) });
   for (const product of options) for (const candidate of product.assessment?.suggestions ?? []) {

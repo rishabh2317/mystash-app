@@ -1,9 +1,11 @@
 export const EVENT_NAMES = [
+  'find.opened','find.capture_action_chosen','find.capture_submitted','find.capture_cancelled','find.results_opened',
+  'find.result_removed','find.result_restored','find.ingestion_accepted','find.processing_started','find.processing_completed','find.processing_failed','find.stash_synchronized',
   'session.started', 'collection.impression', 'collection.opened', 'product.impression', 'product.opened',
   'place.impression', 'place.outbound_requested', 'creator.profile_opened', 'search.results_served', 'search.result_clicked', 'merchant.outbound_resolved',
 ] as const;
 export type EventName = typeof EVENT_NAMES[number];
-export type EntityType = 'app' | 'collection' | 'product' | 'place' | 'place_save' | 'creator' | 'search';
+export type EntityType = 'app' | 'collection' | 'product' | 'place' | 'place_save' | 'creator' | 'search' | 'find';
 export type AnalyticsEvent = {
   event_id: string; event_name: EventName; schema_version: 1; occurred_at: string; session_id: string;
   entity_type: EntityType; entity_id?: string; surface: string;
@@ -12,9 +14,14 @@ export type AnalyticsEvent = {
   collection_id?: string; properties: Record<string, unknown>;
 };
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const surfaces = new Set(['app','watch','collection','product','search','stash','creator','other']);
+const surfaces = new Set(['app','watch','collection','product','search','stash','creator','other','find']);
 const ids = ['event_id','session_id','entity_id','collection_id'] as const;
 const propertyKeys: Record<EventName, readonly string[]> = {
+  'find.opened':[],'find.capture_action_chosen':['capture_origin'],'find.capture_submitted':['capture_origin'],'find.capture_cancelled':['capture_origin'],
+  'find.results_opened':[],'find.result_removed':['result_type'],'find.result_restored':['result_type'],
+  'find.ingestion_accepted':['capture_origin'],'find.processing_started':['capture_origin'],
+  'find.processing_completed':['capture_origin','outcome','count_bucket'],'find.processing_failed':['capture_origin','outcome','failure_class'],
+  'find.stash_synchronized':['capture_origin','count_bucket'],
   'session.started': [], 'collection.impression': [], 'collection.opened': [],
   'product.impression': [], 'product.opened': [], 'place.impression': [],
   'place.outbound_requested': ['destination_kind'], 'creator.profile_opened': [],
@@ -23,6 +30,9 @@ const propertyKeys: Record<EventName, readonly string[]> = {
   'merchant.outbound_resolved': ['destination_kind','affiliate','request_id'],
 };
 const entityFor: Record<EventName, readonly EntityType[]> = {
+  'find.opened':['app'],'find.capture_action_chosen':['app'],'find.capture_submitted':['app'],'find.capture_cancelled':['app'],
+  'find.results_opened':['find'],'find.result_removed':['find'],'find.result_restored':['find'],'find.ingestion_accepted':['find'],
+  'find.processing_started':['find'],'find.processing_completed':['find'],'find.processing_failed':['find'],'find.stash_synchronized':['find'],
   'session.started':['app'], 'collection.impression':['collection'],'collection.opened':['collection'],
   'product.impression':['product'],'product.opened':['product'],'place.impression':['place','place_save'],
   'place.outbound_requested':['place','place_save'],'creator.profile_opened':['creator'],
@@ -46,9 +56,19 @@ export function validateEvent(raw: unknown, source: 'client' | 'server', now = D
   if (!Number.isFinite(time) || time<now-86400000 || time>now+300000) throw new Error('event_time_out_of_range');
   if (!e.properties || typeof e.properties!=='object' || Array.isArray(e.properties) ||
     Object.keys(e.properties).some(k=>!propertyKeys[e.event_name].includes(k))) throw new Error('invalid_properties');
-  if (source==='client' && ['search.results_served','merchant.outbound_resolved'].includes(e.event_name)) throw new Error('server_event_only');
+  if (source==='client' && (['search.results_served','merchant.outbound_resolved'].includes(e.event_name)||
+    e.event_name.startsWith('find.')&&!['find.opened','find.capture_action_chosen','find.capture_submitted','find.capture_cancelled','find.results_opened'].includes(e.event_name))) throw new Error('server_event_only');
   if (e.entity_type==='product' && !['catalog','discovered','auto'].includes(e.namespace??'')) throw new Error('product_namespace_required');
   const p=e.properties;
+  if(e.event_name.startsWith('find.')){
+    if(e.surface!=='find'||e.collection_id!==undefined||e.namespace!==undefined)throw new Error('invalid_find_context');
+    if(propertyKeys[e.event_name].some(key=>p[key]===undefined))throw new Error('invalid_find_properties');
+    if('capture_origin' in p&&(typeof p.capture_origin!=='string'||!['url','gallery','camera','image'].includes(p.capture_origin)))throw new Error('invalid_find_origin');
+    if('result_type' in p&&(typeof p.result_type!=='string'||!['product','place'].includes(p.result_type)))throw new Error('invalid_find_result');
+    if('outcome' in p&&(typeof p.outcome!=='string'||!['found','partial','empty','failed'].includes(p.outcome)))throw new Error('invalid_find_outcome');
+    if('count_bucket' in p&&(typeof p.count_bucket!=='string'||!['0','1','2-5','6+'].includes(p.count_bucket)))throw new Error('invalid_find_count');
+    if('failure_class' in p&&(typeof p.failure_class!=='string'||!['extraction','saving'].includes(p.failure_class)))throw new Error('invalid_find_failure');
+  }
   const integer=(key:string,max:number)=>Number.isSafeInteger(p[key])&&Number(p[key])>=0&&Number(p[key])<=max;
   if (e.event_name==='place.outbound_requested' && p.destination_kind!=='search') throw new Error('invalid_destination');
   if (e.event_name==='search.result_clicked' && (!UUID.test(String(p.request_id))||!integer('rank',1000)||

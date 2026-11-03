@@ -1,5 +1,6 @@
 import { createStashSyncPort, reconcileStashSync } from '../find/stashSync';
 import { createPrivateImageService } from '../media/factory';
+import {reconcileFindDelivery} from '../find/terminalDelivery';
 import { randomUUID } from 'node:crypto';
 import { getEnv } from '../../env';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -77,6 +78,8 @@ export function startShareRecovery(db: SupabaseClient, stopped: () => boolean): 
     catch { logger.warn({ event: 'find.stash_sync.deferred' }, 'find.stash_sync.deferred'); }
     try { await createPrivateImageService(db).reconcile(); }
     catch { logger.warn({ event:'find.image_cleanup.deferred' },'find.image_cleanup.deferred'); }
+    try { await reconcileFindDelivery(db); }
+    catch { logger.warn({event:'find.delivery.deferred'},'find.delivery.deferred'); }
     if (!stopped()) { timer = setTimeout(() => void tick(), 30_000); timer.unref(); }
   };
   void tick();

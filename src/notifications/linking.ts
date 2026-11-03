@@ -12,6 +12,7 @@ export function notificationsEnabled(): boolean {
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 
 const ALLOWED: RegExp[] = [
+  new RegExp(`^/find/${UUID}$`),
   new RegExp(`^/collection/${UUID}$`),
   /^\/creator\/[a-z0-9._]{3,30}$/,
   new RegExp(`^/\\(tabs\\)/create/review\\?ingestId=${UUID}$`),

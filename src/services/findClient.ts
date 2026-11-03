@@ -24,6 +24,7 @@ export function createFindClient(deps: {
   baseURL: () => string | undefined;
   session: () => Promise<Session | null>;
   fetch: typeof fetch;
+  measurementHeaders?:()=>Record<string,string>;
 }) {
   async function owner(expected?: string): Promise<Session> {
     const current = await deps.session();
@@ -34,7 +35,7 @@ export function createFindClient(deps: {
     const session = await owner(expectedOwner), base = deps.baseURL()?.replace(/\/$/, '');
     if (!base) throw new FindApiError('Mystash Find is not configured.', 503);
     const response = await withRequestTimeout(30_000, signal => deps.fetch(`${base}/finds${path}`, { method, signal,
-      headers: { Authorization: `Bearer ${session.accessToken}`, Accept: 'application/json', 'Content-Type': 'application/json' },
+      headers: { ...deps.measurementHeaders?.(),Authorization: `Bearer ${session.accessToken}`, Accept: 'application/json', 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body) }));
     await owner(session.userId);
     if (!response.ok) throw new FindApiError(response.status === 404 ? 'This find is no longer available.'

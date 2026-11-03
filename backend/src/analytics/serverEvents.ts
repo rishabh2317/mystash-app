@@ -6,6 +6,12 @@ import { requestMeasurement } from './context';
 import { ingestMeasurement,MeasurementRateLimit } from './service';
 
 const serverLimiter=new MeasurementRateLimit();
+export async function recordFindResultAction(admin:SupabaseClient,req:Request,userId:string,findId:string,kind:'product'|'place',restore:boolean){
+  if(process.env.FIND_MEASUREMENT_ENABLED!=='true')return;
+  const ctx=requestMeasurement(req);if(!ctx||!serverLimiter.allow(req.socket?.remoteAddress??'unknown',1))return;
+  const supplied=String(req.headers['x-mystash-find-action-id']),id=UUID.test(supplied)?supplied:randomUUID(),envelope=common(req,id);if(!envelope)return;
+  await bounded(ingestMeasurement(admin,userId,ctx,[{...envelope,event_name:restore?'find.result_restored':'find.result_removed',entity_type:'find',entity_id:findId,surface:'find',properties:{result_type:kind}}],'server'));
+}
 function common(req:Request,id:string):Pick<AnalyticsEvent,'event_id'|'schema_version'|'occurred_at'|'session_id'|'platform'|'app_version'>|null {
   const ctx=requestMeasurement(req);if(!ctx)return null;
   const p=String(req.headers['x-mystash-platform']),v=String(req.headers['x-mystash-app-version']);
@@ -41,6 +47,6 @@ export async function recordOutboundObservation(admin:SupabaseClient,req:Request
  const supplied=String(req.headers['x-mystash-outbound-id']);const id=UUID.test(supplied)?supplied:randomUUID();
  const envelope=common(req,id);if(!envelope)return;
  await bounded(ingestMeasurement(admin,userId,ctx,[{...envelope,event_name:'merchant.outbound_resolved',entity_type:'product',
-  entity_id:input.productId,namespace:input.namespace,collection_id:input.collectionId??undefined,surface:'product',
+  entity_id:input.productId,namespace:input.namespace,collection_id:input.collectionId??undefined,surface:process.env.FIND_MEASUREMENT_ENABLED==='true'&&req.headers['x-mystash-surface']==='find'?'find':'product',
   properties:{destination_kind:input.destinationKind,affiliate:input.affiliate,request_id:id}}],'server'));
 }

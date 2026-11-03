@@ -12,6 +12,7 @@ import { useFindCapture } from '@/src/hooks/useFindCapture';
 import { FIND_COPY, FIND_ROUTES, findDetailPath } from '@/src/ui/find';
 import {useFindImageCapture} from '@/src/hooks/useFindImageCapture';
 import {ImageCaptureFeedback} from '@/components/find/ImageCaptureFeedback';
+import {observeFind} from '@/src/analytics/findMeasurement';
 export default function FindCaptureScreen() {
   const router = useRouter(), { tokens } = useThemeMode(), { user, loading } = useAuth();
   const insets = useSafeAreaInsets();
@@ -20,7 +21,7 @@ export default function FindCaptureScreen() {
   const { input: visibleInput,error,busy,ack: accepted } = capture;
   const submit = () => { Keyboard.dismiss(); void capture.submit(); };
   return <View style={{ flex: 1, backgroundColor: tokens.color.canvasSoft, paddingLeft: insets.left, paddingRight: insets.right }}>
-    <TopBar mode="page" title="Capture a Find" showBack onBack={() => router.canGoBack() ? router.back() : router.replace(FIND_ROUTES.home as Href)} />
+    <TopBar mode="page" title="Capture a Find" showBack onBack={() => {if(visibleInput.trim()&&!accepted&&!busy)observeFind(user?.id??null,'find.capture_cancelled',{origin:'url'});if(router.canGoBack())router.back();else router.replace(FIND_ROUTES.home as Href);}} />
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: tokens.space.md, paddingBottom: tokens.space.xxl, gap: tokens.space.lg }}>
         <Text style={typeStyle(tokens,'sectionTitle')}>What caught your eye?</Text>

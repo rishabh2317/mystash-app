@@ -1,4 +1,5 @@
 const MAX_KEY_LENGTH = 200;
+export function findTerminalKey(userId:string,importId:string,attemptId:string):string { return build('find',userId,importId,attemptId); }
 
 function segment(value: string): string {
   const cleaned = value.trim().replace(/[^A-Za-z0-9._-]/g, '_');

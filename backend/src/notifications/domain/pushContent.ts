@@ -29,6 +29,8 @@ export type BegunDelivery = {
  * fixed bodies; account (and future security) pushes are fully generic.
  */
 const TASK_PUSH_BODY: Record<string, string> = {
+  'find.completed': 'Open your Find to see the outcome.',
+  'find.failed': 'Open your Find to see available results or try again.',
   'collection.publish_succeeded': 'Your Collection is now published.',
   'collection.publish_failed': 'Open your draft to try again.',
   'ingest.ready_for_review': 'Open your draft to review it before publishing.',

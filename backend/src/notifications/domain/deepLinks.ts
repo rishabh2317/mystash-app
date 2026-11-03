@@ -3,6 +3,7 @@ export const NOTIFICATIONS_FALLBACK_LINK = '/notifications';
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 
 const ALLOWED: RegExp[] = [
+  new RegExp(`^/find/${UUID}$`),
   new RegExp(`^/collection/${UUID}$`),
   /^\/creator\/[a-z0-9._]{3,30}$/,
   new RegExp(`^/\\(tabs\\)/create/review\\?ingestId=${UUID}$`),
@@ -22,6 +23,7 @@ export function safeDeepLink(link: string | null | undefined): string {
 export function collectionLink(collectionId: string): string {
   return safeDeepLink(`/collection/${collectionId}`);
 }
+export function findLink(findId:string):string { return safeDeepLink(`/find/${findId}`); }
 
 export function ingestReviewLink(ingestId: string): string {
   return safeDeepLink(`/(tabs)/create/review?ingestId=${ingestId}`);
