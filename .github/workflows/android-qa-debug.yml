@@ -1,12 +1,16 @@
 name: Android Universal Find QA (debug signed)
 
 on:
-  push:
-    branches:
-      - codex/share-v2-pilot
-    paths:
-      - .github/workflows/android-qa-debug.yml
   workflow_dispatch:
+    inputs:
+      backend:
+        description: QA API to embed in the APK
+        required: true
+        default: render
+        type: choice
+        options:
+          - render
+          - mac
 
 permissions:
   contents: read
@@ -18,7 +22,7 @@ jobs:
     env:
       CI: "1"
       EAS_BUILD_PROFILE: universal-find-qa-core
-      EXPO_PUBLIC_MYSTASH_INGEST_URL: https://mystash-free-test.onrender.com
+      EXPO_PUBLIC_MYSTASH_INGEST_URL: ${{ inputs.backend == 'mac' && 'https://api-dev.mystash.in' || 'https://mystash-free-test.onrender.com' }}
       EXPO_PUBLIC_SUPABASE_URL: https://womdeohfpvzmhomgqwig.supabase.co
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
       EXPO_PUBLIC_NATIVE_SHARE_ENABLED: "true"
@@ -54,6 +58,7 @@ jobs:
         run: |
           sha256sum android/app/build/outputs/apk/release/app-release.apk > apk.sha256
           git rev-parse HEAD > source-commit.txt
+          printf '%s\n' "$EXPO_PUBLIC_MYSTASH_INGEST_URL" > backend-endpoint.txt
       - uses: actions/upload-artifact@v4
         with:
           name: mystash-universal-find-qa-debug-${{ github.run_number }}
@@ -61,5 +66,6 @@ jobs:
             android/app/build/outputs/apk/release/app-release.apk
             apk.sha256
             source-commit.txt
+            backend-endpoint.txt
           retention-days: 7
           if-no-files-found: error
