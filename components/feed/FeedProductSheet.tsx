@@ -45,6 +45,9 @@ type Props = {
   product: Product | null;
   visible: boolean;
   onClose: () => void;
+  measurementSurface?: 'product' | 'find';
+  /** Find can reference a discovered product that is not a catalog product. */
+  shoppingProductId?: string;
 };
 
 function mergeLiveOffer(
@@ -79,14 +82,14 @@ function mergeLiveOffer(
  * One merchant → merchant-browser directly (no sheet).
  * Multiple → compact buy-options sheet with live prices when available.
  */
-export function FeedProductSheet({ video, product, visible, onClose }: Props) {
+export function FeedProductSheet({ video, product, visible, onClose, measurementSurface, shoppingProductId }: Props) {
   const insets = useSafeAreaInsets();
   const { tokens } = useThemeMode();
   const thin = useMemo(
     () => (product ? mapFeedProductToCatalogViewModel(product) : null),
     [product],
   );
-  const catalogProductId = thin?.catalogProductId?.trim() || null;
+  const productId = shoppingProductId?.trim() || thin?.catalogProductId?.trim() || null;
   const [offers, setOffers] = useState<ProductPageOffer[]>([]);
   const [liveByOfferId, setLiveByOfferId] = useState<Record<string, LivePriceResult>>({});
   const [pricesLoading, setPricesLoading] = useState(false);
@@ -102,6 +105,7 @@ export function FeedProductSheet({ video, product, visible, onClose }: Props) {
     try {
       await openProductShopping({
         catalogProductId: catalogId,
+        measurementSurface,
         offerId,
         collectionId: v?.collection_id ?? null,
         videoId: v?.id ?? null,
@@ -110,7 +114,7 @@ export function FeedProductSheet({ video, product, visible, onClose }: Props) {
     } catch {
       Alert.alert('Error', FEED_SHOP_COPY.openError);
     }
-  }, []);
+  }, [measurementSurface]);
 
   useEffect(() => {
     if (!visible || !product) {
@@ -120,8 +124,8 @@ export function FeedProductSheet({ video, product, visible, onClose }: Props) {
       setSheetReady(false);
       return;
     }
-    const catalogId = product.catalog_product_id?.trim() || null;
-    if (!catalogId) {
+    const shopId = shoppingProductId?.trim() || product.catalog_product_id?.trim() || null;
+    if (!shopId) {
       Alert.alert('Link unavailable', FEED_SHOP_COPY.noMerchants);
       onCloseRef.current();
       return;
@@ -134,25 +138,26 @@ export function FeedProductSheet({ video, product, visible, onClose }: Props) {
 
     void (async () => {
       try {
-        const page = await fetchProductPage(catalogId);
+        const page = await fetchProductPage(shopId);
         if (cancelled) return;
         const shoppable = shoppableProductOffers(page.offers);
         const mode = feedShopPresentation(shoppable.length);
         if (mode === 'direct') {
-          await openShopping(shoppable[0]?.id ?? null, catalogId);
+          await openShopping(shoppable[0]?.id ?? null, shopId);
           if (!cancelled) onCloseRef.current();
           return;
         }
         if (mode === 'fallback') {
-          await openShopping(null, catalogId);
+          await openShopping(null, shopId);
           if (!cancelled) onCloseRef.current();
           return;
         }
         setOffers(shoppable);
         setSheetReady(true);
+        if (!product.catalog_product_id?.trim()) return;
         setPricesLoading(true);
         try {
-          const live = await fetchLivePrices(catalogId);
+          const live = await fetchLivePrices(shopId);
           if (cancelled) return;
           const map: Record<string, LivePriceResult> = {};
           for (const row of live.results) map[row.offerId] = row;
@@ -164,7 +169,7 @@ export function FeedProductSheet({ video, product, visible, onClose }: Props) {
         }
       } catch {
         if (cancelled) return;
-        await openShopping(null, catalogId);
+        await openShopping(null, shopId);
         if (!cancelled) onCloseRef.current();
       }
     })();
@@ -172,7 +177,7 @@ export function FeedProductSheet({ video, product, visible, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [visible, product, openShopping]);
+  }, [visible, product, openShopping, shoppingProductId]);
 
   const displayOffers = useMemo(
     () => offers.map((offer) => mergeLiveOffer(offer, liveByOfferId[offer.id], pricesLoading)),
@@ -181,11 +186,11 @@ export function FeedProductSheet({ video, product, visible, onClose }: Props) {
 
   const onOfferPress = useCallback(
     async (offerId: string) => {
-      if (!catalogProductId) return;
-      await openShopping(offerId, catalogProductId);
+      if (!productId) return;
+      await openShopping(offerId, productId);
       onClose();
     },
-    [catalogProductId, onClose, openShopping],
+    [productId, onClose, openShopping],
   );
 
   const showSheet = visible && sheetReady && displayOffers.length > 1;

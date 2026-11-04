@@ -159,6 +159,16 @@ export class SupabaseUserImportRepository implements UserImportRepository {
     return data ? mapRow(data as UserImportRow) : null;
   }
 
+  async restartVisibleForRetry(id: string, userId: string, startedAt: string, expectedStartedAt: string | null): Promise<UserImportRecord | null> {
+    let query = this.admin.from('user_imports')
+      .update({ timed_out_at: null, attempt_started_at: startedAt, updated_at: startedAt })
+      .eq('id', id).eq('user_id', userId).is('hidden_at', null);
+    query = expectedStartedAt === null ? query.is('attempt_started_at', null) : query.eq('attempt_started_at', expectedStartedAt);
+    const { data, error } = await query.select('*').maybeSingle();
+    if (error) throw error;
+    return data ? mapRow(data as UserImportRow) : null;
+  }
+
   async deleteForUser(id: string, userId: string): Promise<boolean> {
     const { data, error } = await this.admin
       .from('user_imports')

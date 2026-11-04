@@ -1,13 +1,15 @@
 import type { ReviewProduct } from './shareReviewApi';
 import { withRequestTimeout } from './requestTimeout';
-import { readFindOutcome, readFindCounts, type FindItem, type FindPage, type FindBatch, type FindDetail, type FindCounts } from '../../backend/src/user-import/find/contract';
+import { readFindOutcome, readFindCounts, type FindItem, type FindPage, type FindBatch, type FindDetail, type FindCounts, type FindSavedKind, type FindSourceSummaryPage, type FindSourceResultPage } from '../../backend/src/user-import/find/contract';
 export type { FindItem, FindPage, FindBatch, FindDetail, FindCounts } from '../../backend/src/user-import/find/contract';
+export type { FindSourceSummary, FindSourceSummaryPage, FindSourceResult, FindSourceResultPage } from '../../backend/src/user-import/find/contract';
 
 export type FindScreenDetail = FindDetail & { capabilities: { intent: boolean; suggestions: boolean } };
 
 type Session = { userId: string; accessToken: string };
 export type FindOwnedPage = FindPage & { ownerId: string };
 export type FindFilter = 'all' | 'processing' | 'completed' | 'attention' | 'saved';
+export type FindSourceFilter = 'all' | FindItem['sourceType'];
 export class FindApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
@@ -54,16 +56,28 @@ export function createFindClient(deps: {
     return { ...result, items: result.items.map(readItem) };
   }
   return {
-    async list(options: { cursor?: string; limit?: number; filter?: FindFilter } = {}): Promise<FindOwnedPage> {
+    async list(options: { cursor?: string; limit?: number; filter?: FindFilter; source?: FindSourceFilter; savedKind?: FindSavedKind } = {}): Promise<FindOwnedPage> {
       const query = new URLSearchParams({ limit: String(options.limit ?? 20), filter: options.filter ?? 'all' });
       if (options.cursor) query.set('cursor', options.cursor);
+      if (options.source && options.source !== 'all') query.set('source', options.source);
+      if (options.savedKind && options.savedKind !== 'all') query.set('savedKind', options.savedKind);
       const session = await owner();
       const result = await request<FindPage>(`?${query}`, 'GET', undefined, session.userId);
       return { ...result, ownerId: session.userId, items: result.items.map(readItem), counts: readFindCounts(result.counts) };
     },
     counts: async () => readFindCounts(await request<FindCounts>('/counts')),
-    async detail(id: string): Promise<FindScreenDetail> {
-      const result = await request<FindScreenDetail>(`/${encodeURIComponent(id)}`);
+    async sourceSummaries(kind: 'product' | 'place', options: { cursor?: string; limit?: number } = {}, expectedOwner?: string): Promise<FindSourceSummaryPage> {
+      const query = new URLSearchParams({ kind, limit: String(options.limit ?? 20) });
+      if (options.cursor) query.set('cursor', options.cursor);
+      return request<FindSourceSummaryPage>(`/sources?${query}`, 'GET', undefined, expectedOwner);
+    },
+    async sourceResults(id: string, options: { cursor?: string; limit?: number } = {}, expectedOwner?: string): Promise<FindSourceResultPage> {
+      const query = new URLSearchParams({ limit: String(options.limit ?? 20) });
+      if (options.cursor) query.set('cursor', options.cursor);
+      return request<FindSourceResultPage>(`/${encodeURIComponent(id)}/source-results?${query}`, 'GET', undefined, expectedOwner);
+    },
+    async detail(id: string, expectedOwner?: string): Promise<FindScreenDetail> {
+      const result = await request<FindScreenDetail>(`/${encodeURIComponent(id)}`, 'GET', undefined, expectedOwner);
       if (!result.capabilities || typeof result.capabilities.intent !== 'boolean' || typeof result.capabilities.suggestions !== 'boolean') throw new FindApiError('Find capabilities unavailable.', 503);
       return { ...result, ...readItem(result) };
     },

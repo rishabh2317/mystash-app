@@ -16,6 +16,8 @@ export type UserImportRepository = {
   clearTimedOut(id: string): Promise<UserImportRecord | null>;
   /** Restart the user-facing clock and restore hidden history on deliberate re-share. */
   restart(id: string, startedAt: string): Promise<UserImportRecord | null>;
+  /** Retry only a still-visible import owned by this user. Never restores deleted history. */
+  restartVisibleForRetry(id: string, userId: string, startedAt: string, expectedStartedAt: string | null): Promise<UserImportRecord | null>;
   /** Soft-delete user history only — never touches content_sources. */
   deleteForUser(id: string, userId: string): Promise<boolean>;
 };

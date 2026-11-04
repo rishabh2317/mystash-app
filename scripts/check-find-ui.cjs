@@ -3,19 +3,19 @@ const fs=require('node:fs'),path=require('node:path'),Module=require('node:modul
 const {Buffer}=require('node:buffer');
 const React=require('react'),{renderToStaticMarkup}=require('react-dom/server'),web=require('react-native-web'),ts=require('typescript');
 const root=path.dirname(require.resolve('../package.json')),cache=new Map(),output=process.env.FIND_RENDER_DIR;
-let tokens,platform='ios',dimensions={width:390,height:844,fontScale:1,scale:1},actions=[],images=[],lists=[],navigation=[],apiCalls=[],overrideStates=null,stateIndex=0;
+let tokens,platform='ios',dimensions={width:390,height:844,fontScale:1,scale:1},actions=[],images=[],lists=[],navigation=[],apiCalls=[],keyboardAvoiders=[],overrideStates=null,stateIndex=0,clipboardReads=0,clipboardSupported=true;
 let signedIn=true,authLoading=false,history,detail,capture,params={},imageSupported=true,imageResult=null;
 const adapter={...React,useState(initial){const pair=React.useState(initial),index=stateIndex++;return overrideStates&&index<overrideStates.length?[overrideStates[index],()=>{}]:pair;}};
 const native={...web,useWindowDimensions:()=>dimensions,Platform:{...web.Platform,OS:platform,select:choices=>choices[platform]??choices.default},
  Pressable:props=>{actions.push(props);return React.createElement(web.Pressable,props);},
  FlatList:props=>{lists.push(props);return React.createElement(web.FlatList,props);},
  Text:props=>{const flat=web.StyleSheet.flatten(props.style)??{};return React.createElement(web.Text,{...props,style:[props.style,props.allowFontScaling===false?null:{fontSize:flat.fontSize?flat.fontSize*dimensions.fontScale:undefined,lineHeight:flat.lineHeight?flat.lineHeight*dimensions.fontScale:undefined}]});},
- TextInput:props=>React.createElement(web.TextInput,props),Keyboard:{dismiss(){}},KeyboardAvoidingView:props=>React.createElement(web.View,{style:props.style},props.children)};
+ TextInput:props=>React.createElement(web.TextInput,props),Modal:props=>props.visible?React.createElement(web.View,{style:{position:'absolute',zIndex:100,top:0,bottom:0,left:0,right:0}},props.children):null,Keyboard:{dismiss(){}},KeyboardAvoidingView:props=>{keyboardAvoiders.push(props);return React.createElement(web.View,{style:props.style},props.children);}};
 const router={push:value=>navigation.push(['push',value]),replace:value=>navigation.push(['replace',value]),back:()=>navigation.push(['back']),canGoBack:()=>false,setParams:value=>navigation.push(['params',value])};
 const glyphs={'sparkles-outline':'✦','play-outline':'▷','search-outline':'⌕','layers-outline':'▱','bag-handle-outline':'♧','person-outline':'♙','notifications-outline':'♧','chevron-forward-outline':'›','arrow-back':'‹','arrow-back-outline':'‹','link-outline':'↗','scan-outline':'▣','camera-outline':'◎','film-outline':'▣','logo-youtube':'▷','alert-circle-outline':'!','ellipse-outline':'◌','image-outline':'▧','cube-outline':'◇','location-outline':'⌾'};
 const api=new Proxy({}, {get:(_target,name)=>async(...args)=>{apiCalls.push([name,...args]);return name==='suggestions'?{products:[],places:[]}:{};}});
 function Tabs(props){return React.createElement(web.View,{style:[props.screenOptions.tabBarStyle,{flexDirection:'row',alignItems:'center'}]},props.children);}
-Tabs.Screen=function TabScreen(props){return props.options.href===null?null:React.createElement(web.View,{style:{flex:1,alignItems:'center',justifyContent:'center',gap:4}},props.options.tabBarIcon?.({color:tokens.color.text,focused:props.name==='find'}),React.createElement(web.Text,{style:{fontFamily:tokens.fontFamily.medium,fontSize:12,color:tokens.color.text}},props.options.title));};
+Tabs.Screen=function TabScreen(props){if(props.options.href===null)return null;const focused=props.name==='find';const children=React.createElement(React.Fragment,null,props.options.tabBarIcon?.({color:tokens.color.text,focused}),React.createElement(web.Text,{style:{fontFamily:tokens.fontFamily.medium,fontSize:12,color:tokens.color.text}},props.options.title));return props.options.tabBarButton?props.options.tabBarButton({'aria-selected':focused,style:{flex:1},children}):React.createElement(web.View,{style:{flex:1,alignItems:'center',justifyContent:'center',gap:4}},children);};
 function load(file){
  const filename=['.ts','.tsx'].map(ext=>file+ext).find(fs.existsSync)??file;
  if(cache.has(filename))return cache.get(filename).exports;
@@ -27,7 +27,7 @@ function load(file){
   if(id==='@/contexts/AuthContext')return{useAuth:()=>({user:signedIn?{id:'owner',email:'fixture@example.invalid'}:null,session:signedIn?{user:{id:'owner'},access_token:'FIXTURE_PRIVATE_TOKEN'}:null,loading:authLoading})};
   if(id==='@/contexts/CartContext')return{useCartOptional:()=>({itemCount:7,refresh:async()=>{}})};
   if(id==='@/contexts/NotificationsContext')return{useNotificationsContext:()=>({enabled:true,unread:{unread:2,capped:false}})};
-  if(id==='@/src/hooks/useFindHistory')return{useFindHistory:()=>({...history,refresh:async()=>{apiCalls.push(['refresh']);},loadMore:async()=>{apiCalls.push(['loadMore']);}})};
+  if(id==='@/src/hooks/useFindHistory')return{useFindHistory:(filter,options)=>({...history,items:options?.supplemental?history.items.filter(item=>item.outcome.category===filter):history.items,refresh:async()=>{apiCalls.push(['refresh']);},loadMore:async()=>{apiCalls.push(['loadMore']);}})};
   if(id==='@/src/hooks/useFindDetail')return{useFindDetail:()=>({...detail,refresh:async()=>{apiCalls.push(['refreshDetail']);},run:async(_key,fn)=>{await fn();return true;}})};
   if(id==='@/src/hooks/useFindCapture')return{useFindCapture:()=>({...capture,setInput:value=>apiCalls.push(['input',value]),submit:async()=>{apiCalls.push(['submit']);},clearAck:()=>{}})};
   if(id==='@/src/hooks/useFindImageCapture')return{useFindImageCapture:()=>({supported:imageSupported,busy:false,result:imageResult,capture:async origin=>apiCalls.push(['imageCapture',origin]),openSettings:async()=>apiCalls.push(['settings'])})};
@@ -35,9 +35,13 @@ function load(file){
   if(id==='@/src/services/nativeShare')return{subscribePendingShares:()=>()=>{},notifyPendingShares(){}};
   if(id==='@/src/services/findApi')return{findApi:api};
   if(id==='@/src/analytics/findMeasurement')return{observeFind(){}};
+  if(id==='@/src/analytics/client')return{enqueueObservation(){},analyticsSnapshot:()=>({enabled:false})};
+  if(id==='expo-modules-core')return{requireOptionalNativeModule:()=>clipboardSupported?({getStringAsync:async()=>{clipboardReads++;return 'https://example.com/item';}}):null};
   if(id==='@/src/analytics/hooks')return{useQualifiedExposure:()=>({current:null}),useMeasuredOpen(){}};
   if(id==='@/src/services/supabase'||id==='./supabase')return{supabase:{auth:{getSession:async()=>({data:{session:{user:{id:transportOwner},access_token:'dummy'}}})}}};
   if(id==='@/components/search/NativePendingShares')return{NativePendingShares:()=>null};
+  if(id==='@/components/feed/FeedProductSheet')return{FeedProductSheet:()=>null};
+  if(id==='@/src/services/placesApi')return{fetchAllPlaces:async()=>({items:[]})};
   if(id==='@/src/hooks/useDiscoverCreators')return{useDiscoverCreators:()=>({items:[],loading:false})};
   if(id==='@/components/profile/PersonalProfileHeader')return{PersonalProfileHeader:()=>React.createElement(web.Text,null,'@fixture')};
   if(id==='@/components/profile/DiscoverCreatorsSection')return{DiscoverCreatorsSection:()=>null};
@@ -46,6 +50,7 @@ function load(file){
   if(id==='react-native-safe-area-context')return{useSafeAreaInsets:()=>({top:platform==='ios'?47:24,bottom:platform==='ios'?34:24,left:0,right:0}),SafeAreaView:native.View};
   if(id==='expo-router')return{useRouter:()=>router,usePathname:()=>'/find',useLocalSearchParams:()=>params,useFocusEffect(){},Tabs,Redirect:props=>React.createElement(web.Text,null,`Redirect ${props.href}`),Stack:Object.assign(props=>React.createElement(web.View,null,props.children),{Screen:()=>null})};
   if(id==='@expo/vector-icons')return{Ionicons:props=>React.createElement('span',{'aria-hidden':true,style:{fontSize:props.size,color:props.color,lineHeight:1}},glyphs[props.name]??'◇')};
+  if(id==='react-native-svg'){const element=name=>props=>React.createElement(name,props,props.children);return{__esModule:true,default:element('svg'),Circle:element('circle'),Defs:element('defs'),RadialGradient:element('radialGradient'),Stop:element('stop')};}
   if(id==='expo-image')return{Image:props=>{images.push(props);const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="500" height="400"><defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="#b7c8bd"/><stop offset="1" stop-color="#6b837c"/></linearGradient></defs><rect width="500" height="400" fill="url(#a)"/><circle cx="410" cy="82" r="45" fill="#f2dcc0"/><path d="M0 360L150 110L250 260L340 170L500 390V400H0" fill="#294840"/><path d="M150 110L183 167L143 152L112 174Z" fill="#eef0e8"/><text x="30" y="370" fill="#edf0e9" font-family="sans-serif" font-size="22">Offline visual fixture</text></svg>`;return React.createElement('img',{src:`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,alt:'',style:{width:'100%',height:'100%',objectFit:'cover',position:'absolute',inset:0}});}};
   if(id==='react-native-reanimated')return{__esModule:true,default:{View:web.View},Easing:{inOut:x=>x,quad:()=>{}},useSharedValue:value=>({value}),useAnimatedStyle:()=>({}),withTiming:x=>x,withRepeat:x=>x};
   if(id==='@/src/ui/usePrefersReducedMotion')return{usePrefersReducedMotion:()=>true};
@@ -61,8 +66,11 @@ const Dashboard=load(path.join(root,'app/(tabs)/find/index')).default,Detail=loa
 const {AppTabBar}=load(path.join(root,'components/chrome/AppTabBar')),{FindImage}=load(path.join(root,'components/find/FindImage'));
 const {PersonalProfile}=load(path.join(root,'components/profile/PersonalProfile'));
 const {PendingImageCaptures}=load(path.join(root,'components/find/PendingImageCaptures'));
-const baseHistory=()=>({owner:'owner',filter:'completed',items:Array.from({length:8},(_,i)=>({...findFixture(i+1),thumbnailUrl:i<2?'https://fixture.invalid/preview.jpg':null})),counts:{all:1205,processing:10,completed:1190,attention:5,saved:900},loaded:true,refreshing:false,loadingMore:false,cursor:'more',error:null,moreError:null});
-function reset(){actions=[];images=[];lists=[];navigation=[];apiCalls=[];overrideStates=null;stateIndex=0;signedIn=true;authLoading=false;params={};history=baseHistory();detail={data:findDetailFixture(),loaded:true,refreshing:false,pending:null,error:null,actionError:null};capture={owner:'owner',input:'https://example.com/product',busy:false,error:null,ack:null};}
+const {FindPasteSheet}=load(path.join(root,'components/find/FindPasteSheet'));
+const {FindActivity,FindActivityPreviewRows}=load(path.join(root,'components/find/FindActivity'));
+const {findActivityPreviews}=load(path.join(root,'src/ui/findDashboard'));
+const baseHistory=()=>({owner:'owner',filter:'completed',source:'all',items:Array.from({length:8},(_,i)=>({...findFixture(i+1),thumbnailUrl:i<2?'https://fixture.invalid/preview.jpg':null})),counts:{all:1205,processing:10,completed:1190,attention:5,saved:900},loaded:true,refreshing:false,loadingMore:false,cursor:'more',error:null,moreError:null});
+function reset(){actions=[];images=[];lists=[];navigation=[];apiCalls=[];keyboardAvoiders=[];overrideStates=null;stateIndex=0;signedIn=true;authLoading=false;params={};history=baseHistory();detail={data:findDetailFixture(),loaded:true,refreshing:false,pending:null,error:null,actionError:null};capture={owner:'owner',input:'https://example.com/product',busy:false,error:null,ack:null};}
 function render(Component,props={},withTabs=false){stateIndex=0;return renderToStaticMarkup(React.createElement(web.View,{style:{width:dimensions.width,height:dimensions.height,backgroundColor:tokens.color.canvasSoft}},React.createElement(Component,props),withTabs?React.createElement(AppTabBar):null));}
 function save(name,body){if(!output)return;fs.mkdirSync(output,{recursive:true});const sheet=web.StyleSheet.getSheet();let fonts='';for(const [weight,face] of [['400','Regular'],['500','Medium'],['600','SemiBold'],['700','Bold']]){const font=path.join(root,`node_modules/@expo-google-fonts/inter/${weight}${face}/Inter_${weight}${face}.ttf`);if(fs.existsSync(font))fonts+=`@font-face{font-family:Inter_${weight}${face};src:url(file://${font})}`;}
  fs.writeFileSync(path.join(output,`${name}.html`),`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fonts}${sheet.textContent}html,body{margin:0;background:${tokens.color.canvasSoft};width:100%;height:100%}</style></head><body>${body}<script>document.fonts.ready.then(()=>{const w=document.documentElement.clientWidth;const overflow=[];for(const e of document.querySelectorAll('div,span,input')){const r=e.getBoundingClientRect();if(r.width>0&&(r.left< -1||r.right>w+1)&&getComputedStyle(e).position!=='absolute')overflow.push({tag:e.tagName,text:e.textContent.slice(0,32),left:r.left,right:r.right});}document.body.dataset.horizontalOverflow=JSON.stringify(overflow.slice(0,8));});</script></body></html>`);}
@@ -75,15 +83,18 @@ async function main(){
   for(const width of [320,390,430])for(const scale of [1,1.7]){
    dimensions={width,height:width===320?740:932,fontScale:scale,scale:1};reset();
    const html=render(Dashboard,{},true);
-   for(const text of ['Your Finds','Recently Found','Completed 1190','Processing 10','Needs Attention 5','Creator']){if(text==='Creator')continue;assert.ok(html.includes(text),`${theme}/${os}/${width}: ${text}`);}
+   const selectedTab=actions.find(action=>action['aria-selected']===true);assert.ok(selectedTab, 'Find tab is selected');assert.ok(html.includes('findOrb'), 'Selected Find tab renders its dimensional surface');
+   for(const text of ['Your Finds','Your Activity','All Finds','Completed 1190','Processing 10','Needs Attention 5'])assert.ok(html.includes(text),`${theme}/${os}/${width}: ${text}`);
+   assert.ok(!html.includes('Recently Found'));
    assert.ok(!html.includes('Ready to review')&&!html.includes('Saved 900'));
    assert.equal(html.includes('Not available yet'),false);assert.ok(lists[0].onEndReached&&lists[0].onRefresh);
    const gallery=actions.find(action=>action.accessibilityLabel==='Choose a screenshot or photo to Find'),camera=actions.find(action=>action.accessibilityLabel==='Take a photo to Find');assert.ok(gallery&&!gallery.disabled&&camera&&!camera.disabled);
    gallery.onPress();camera.onPress();assert.deepEqual(apiCalls.slice(-2),[['imageCapture','gallery'],['imageCapture','camera']]);
-   actions.find(action=>action.accessibilityLabel==='Paste a URL to Find').onPress();assert.deepEqual(navigation.at(-1),['push','/(tabs)/find/capture']);
+   const beforeNavigation=navigation.length;actions.find(action=>action.accessibilityLabel==='Paste a URL to Find').onPress();assert.equal(navigation.length,beforeNavigation);
    actions.find(action=>action.accessibilityLabel==='Processing, 10 finds').onPress();assert.deepEqual(navigation.at(-1),['params',{filter:'processing'}]);
    checks+=8;
    if(width===390&&scale===1)save(`dashboard-${theme}-${os}`,html);
+   if(width===320&&scale===1)save(`dashboard-narrow-${theme}-${os}`,html);
    if(width===320&&scale===1.7)save(`dashboard-large-${theme}-${os}`,html);
   }
   dimensions={width:390,height:932,fontScale:1,scale:1};
@@ -101,23 +112,39 @@ async function main(){
    if(variant==='signed-out')assert.ok(html.includes('Sign in to Find')&&!html.includes('A weekend'));
    checks++;
   }
+  reset();params={filter:'processing'};history.filter='processing';history.items=[];history.counts.processing=0;save(`dashboard-processing-empty-${theme}-${os}`,render(Dashboard,{},true));
+  reset();const live=findFixture(2,'processing');let activityOpens=0;let activityHtml=render(FindActivity,{item:live,owner:'owner',onOpen(){activityOpens++;},onRetry(){},busy:false,error:null});assert.equal(actions.find(a=>a.accessibilityState?.expanded!==undefined).accessibilityState.expanded,true);assert.ok(activityHtml.includes('Products: 2 found, still looking')&&activityHtml.includes('Places: 1 found')&&activityHtml.includes('View Find'));actions.find(a=>a.accessibilityLabel==='View Find').onPress();assert.equal(activityOpens,1);
+  reset();const done=findFixture(1);activityHtml=render(FindActivity,{item:done,owner:'owner',onOpen(){},onRetry(){},busy:false,error:null});assert.equal(actions.find(a=>a.accessibilityState?.expanded!==undefined).accessibilityState.expanded,false);assert.ok(activityHtml.includes('View Find'));checks+=4;
+  reset();const previewHtml=render(FindActivityPreviewRows,{rows:findActivityPreviews(findDetailFixture()),onOpen(){}});assert.ok(previewHtml.includes('Everyday camera')&&previewHtml.includes('Linen jacket')&&previewHtml.includes('Corner café'));assert.equal(actions.filter(a=>a.accessibilityLabel?.startsWith('View ')&&a.accessibilityLabel?.endsWith(' in Find')).length,3);checks+=2;
+  reset();history.items=[findFixture(2,'processing'),...history.items];save(`dashboard-active-${theme}-${os}`,render(Dashboard,{},true));
+  reset();clipboardReads=0;capture.input='';const sheetCapture={...capture,setInput:value=>apiCalls.push(['pasteInput',value]),submit:async()=>{apiCalls.push(['sheetSubmit']);}};
+  let sheet=render(FindPasteSheet,{visible:true,owner:'owner',authLoading:false,capture:sheetCapture,onClose(){},onSignIn(){}});
+  assert.equal(keyboardAvoiders.at(-1).behavior,'padding');assert.equal(keyboardAvoiders.at(-1).enabled,os==='ios');
+  assert.equal(clipboardReads,0);assert.ok(sheet.includes('Automatically saved to your Stash'));assert.ok(actions.find(a=>a.accessibilityLabel==='Find it ✨').disabled);
+  actions.find(a=>a.accessibilityLabel==='Paste link from clipboard').onPress();await Promise.resolve();await Promise.resolve();assert.equal(clipboardReads,1);assert.deepEqual(apiCalls.at(-1),['pasteInput','https://example.com/item']);
+  reset();sheetCapture.input='https://example.com/item';sheet=render(FindPasteSheet,{visible:true,owner:'owner',authLoading:false,capture:sheetCapture,onClose(){},onSignIn(){}});assert.ok(actions.some(a=>a.accessibilityLabel==='Paste link from clipboard'));assert.ok(sheet.includes('Paste link'));assert.equal(actions.find(a=>a.accessibilityLabel==='Find it ✨').disabled,false);save(`paste-sheet-${theme}-${os}`,render(()=>React.createElement(React.Fragment,null,React.createElement(Dashboard),React.createElement(AppTabBar),React.createElement(FindPasteSheet,{visible:true,owner:'owner',authLoading:false,capture:sheetCapture,onClose(){},onSignIn(){}}))));checks+=5;
+  if(theme==='titanium'&&os==='android'){clipboardSupported=false;cache.delete(path.join(root,'components/find/FindPasteSheet.tsx'));const LegacySheet=load(path.join(root,'components/find/FindPasteSheet')).FindPasteSheet;reset();sheetCapture.input='';render(LegacySheet,{visible:true,owner:'owner',authLoading:false,capture:sheetCapture,onClose(){},onSignIn(){}});assert.ok(!actions.some(a=>a.accessibilityLabel==='Paste link from clipboard'));clipboardSupported=true;checks++;}
   reset();params={findId:detail.data.id};
-  let html=render(Detail,{},true);assert.ok(html.includes('Similar product'));assert.ok(html.includes('Restore to My Stash'));assert.ok(html.includes('Open original link'));
+  let html=render(Detail,{},true);assert.ok(html.includes('Similar product'));assert.ok(html.includes('Restore to My Stash'));assert.ok(html.includes('Open original link'));assert.ok(actions.some(action=>action.accessibilityLabel==='Buy now, Everyday camera'));assert.ok(actions.some(action=>action.accessibilityLabel==='View product Everyday camera'));assert.ok(actions.some(action=>action.accessibilityLabel==='View Corner café on Google'));
+  actions.find(action=>action.accessibilityLabel==='View product Everyday camera').onPress();const target=navigation.at(-1);assert.equal(target[0],'push');assert.ok(target[1].includes(detail.data.products[0].catalogProductId));
+  actions.find(action=>action.accessibilityLabel==='View product Everyday camera image').onPress();assert.deepEqual(navigation.at(-1),target);
   actions.find(action=>action.accessibilityLabel==='Remove Everyday camera from My Stash').onPress();await Promise.resolve();assert.deepEqual(apiCalls.at(-1),['removeResult',detail.data.id,'products',detail.data.products[0].id,detail.data.products[0].identityKey]);
   checks+=4;save(`detail-${theme}-${os}`,html);
-  for(const variant of ['processing','delayed','partial','empty','save-failure','error','missing']){
-   reset();params={findId:detail.data.id};
+  for(const variant of ['processing','delayed','partial','empty','save-pending','save-failure','error','missing']){
+  reset();params={findId:detail.data.id};
    if(variant==='processing')detail.data.outcome={...findFixture(2,'processing').outcome};
    if(variant==='delayed')detail.data.outcome={...findFixture(2,'processing').outcome,delayed:true,category:'attention'};
    if(variant==='partial')detail.data.outcome={...findFixture(3,'attention').outcome};
    if(variant==='empty'){detail.data.outcome={...detail.data.outcome,result:'empty',foundProducts:0,foundPlaces:0,savedProducts:0,savedPlaces:0};detail.data.products=[];detail.data.places=[];detail.data.savedSuggestions=[];}
    if(variant==='save-failure')detail.data.outcome={...detail.data.outcome,stashSync:'failed',canRetrySaving:true};
+   if(variant==='save-pending')detail.data.outcome={...detail.data.outcome,stashSync:'pending',canRetrySaving:true};
    if(variant==='error')detail.error='Couldn’t refresh this find.';
    if(variant==='missing'){detail.data=null;detail.error='This find is no longer available.';}
    html=render(Detail);
-   if(variant==='delayed')assert.ok(html.includes('Taking longer')&&!html.includes('Retry finding'));
-   if(variant==='partial')assert.ok(html.includes('Partial results')&&html.includes('Retry finding'));
+   if(variant==='delayed')assert.ok(html.includes('taking a little longer')&&!html.includes('Retry finding'));
+   if(variant==='partial')assert.ok(html.includes('Some finds are here')&&html.includes('Retry finding'));
    if(variant==='save-failure')assert.ok(html.includes('Retry saving to My Stash'));
+   if(variant==='save-pending')assert.ok(!html.includes('Retry saving to My Stash'));
    if(variant==='empty')assert.ok(html.includes('No products or places to show'));
    if(variant==='error')assert.ok(html.includes('Refresh current status')&&html.includes('Everyday camera'));
    if(variant==='missing')assert.ok(!html.includes('Everyday camera'));
@@ -141,13 +168,23 @@ async function main(){
   }
   imageResult=null;
   reset();detail.data.sourceType='image';detail.data.sourceUrl=null;detail.data.privateMedia={state:'available',original:'/finds/fixture/media/original',thumbnail:'/finds/fixture/media/thumbnail'};params={findId:detail.data.id};html=render(Detail);
-  assert.ok(html.includes('View original image')&&!html.includes('Open original link'));assert.ok(images.some(image=>image.cachePolicy==='none'&&image.source.headers?.Authorization==='Bearer FIXTURE_PRIVATE_TOKEN'));checks+=2;
-  reset();imageSupported=false;html=render(Dashboard);assert.ok(html.includes('Not available yet'));assert.ok(actions.filter(action=>action.accessibilityLabel?.endsWith('Not available yet')).every(action=>action.disabled));imageSupported=true;checks++;
+  assert.ok(html.includes('View original')&&!html.includes('Open original link'));assert.ok(images.some(image=>image.cachePolicy==='none'&&image.source.headers?.Authorization==='Bearer FIXTURE_PRIVATE_TOKEN'));checks+=2;
+  reset();imageSupported=false;html=render(Dashboard,{},true);assert.ok(html.includes('Not available yet'));
+  const unavailable=actions.filter(action=>action.accessibilityLabel?.endsWith('Not available yet'));
+  assert.equal(unavailable.length,2);assert.ok(unavailable.every(action=>action.disabled));
+  for(const action of unavailable){
+   const layout=typeof action.style==='function'?action.style({pressed:false}):action.style;
+   assert.equal(layout.flexDirection,'column');assert.equal(layout.minWidth,0);
+   assert.ok(action.children.some(child=>child?.props?.style?.width==='100%'));
+  }
+  if(theme==='titanium'&&os==='android')save('dashboard-unsupported-titanium-android',html);
+  imageSupported=true;checks+=5;
   for(const state of ['pending','uploading','needs_auth','needs_review','accepted']){
    reset();overrideStates=[{owner:'owner',rows:[{id:'local',owner:'owner',origin:'gallery',state,importId:state==='accepted'?findFixture().id:undefined}]},null,false,5];html=render(PendingImageCaptures);
    assert.ok(html.includes('Images on this device'));assert.ok(!html.includes('Completed 1190'));if(state==='uploading')assert.ok(actions.filter(a=>a.accessibilityLabel==='Try sending pending images').every(a=>a.disabled));if(state==='accepted')assert.ok(html.includes('Open Find'));checks++;
   }
   reset();overrideStates=[{owner:'other',rows:[{id:'private',origin:'camera',state:'pending'}]},null,false,5];html=render(PendingImageCaptures);assert.ok(!html.includes('Camera photo'));checks++;
+  dimensions={width:320,height:740,fontScale:1,scale:1};reset();detail.data.products[0].title='Professional wireless noise cancelling over ear headphones with long descriptive name';params={findId:detail.data.id};html=render(Detail,{},true);assert.ok(actions.some(action=>action.accessibilityLabel==='View product Professional wireless noise cancelling over ear headphones with long descriptive name'));save(`detail-narrow-${theme}-${os}`,html);checks++;
   dimensions={width:320,height:740,fontScale:1.7,scale:1};reset();params={findId:detail.data.id};html=render(Detail,{},true);assert.ok(html.includes('Restore to My Stash'));save(`detail-large-${theme}-${os}`,html);checks++;
   reset();html=render(Capture,{},true);assert.ok(html.includes('Find from this link'));save(`capture-large-${theme}-${os}`,html);checks++;
   dimensions={width:390,height:932,fontScale:1,scale:1};reset();html=render(PersonalProfile,{creator:{userId:'owner',username:'fixture'},collections:[],saved:[],onEditPress(){},onSharePress(){},onPressCollection(){},onPressStat(){},onCreateCollection:()=>router.push('/(tabs)/create')});

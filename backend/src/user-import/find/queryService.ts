@@ -3,7 +3,7 @@ import { ShareError, uuid } from '../share/contracts';
 import { parseHistoryCursor } from '../share/history';
 import { readFindOutcome, readFindCounts } from './contract';
 
-import type { FindItem, FindDetail, FindPage, FindCounts, FindBatch } from './contract';
+import type { FindItem, FindDetail, FindPage, FindCounts, FindBatch, FindSourceSummaryPage, FindSourceResultPage } from './contract';
 export type { FindItem, FindDetail, FindPage, FindCounts, FindBatch } from './contract';
 
 export function findId(id: unknown): string {
@@ -32,16 +32,46 @@ export class FindQueryService {
     if (data == null) throw new ShareError('find_unavailable', 503);
     return data as T;
   }
-  async list(userId: string, query: { cursor?: unknown; limit?: unknown; filter?: unknown } = {}): Promise<FindPage> {
+  async list(userId: string, query: { cursor?: unknown; limit?: unknown; filter?: unknown; source?: unknown; savedKind?: unknown } = {}): Promise<FindPage> {
     const limit = query.limit === undefined ? 20 : Number(query.limit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 50 || (query.limit !== undefined && typeof query.limit !== 'string' && typeof query.limit !== 'number')) throw new ShareError('invalid_limit');
     const filter = query.filter ?? 'all';
     if (!['all','processing','completed','attention','saved'].includes(String(filter)) || typeof filter !== 'string') throw new ShareError('invalid_filter');
+    const source = query.source;
+    if (source !== undefined && (typeof source !== 'string' || !['all','image','instagram','youtube','web'].includes(source))) throw new ShareError('invalid_source');
+    const savedKind = query.savedKind ?? 'all';
+    if (typeof savedKind !== 'string' || !['all','product','place'].includes(savedKind)) throw new ShareError('invalid_saved_kind');
     const after = parseHistoryCursor(query.cursor);
-    const result = await this.rpc<{ items: unknown[]; cursor: unknown; counts: FindCounts }>('find_query', {
-      p_user: userId, p_mode: 'list', p_limit: limit, p_filter: filter, p_before: after?.created_at ?? null, p_before_id: after?.id ?? null,
+    const scoped = (source && source !== 'all') || savedKind !== 'all';
+    const result = await this.rpc<{ items: unknown[]; cursor: unknown; counts: FindCounts }>(savedKind !== 'all' ? 'find_query_by_source_kind' : scoped ? 'find_query_by_source' : 'find_query', {
+      p_user: userId, ...(scoped ? { p_source: source ?? 'all', ...(savedKind !== 'all' ? { p_saved_kind: savedKind } : {}) } : { p_mode: 'list' }),
+      p_limit: limit, p_filter: filter, p_before: after?.created_at ?? null, p_before_id: after?.id ?? null,
     });
     return { items: result.items.map(item), nextCursor: result.cursor ? Buffer.from(JSON.stringify(result.cursor)).toString('base64url') : null, counts: readFindCounts(result.counts) };
+  }
+  async sourceSummaries(userId: string, query: { kind?: unknown; cursor?: unknown; limit?: unknown } = {}): Promise<FindSourceSummaryPage> {
+    const kind = query.kind ?? 'product', limit = query.limit === undefined ? 20 : Number(query.limit);
+    if (kind !== 'product' && kind !== 'place') throw new ShareError('invalid_source_kind');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new ShareError('invalid_limit');
+    const after = parseHistoryCursor(query.cursor);
+    const result = await this.rpc<{ items: FindSourceSummaryPage['items']; cursor: unknown }>('find_source_summaries', {
+      p_user: userId,p_kind: kind,p_limit: limit,p_before: after?.created_at ?? null,p_before_id: after?.id ?? null });
+    return { items: result.items, nextCursor: result.cursor ? Buffer.from(JSON.stringify(result.cursor)).toString('base64url') : null };
+  }
+  async sourceResults(userId: string, id: string, query: { cursor?: unknown; limit?: unknown } = {}): Promise<FindSourceResultPage> {
+    const limit = query.limit === undefined ? 20 : Number(query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new ShareError('invalid_limit');
+    let after: string | null = null;
+    if (query.cursor !== undefined) {
+      if (typeof query.cursor !== 'string' || query.cursor.length > 200) throw new ShareError('invalid_cursor');
+      try { const parsed = JSON.parse(Buffer.from(query.cursor,'base64url').toString());
+        if (!parsed || typeof parsed.key !== 'string' || !/^(?:place:[0-9a-f-]{36}|product:[cd]:[0-9a-f-]{36})$/.test(parsed.key)) throw Error();
+        after = parsed.key;
+      } catch { throw new ShareError('invalid_cursor'); }
+    }
+    const result = await this.rpc<{ items: FindSourceResultPage['items']; cursor: string | null }>('find_source_results', {
+      p_user:userId,p_import:findId(id),p_limit:limit,p_after:after });
+    return { items: result.items,nextCursor:result.cursor ? Buffer.from(JSON.stringify({key:result.cursor})).toString('base64url') : null };
   }
   async counts(userId: string): Promise<FindCounts> {
     return readFindCounts((await this.rpc<{ counts: FindCounts }>('find_query', { p_user: userId, p_mode: 'counts' })).counts);

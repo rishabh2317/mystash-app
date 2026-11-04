@@ -17,6 +17,10 @@ BEGIN
  IF (SELECT owner_id FROM content_sources WHERE id=source)<>owner OR (SELECT canonical_url FROM content_sources WHERE id=source) IS NOT NULL THEN RAISE EXCEPTION 'Private source association failed'; END IF;
  detail:=find_detail(owner,imported);
  IF detail->>'sourceType'<>'image' OR detail->'sourceUrl'<>'null'::jsonb OR detail->'privateMedia'->>'state'<>'available' OR detail::text LIKE '%original.jpg%' THEN RAISE EXCEPTION 'Projection leaked paths'; END IF;
+ IF (find_query_by_source(owner,'image')->'counts'->>'all')::integer<>1
+   OR (find_query_by_source(other,'image')->'counts'->>'all')::integer<>0
+   OR find_query_by_source(owner,'image')->'items'->0->>'sourceType'<>'image'
+ THEN RAISE EXCEPTION 'Private image source filter leaked or omitted an image'; END IF;
  BEGIN PERFORM find_media_command(other,'media',imported); RAISE EXCEPTION 'Foreign original read'; EXCEPTION WHEN no_data_found THEN NULL; END;
  BEGIN
   INSERT INTO user_imports(user_id,platform,raw_input,source_url,normalized_url,dedupe_key,content_source_id) VALUES(other,'image',NULL,NULL,NULL,'illegal',source);

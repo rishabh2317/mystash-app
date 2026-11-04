@@ -47,12 +47,10 @@ describe('Stash Products / Places tabs', () => {
     const profile = read('components/profile/PersonalProfile.tsx');
     const tabs = read('components/profile/ProfileContentTabs.tsx');
     assert.match(stash, /from '@\/components\/profile\/ProfileContentTabs'/);
-    assert.match(stash, /YourActivitySection/);
-    assert.match(stash, /shareActivityLandingItems/);
+    assert.match(stash, /StashSourceRail/);
     assert.match(stash, /<ProfileContentTabs tabs=\{STASH_SEGMENT_TABS\} active=\{stashTab\} onChange=\{onStashTabChange\} \/>/);
-    const activityIdx = stash.indexOf('YourActivitySection');
     const tabsIdx = stash.indexOf('<ProfileContentTabs');
-    assert.ok(activityIdx >= 0 && tabsIdx > activityIdx);
+    assert.ok(tabsIdx >= 0);
     assert.match(profile, /from '@\/components\/profile\/ProfileContentTabs'/);
     assert.match(tabs, /borderBottomColor: selected \? tokens\.color\.primary : 'transparent'/);
     assert.match(tabs, /minHeight: 40/);
@@ -295,11 +293,12 @@ describe('Places CTA', () => {
 describe('Products Stash regression', () => {
   it('keeps the existing Products grid path when the Places tab is not selected', () => {
     const stash = read('app/(tabs)/stash.tsx');
+    assert.match(stash, /StashSourceRail/);
     assert.match(stash, /StashCategoryCard/);
     assert.match(stash, /ProductCard/);
     assert.match(stash, /variant="related"/);
     assert.match(stash, /buildStashHome/);
-    assert.match(stash, /Your products/);
+    assert.match(stash, /StashRecentProducts/);
     assert.match(stash, /renderRelatedGrid/);
     assert.match(stash, /StashRecentProducts/);
     assert.match(read('components/commerce/StashRecentProducts.tsx'), /STASH_FILTER_COPY\.recentlyStashed/);

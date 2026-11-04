@@ -5,6 +5,7 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
+import { FindOrb } from '@/components/chrome/FindOrb';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartOptional } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
@@ -59,6 +60,7 @@ export function AppTabBar() {
   const { tokens } = useThemeMode();
   const pathname = usePathname();
   const watchFeed = isImmersiveTabRoute(pathname);
+  const findScreen = pathname === '/find' || pathname.startsWith('/find/');
   const bottomInset = Math.max(insets.bottom, tokens.space.xs);
   /** Same chrome token as page TopBar — not a separate white/grey strip. */
   const pageChrome = tokens.color.canvasSoft;
@@ -79,6 +81,7 @@ export function AppTabBar() {
       tabBarIconStyle: {
         marginTop: 2,
       },
+      tabBarItemStyle: findScreen ? { paddingTop: tokens.space.sm } : undefined,
       tabBarStyle: {
         position: watchFeed ? ('absolute' as const) : ('relative' as const),
         backgroundColor: watchFeed ? WATCH_TAB_BAR_BG : pageChrome,
@@ -87,7 +90,7 @@ export function AppTabBar() {
         elevation: 0,
         shadowOpacity: 0,
         shadowColor: 'transparent',
-        height: TAB_BAR_CONTENT_HEIGHT + bottomInset,
+        height: (findScreen ? tokens.space.xxl + tokens.space.lg : TAB_BAR_CONTENT_HEIGHT) + bottomInset,
         paddingTop: tokens.space.xs,
         paddingBottom: bottomInset,
         ...Platform.select({
@@ -101,6 +104,7 @@ export function AppTabBar() {
     }),
     [
       bottomInset,
+      findScreen,
       pageChrome,
       tokens.color.tabInactive,
       tokens.color.text,
@@ -111,6 +115,9 @@ export function AppTabBar() {
       tokens.immersive.text,
       tokens.lineHeight.micro,
       tokens.space.xs,
+      tokens.space.lg,
+      tokens.space.sm,
+      tokens.space.xxl,
       watchFeed,
     ],
   );
@@ -139,6 +146,11 @@ export function AppTabBar() {
         name={APP_TAB_ITEMS[2].name}
         options={{
           title: APP_TAB_ITEMS[2].title,
+          tabBarButton: (props) => props['aria-selected'] ? (
+            <HapticTab {...props} style={[props.style, { alignItems: 'center', justifyContent: 'center', paddingTop: 0 }]}>
+              <FindOrb />
+            </HapticTab>
+          ) : <HapticTab {...props} />,
           tabBarIcon: ({ color }) => (
             <Ionicons name={APP_TAB_ITEMS[2].icon} size={APP_TAB_ICON_SIZE} color={color} />
           ),

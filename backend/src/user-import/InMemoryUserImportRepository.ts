@@ -106,6 +106,14 @@ export class InMemoryUserImportRepository implements UserImportRepository {
     return { ...next };
   }
 
+  async restartVisibleForRetry(id: string, userId: string, startedAt: string, expectedStartedAt: string | null): Promise<UserImportRecord | null> {
+    const row = this.imports.get(id);
+    if (!row || row.userId !== userId || row.hiddenAt || (row.attemptStartedAt ?? null) !== expectedStartedAt) return null;
+    const next = { ...row, timedOutAt: null, attemptStartedAt: startedAt, updatedAt: startedAt };
+    this.imports.set(id, next);
+    return { ...next };
+  }
+
   async deleteForUser(id: string, userId: string): Promise<boolean> {
     const row = this.imports.get(id);
     if (!row || row.userId !== userId) return false;

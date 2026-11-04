@@ -31,6 +31,14 @@ function fakeReq(authorization: string | null): Request {
 }
 
 describe('GET /places', () => {
+  it('does not expose unexpected repository errors', async () => {
+    const handler = createPlaceListHandler({ authenticate: async () => ({ userId: USER }),
+      service: { listForUser: async () => { throw new Error('PRIVATE_DATABASE_CANARY'); } } });
+    const { res, captured } = fakeRes();
+    await handler(fakeReq('Bearer fixture'), res);
+    assert.equal(captured.status, 500);
+    assert.equal(JSON.stringify(captured.body).includes('PRIVATE_DATABASE_CANARY'), false);
+  });
   it('returns 403 for an unverified email session', async () => {
     const { UnverifiedEmailError } = await import('../auth/emailVerification');
     const handler = createPlaceListHandler({

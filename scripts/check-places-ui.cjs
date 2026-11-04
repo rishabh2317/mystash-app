@@ -81,6 +81,7 @@ function load(file) {
       observations.push(args);
     } };
     if (id === '@/src/analytics/hooks') return { useQualifiedExposure: () => React.useRef(null) };
+    if (id === '@/src/services/findApi') return { findApi: { sourceSummaries: async () => ({ items: [], nextCursor: null }) } };
     if (id === './PlaceSourceVideoModal') return { PlaceSourceVideoModal: props => {
       if (captured) captured.modal = props;
       return React.createElement(nativeWeb.Text, null, 'Source viewer');
@@ -116,6 +117,7 @@ function load(file) {
 
 const { getThemeTokens } = load(path.join(root, 'src/theme/tokens'));
 const { StashPlacesContent } = load(path.join(root, 'components/place/StashPlacesContent'));
+const { StashSourceCard } = load(path.join(root, 'components/commerce/StashSourceCard'));
 const destination = { kind: 'google_search', query: 'fixture', url: 'https://example.invalid' };
 const fixtures = [
   { kind: 'resolved', saveId: 'save-a', id: 'a', name: 'Potato Head Beach Club', category: 'Beach club',
@@ -128,6 +130,15 @@ const originalFetch = global.fetch;
 global.fetch = async () => { throw new Error('Network forbidden in Places render checks'); };
 let checks = 0;
 try {
+  for(const theme of ['titanium','nebula'])for(const count of [1,2,3,4,5,6]){
+    tokens=getThemeTokens(theme);captured=capture();
+    const source={id:`source-${count}`,createdAt:'2026-11-04T00:00:00Z',title:'Fixture capture',sourceType:'image',savedProducts:count-1,savedPlaces:1,images:['https://fixture.invalid/one.jpg',null,'https://fixture.invalid/three.jpg','https://fixture.invalid/four.jpg']};
+    const html=renderToStaticMarkup(React.createElement(StashSourceCard,{source,width:136,onPress(){}}));
+    assert.ok(html.includes('Fixture capture'));
+    assert.equal(html.includes(`+${count-3}`),count>4);
+    assert.equal(captured.actions.filter(action=>action.accessibilityLabel===`Fixture capture, ${count} saved items`).length,1);
+    checks++;captured=null;
+  }
   for (const theme of ['titanium', 'nebula']) {
     const base = getThemeTokens(theme);
     tokens = { ...base, fontSize: Object.fromEntries(Object.entries(base.fontSize).map(([k, v]) => [k, v * 2])),
@@ -247,20 +258,16 @@ try {
       onRefresh() {}, onRetry() {}, onSearch() { throw new Error('Unexpected navigation'); } };
     controlled = { count: 4, values: new Map() };
     let html = renderControlled(StashPlacesContent, props);
-    assert.ok(html.includes('Attractions, 1 place') && html.includes('Cafés, 1 place') && html.includes('Recently stashed'));
-    captured.actions.find(p => p.accessibilityLabel === 'Attractions, 1 place').onPress();
-    html = renderControlled(StashPlacesContent, props);
-    assert.ok(html.includes('Back to all places') && html.includes('Potato Head Beach Club'));
-    assert.ok(!html.includes('Café de Flore') && !html.includes('Recently stashed'));
+    assert.ok(html.includes('Saved from your Finds') && html.includes('Recently stashed'));
+    assert.ok(html.includes('Potato Head Beach Club') && html.includes('Café de Flore'));
     captured.actions.find(p => p.accessibilityLabel === 'Source video, Potato Head Beach Club').onPress();
     html = renderControlled(StashPlacesContent, props);
     assert.equal(captured.modal.sources.length, 2);
     captured.modal.onClose();
     renderControlled(StashPlacesContent, props);
     assert.equal(captured.modal, undefined, 'Close unmounts the source viewer');
-    captured.actions.find(p => p.accessibilityLabel === 'Back to all places').onPress();
     html = renderControlled(StashPlacesContent, props);
-    assert.ok(html.includes('Recently stashed') && html.includes('Cafés'));
+    assert.ok(html.includes('Recently stashed') && html.includes('Saved from your Finds'));
     controlled = null; captured = null; checks++;
 
     // Initial image failure advances to an associated source poster, then a quiet placeholder.
@@ -343,13 +350,13 @@ try {
       html = renderControlled(StashPlacesContent, placeProps);
       let list = captured.lists[0];
       assert.equal(list.data.filter(row => row.kind === 'places').flatMap(row => row.items).length, 15);
-      const collageKeys = list.data.filter(row => row.kind === 'categories').flatMap(row => row.items).map(item => item.key);
+      assert.equal(list.data.filter(row => row.kind === 'sources').length, 1);
       captured.actions.find(action => action.accessibilityLabel === 'Cafés').onPress();
       html = renderControlled(StashPlacesContent, placeProps);
       list = captured.lists[0];
       assert.deepEqual(list.data.filter(row => row.kind === 'places').flatMap(row => row.items).map(item => item.id),
         ['place-4', 'place-3', 'place-2', 'place-1', 'place-0']);
-      assert.deepEqual(list.data.filter(row => row.kind === 'categories').flatMap(row => row.items).map(item => item.key), collageKeys);
+      assert.equal(list.data.filter(row => row.kind === 'categories').length, 0);
       assert.ok(!html.includes('Unverified') && !html.includes('Location unclear') && !html.includes('Needs location'));
       assert.ok(html.includes('Cafe'));
       assert.ok(captured.actions.find(action => action.accessibilityLabel === 'Cafés').accessibilityState.selected);

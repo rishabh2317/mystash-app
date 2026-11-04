@@ -13,7 +13,7 @@ import {recordFindResultAction} from '../../analytics/serverEvents';
 
 export type FindRouteDependencies = {
   authenticate: UserImportAuthenticator;
-  queries: Pick<FindQueryService, 'list' | 'counts' | 'batch' | 'detail' | 'resultAction'>;
+  queries: Pick<FindQueryService, 'list' | 'counts' | 'batch' | 'detail' | 'resultAction' | 'sourceSummaries' | 'sourceResults'>;
   imports: Pick<UserImportService, 'retry' | 'delete'>;
   intents: Pick<ShareAcceptanceStore, 'updateIntent'>;
   suggestions: ReturnType<typeof createShareReviewService>;
@@ -47,6 +47,8 @@ export function registerFindHandlers(app: Pick<Express, 'get' | 'post' | 'patch'
   };
   app.get('/finds', route((user, req) => deps.queries.list(user, req.query)));
   app.get('/finds/counts', route(user => deps.queries.counts(user)));
+  app.get('/finds/sources', route((user, req) => deps.queries.sourceSummaries(user, req.query)));
+  app.get('/finds/:findId/source-results', route((user, req) => deps.queries.sourceResults(user, findId(req.params.findId), req.query)));
   app.post('/finds/batch', route((user, req) => deps.queries.batch(user, body(req, ['ids']).ids)));
   app.get('/finds/:findId', route(async (user, req) => {
     const detail=await deps.queries.detail(user, findId(req.params.findId));

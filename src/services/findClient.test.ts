@@ -52,6 +52,35 @@ test('list uses authoritative global counts and preserves opaque cursors', async
   assert.equal(page.counts.all, 1205); assert.equal(page.items.length, 1);
   assert.equal(new URL(requested).searchParams.get('cursor'), 'opaque+/=microseconds');
 });
+test('source and status filters are sent together without changing legacy all-source requests', async () => {
+  const requested: URL[] = [];
+  const client = createFindClient({ baseURL: () => 'https://fixture.invalid', session: async () => ({ userId: 'owner', accessToken: 'dummy' }),
+    fetch: async url => { requested.push(new URL(String(url))); return Response.json({ items: [], nextCursor: null,
+      counts: { all: 9, processing: 2, completed: 7, attention: 0, saved: 4 } }); } });
+  await client.list({ source: 'youtube', filter: 'completed', cursor: 'opaque+/=' });
+  assert.equal(requested[0].searchParams.get('source'), 'youtube');
+  assert.equal(requested[0].searchParams.get('filter'), 'completed');
+  assert.equal(requested[0].searchParams.get('cursor'), 'opaque+/=');
+  await client.list({ filter: 'processing' });
+  assert.equal(requested[1].searchParams.has('source'), false);
+});
+test('saved-kind and source pages retain cursors and reject cross-account replies', async () => {
+  let account = 'owner'; const requested: URL[] = [];
+  const client = createFindClient({ baseURL: () => 'https://fixture.invalid', session: async () => ({ userId: account, accessToken: 'dummy' }),
+    fetch: async url => { requested.push(new URL(String(url))); return Response.json(requested.length === 1
+      ? { items: [], nextCursor: null, counts: { all: 0, processing: 0, completed: 0, attention: 0, saved: 0 } }
+      : { items: [], nextCursor: 'next' }); } });
+  await client.list({ source: 'image', savedKind: 'place', filter: 'completed' });
+  assert.equal(requested[0].searchParams.get('savedKind'), 'place');
+  assert.equal(requested[0].searchParams.get('source'), 'image');
+  await client.sourceSummaries('product', { cursor: 'opaque+/=' }, 'owner');
+  assert.equal(requested[1].searchParams.get('cursor'), 'opaque+/=');
+  await client.sourceResults('capture', { cursor: 'result-page' }, 'owner');
+  assert.equal(requested[2].searchParams.get('cursor'), 'result-page');
+  account = 'other';
+  await assert.rejects(client.sourceResults('capture', {}, 'owner'), FindApiError);
+  assert.equal(requested.length, 3);
+});
 test('malformed or foreign batch replies never replace loaded records', async () => {
   for (const result of [{ items: [item('foreign')], unavailableIds: [] }, { items: [], unavailableIds: [] }]) {
     const client = createFindClient({ baseURL: () => 'https://fixture.invalid', session: async () => ({ userId: 'owner', accessToken: 'dummy' }),
@@ -64,4 +93,13 @@ test('an owner stamp prevents retaining terminal history after an account switch
   const f = fixture(); f.switchUser('different-owner');
   await assert.rejects(f.client.refreshLoaded([item('terminal', false)], 'owner'), FindApiError);
   assert.deepEqual(f.batches, []);
+});
+test('Activity detail rejects a different account before and after the response',async()=>{
+  let account='B',calls=0;
+  const client=createFindClient({baseURL:()=> 'https://fixture.invalid',session:async()=>({userId:account,accessToken:'dummy'}),
+    fetch:async()=>{calls++;account='B';return Response.json({...item('one',false),products:[],places:[],savedSuggestions:[],capabilities:{intent:true,suggestions:false}});}});
+  await assert.rejects(client.detail('one','A'),FindApiError);
+  assert.equal(calls,0);
+  account='A';await assert.rejects(client.detail('one','A'),FindApiError);
+  assert.equal(calls,1);
 });

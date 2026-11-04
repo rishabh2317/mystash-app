@@ -19,13 +19,14 @@ type Props = {
   items: ShareActivityView[];
   loading: boolean;
   onRefresh: () => void | Promise<void>;
+  presentation?: 'default' | 'finds';
 };
 
 /**
  * Your Activity rail — header stays mounted while shares load.
  * Search landing and Stash share this; retry/delete use the existing import APIs.
  */
-export function YourActivitySection({ items, loading, onRefresh }: Props) {
+export function YourActivitySection({ items, loading, onRefresh, presentation = 'default' }: Props) {
   const { tokens } = useThemeMode();
   const router = useRouter();
 
@@ -61,6 +62,7 @@ export function YourActivitySection({ items, loading, onRefresh }: Props) {
             item={activity}
             compact
             expandable
+            presentation={presentation}
             onRetry={onRetry}
             onDelete={onDelete}
           />

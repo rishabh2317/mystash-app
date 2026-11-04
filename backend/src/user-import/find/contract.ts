@@ -40,6 +40,12 @@ export type FindSavedSuggestion = { sourceProductId: string; candidateKey: strin
 export type FindDetail = FindItem & { savedSuggestions: FindSavedSuggestion[]; products: FindProduct[]; places: FindPlace[] };
 export type FindPage = { items: FindItem[]; nextCursor: string | null; counts: FindCounts };
 export type FindBatch = { items: FindItem[]; unavailableIds: string[] };
+export type FindSavedKind = 'all' | 'product' | 'place';
+export type FindSourceSummary = { id: string; createdAt: string; title: string | null; sourceType: FindItem['sourceType'];
+  savedProducts: number; savedPlaces: number; images: (string | null)[] };
+export type FindSourceSummaryPage = { items: FindSourceSummary[]; nextCursor: string | null };
+export type FindSourceResult = { kind: 'product'; result: FindProduct | FindSavedSuggestion } | { kind: 'place'; result: FindPlace };
+export type FindSourceResultPage = { items: FindSourceResult[]; nextCursor: string | null };
 
 
 export function readFindCounts(value: unknown): FindCounts {

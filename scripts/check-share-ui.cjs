@@ -40,11 +40,15 @@ try{
   const html=renderToStaticMarkup(React.createElement(ShareImportDetails,{importId:'import',sourceUrl:'https://youtu.be/ASkP2CRZOfc'}));
   for(const text of ['Similar product','Save to Products','Dismiss','Save interest','Café fixture','Source video'])assert.ok(html.includes(text),text);
   assert.ok(html.indexOf('Café fixture')<html.indexOf('Brown leather handbag'));
+  index=0;
+  const refined=renderToStaticMarkup(React.createElement(ShareImportDetails,{importId:'import',sourceUrl:'https://youtu.be/ASkP2CRZOfc',presentation:'finds'}));
+  for(const text of ['Similar product','Save to Products','Dismiss','Save interest','Reload saved interest','Café fixture','Source video'])assert.ok(refined.includes(text),text);
+  assert.ok(refined.indexOf('Café fixture')<refined.indexOf('Brown leather handbag'));
   states[3]='different-user';index=0;
   assert.equal(renderToStaticMarkup(React.createElement(ShareImportDetails,{importId:'import',sourceUrl:'https://youtu.be/ASkP2CRZOfc'})),'');
   states[3]='fixture-user';states[1]=[{...product,assessment:{kind:'unable_to_identify',suggestions:[]}}];index=0;
   assert.ok(renderToStaticMarkup(React.createElement(ShareImportDetails,{importId:'import',sourceUrl:'https://youtu.be/ASkP2CRZOfc'})).includes('Your video is still saved'));
-  checks+=8;
+  checks+=16;
  }
  console.log(JSON.stringify({passed:true,checks,themes:2,platformAdapters:2,nativeExecution:false}));
 }finally{global.fetch=fetch;for(const key of ['EXPO_PUBLIC_SHARE_INTENT_ENABLED','EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED'])if(env[key]===undefined)delete process.env[key];else process.env[key]=env[key];}

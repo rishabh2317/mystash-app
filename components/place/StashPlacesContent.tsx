@@ -8,6 +8,7 @@ import { StashFilterBar } from '@/components/commerce/StashFilterBar';
 import { activeStashFilter, filterRecentStash, stashFilterOptions, STASH_FILTER_COPY } from '@/src/ui/stashFilters';
 import { normalizedPlaceCategory } from '@/src/ui/placeCategories';
 import { StashCategoryCard } from '@/components/commerce/StashCategoryCard';
+import { StashSourceRail } from '@/components/commerce/StashSourceRail';
 import { Text } from '@/components/ui/Text';
 import { SkeletonBlock } from '@/components/status/SkeletonBlock';
 import { useThemeMode } from '@/contexts/ThemeContext';
@@ -21,6 +22,8 @@ import { PlaceCardSkeleton } from './PlaceCardSkeleton';
 import { PlaceSourceVideoModal } from './PlaceSourceVideoModal';
 
 type Props = {
+  owner: string;
+  onOpenFindSource: (id: string) => void;
   items: PlaceStashItem[];
   status: 'idle' | 'loading' | 'ready' | 'error';
   refreshing: boolean;
@@ -30,12 +33,13 @@ type Props = {
   onSearch: (url: string) => void;
 };
 type ShelfRow = { kind: 'categories'; key: string; items: PlaceCategoryShelf[] }
+  | { kind: 'sources'; key: string }
   | { kind: 'places'; key: string; items: PlaceStashItem[] }
   | { kind: 'heading'; key: string; title: string }
   | { kind: 'filters'; key: string };
 
 /** One virtualized shelf surface for resolved and unverified entries on Android/iOS. */
-export function StashPlacesContent({ items, status, refreshing, bottomInset, onRefresh, onRetry, onSearch }: Props) {
+export function StashPlacesContent({ owner,onOpenFindSource,items, status, refreshing, bottomInset, onRefresh, onRetry, onSearch }: Props) {
   const { tokens } = useThemeMode();
   const dimensions = useWindowDimensions();
   const [contentWidth, setContentWidth] = useState(dimensions.width);
@@ -71,10 +75,7 @@ export function StashPlacesContent({ items, status, refreshing, bottomInset, onR
         result.push({ kind: 'places', key: `category:${items.map(placeStashItemKey).join('|')}`, items });
       }
     } else {
-      for (let i = 0; i < home.categories.length; i += columns) {
-        const items = home.categories.slice(i, i + columns);
-        result.push({ kind: 'categories', key: `categories:${items.map(shelf => shelf.key).join('|')}`, items });
-      }
+      if(home.count) result.push({kind:'sources',key:'find-sources'});
       if (home.count) {
         result.push({ kind: 'heading', key: 'recent', title: STASH_FILTER_COPY.recentlyStashed });
         result.push({ kind: 'filters', key: 'recent-filters' });
@@ -131,6 +132,8 @@ export function StashPlacesContent({ items, status, refreshing, bottomInset, onR
         ? <Text accessibilityRole="header" style={[typeStyle(tokens, 'sectionTitle'), { marginTop: tokens.space.xs }]}>{row.title}</Text>
         : row.kind === 'filters'
           ? <StashFilterBar options={filters} selected={activeFilter} onSelect={setRecentFilter} accessibilityLabel={STASH_FILTER_COPY.places} />
+        : row.kind === 'sources' ? <StashSourceRail owner={owner} kind="place" revision={items.map(item=>item.saveId??item.id).join('|')} onOpen={onOpenFindSource}
+          fallback={<View style={{flexDirection:'row',gap:tokens.space.sm}}>{home.categories.slice(0,columns).map(shelf=><StashCategoryCard key={shelf.key} category={shelf} placeholder="place" metaLabel={shelf.count===1?'1 place':`${shelf.count} places`} onPress={next=>setSelectedCategory(next.key)}/>)}</View>}/>
         : <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: tokens.space.sm }}>
           {row.kind === 'categories' ? row.items.map(shelf => <StashCategoryCard key={shelf.key} category={shelf}
             placeholder="place" metaLabel={shelf.count === 1 ? '1 place' : `${shelf.count} places`}

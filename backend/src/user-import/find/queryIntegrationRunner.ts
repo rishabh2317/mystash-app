@@ -11,7 +11,7 @@ import { createShareReviewService } from '../share/reviewService';
 const socket = process.env.FIND_TEST_PG_SOCKET;
 if (!socket?.startsWith('/private/tmp/mystash-find-foundations-')) throw new Error('A self-owned disposable fixture socket is required');
 const run = promisify(execFile);
-const allowed = new Set(['find_query','find_detail','find_result_action','find_outcome_memberships']);
+const allowed = new Set(['find_query','find_query_by_source','find_query_by_source_kind','find_source_summaries','find_source_results','find_detail','find_result_action','find_outcome_memberships']);
 function literal(value: unknown): string {
   if (value === null) return 'NULL';
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
@@ -60,6 +60,11 @@ async function main() {
   assert.equal(first.status, 200); assert.equal(first.body.items.length, 17); assert.equal(first.body.counts.all, 1206);
   const next = await request('get /finds', { query: { limit: '17', cursor: first.body.nextCursor } });
   assert.equal(next.status, 200); assert.ok(next.body.items.every((item: { id: string }) => !first.body.items.some((old: { id: string }) => old.id === item.id)));
+  const scoped = await request('get /finds', { query: { limit: '17', source: 'web', filter: 'completed' } });
+  assert.equal(scoped.status, 200); assert.equal(scoped.body.counts.all, 1206);
+  assert.ok(scoped.body.items.every((item: { sourceType: string }) => item.sourceType === 'web'));
+  assert.equal((await request('get /finds', { query: { source: 'youtube' } })).body.counts.all, 0);
+  assert.equal((await request('get /finds', { query: { source: 'camera' } })).status, 400);
   const detail = await request('get /finds/:findId');
   assert.equal(detail.status, 200); assert.equal(detail.body.products.length, 1006);
   assert.deepEqual(detail.body.capabilities, { suggestions: false, intent: false });
@@ -71,6 +76,14 @@ async function main() {
   const restored = await request('get /finds/:findId');
   assert.equal(restored.body.outcome.savedProducts, 1); assert.equal(restored.body.outcome.foundProducts, 2);
   assert.equal((await request('get /finds/counts')).body.saved, 1);
+  const summaries = await request('get /finds/sources', { query: { kind: 'product', limit: '5' } });
+  assert.equal(summaries.status, 200);
+  assert.ok(summaries.body.items.some((row: { id: string }) => row.id === imported));
+  const sourceResults = await request('get /finds/:findId/source-results', { query: { limit: '1' } });
+  assert.equal(sourceResults.status, 200); assert.equal(sourceResults.body.items.length, 1);
+  assert.equal((await request('get /finds/:findId/source-results', { auth: 'other' })).status, 404);
+  const savedKind = await request('get /finds', { query: { source: 'web', savedKind: 'product' } });
+  assert.equal(savedKind.status, 200); assert.ok(savedKind.body.counts.all >= 1);
   assert.equal((await request('delete /finds/:findId/products/:resultId', { params, body: { expectedIdentity: product.identityKey } })).status, 200);
   const membership = (await readFindMemberships(db, user, [imported])).get(imported)!;
   assert.equal(membership.selectedProducts.length, 1);

@@ -763,6 +763,7 @@ export default function SearchScreen() {
           if (item.kind === 'activity') {
             return (
               <YourActivitySection
+                presentation="finds"
                 items={activityItems}
                 loading={!sharesLoaded}
                 onRefresh={async () => {

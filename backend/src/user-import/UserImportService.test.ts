@@ -512,6 +512,27 @@ describe('UserImportService content source relationship', () => {
     await assert.rejects(service.retry(USER_A, record.id), /cannot be retried/);
   });
 
+  it('does not restore or requeue an import deleted while retry is being checked', async () => {
+    const repo = new InMemoryUserImportRepository();
+    const { service, sourceRepo, jobs } = createHarness({ repo });
+    const { record } = await service.submit(USER_A, { rawInput: REEL_URL });
+    const source = (await sourceRepo.findById(record.contentSourceId!))!;
+    sourceRepo.sources.set(source.id, { ...source, processingStatus: 'FAILED' });
+    const original = repo.restartVisibleForRetry.bind(repo);
+    repo.restartVisibleForRetry = async (id, owner, startedAt, expectedStartedAt) => {
+      await repo.deleteForUser(id, owner);
+      return original(id, owner, startedAt, expectedStartedAt);
+    };
+    const priorJobs = jobs.length;
+    await assert.rejects(service.retry(USER_A, record.id, 'extraction'), (error: unknown) =>
+      error instanceof UserImportServiceError && error.statusCode === 409);
+    assert.ok((await repo.findById(record.id))?.hiddenAt);
+    assert.equal(jobs.length, priorJobs);
+    const shared = await service.submit(USER_A, { rawInput: REEL_URL });
+    assert.equal(shared.created, false);
+    assert.equal((await repo.findById(record.id))?.hiddenAt, null);
+  });
+
   it('hides history while preserving the import identity and referenced source', async () => {
     const { service, repo, sourceRepo } = createHarness();
     const submitted = await service.submit(USER_A, { rawInput: REEL_URL });

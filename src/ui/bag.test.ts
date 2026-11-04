@@ -413,13 +413,14 @@ describe('Stash presentation', () => {
     assert.match(src, /styles\.row/);
   });
 
-  it('Stash UI uses category cards + collection ProductCards, not Ready to shop', () => {
+  it('Stash UI uses source cards, collection ProductCards and a category fallback', () => {
     const cart = readFileSync(join(ROOT, 'app/(tabs)/stash.tsx'), 'utf8');
+    assert.match(cart, /StashSourceRail/);
     assert.match(cart, /StashCategoryCard/);
     assert.match(cart, /ProductCard/);
     assert.match(cart, /variant=\"related\"/);
     assert.match(cart, /buildStashHome/);
-    assert.match(cart, /Your products/);
+    assert.match(cart, /StashRecentProducts/);
     assert.match(cart, /renderRelatedGrid/);
     assert.match(cart, /trash-outline/);
     assert.match(cart, /!item\.catalogProductId/);

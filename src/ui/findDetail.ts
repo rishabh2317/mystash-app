@@ -1,7 +1,31 @@
-import type { FindScreenDetail } from '@/src/services/findClient';
+import type { FindScreenDetail, FindItem } from '@/src/services/findClient';
 import type { ReviewProduct } from '@/src/services/shareReviewApi';
+import type { PlaceStashItem } from '@/src/types/placeStash';
+import { safeFindUrl } from './find';
+
+/** Only use a Stash destination tied to this source or the same canonical place. */
+export function findPlaceDestination(items: PlaceStashItem[], importId: string, sourcePlaceId: string, placeId?: string | null): {url:string;id:string;kind:PlaceStashItem['kind']} | null {
+  const item=items.find(place=>place.sources?.some(source=>source.userImportId===importId && source.contentSourcePlaceId===sourcePlaceId) || Boolean(placeId && place.kind==='resolved' && place.id===placeId));
+  const url=safeFindUrl(item?.destination.url);
+  return item && url ? {url,id:item.id,kind:item.kind} : null;
+}
+export type FindDetailStatusTone = 'queued' | 'working' | 'warning' | 'error' | 'success' | 'empty';
+export function findDetailStatus(item: FindItem): {label:string;message:string;icon:'checkmark-circle-outline'|'sparkles-outline'|'alert-circle-outline';tone:FindDetailStatusTone} {
+  const o=item.outcome, hasResults=o.foundProducts+o.foundPlaces>0, saved=o.savedProducts+o.savedPlaces>0;
+  if(o.delayed) return {label:'This one’s taking a little longer',message:'Your Find is still being worked on.',icon:'sparkles-outline',tone:'warning'};
+  if(o.stashSync==='failed') return {label:'We hit a snag',message:'Your results are here, but saving needs another try.',icon:'alert-circle-outline',tone:'error'};
+  if(o.extractionActive) return hasResults ? {label:'Look what we’ve spotted!',message:'Your first finds are here. We’re still looking for more.',icon:'sparkles-outline',tone:'working'} : {label:'Let’s see what we can find…',message:'We’re looking for products and places that caught your eye.',icon:'sparkles-outline',tone:'working'};
+  if(o.result==='partial') return {label:'Some finds are here',message:'Part of this Find could not finish. Available results remain below.',icon:'alert-circle-outline',tone:'warning'};
+  if(o.result==='failed'||o.stashSync==='unavailable') return {label:'We hit a snag',message:'We couldn’t finish this Find. Any available results remain below.',icon:'alert-circle-outline',tone:'error'};
+  if(o.result==='pending'&&!hasResults) return {label:'We’ve got your Find!',message:'It’s safely queued and ready for its turn.',icon:'sparkles-outline',tone:'queued'};
+  if(o.stashSync==='pending') return {label:'Getting your finds ready',message:'Adding confirmed matches to your Stash.',icon:'sparkles-outline',tone:'working'};
+  if(o.result==='empty'||!hasResults) return {label:'Nothing we could pin down',message:'We couldn’t confidently identify a match this time.',icon:'sparkles-outline',tone:'empty'};
+  return {label:'Look what we found!',message:saved?'Your saved finds are ready in My Stash.':'Your discoveries are shown below.',icon:'checkmark-circle-outline',tone:'success'};
+}
+export function canRetryFindSaving(item: FindItem): boolean { return item.outcome.stashSync === 'failed' && item.outcome.canRetrySaving; }
 export type FindDetailRow = { key: string; title: string; subtitle: string; image: string | null; saved?: boolean; removed?: boolean;
   placeId?:string|null;
+  catalogProductId?: string | null;
   openProductId?: string | null; membership?: { kind: 'products' | 'places' | 'suggestion'; id: string; identity?: string; candidate?: string };
   candidate?: { sourceId: string; key: string } };
 export function findDetailRows(detail: FindScreenDetail, options: ReviewProduct[] = []): FindDetailRow[] {
@@ -11,14 +35,14 @@ export function findDetailRows(detail: FindScreenDetail, options: ReviewProduct[
     if (product.identityKey) identities.add(product.identityKey);
     rows.push({ key: `product:${product.id}`, title: product.title, image: product.imageUrl,
       subtitle: product.identityKey ? product.saved ? 'In My Stash' : product.removed ? 'Removed from My Stash' : 'Automatic saving is pending' : product.matchKind === 'similar' ? 'No exact match. Similar options may be available.' : 'Not identified confidently',
-      saved: product.saved, removed: product.removed, openProductId: product.catalogProductId ?? product.discoveredProductId,
+      saved: product.saved, removed: product.removed, catalogProductId: product.identityKey && product.matchKind === 'exact' ? product.catalogProductId : null, openProductId: product.identityKey ? product.catalogProductId ?? product.discoveredProductId : null,
       ...(product.identityKey ? { membership: { kind: 'products' as const, id: product.id, identity: product.identityKey } } : {}) });
   }
   for (const selected of detail.savedSuggestions) {
     if (identities.has(selected.identityKey)) continue; identities.add(selected.identityKey);
     rows.push({ key: `selected:${selected.sourceProductId}:${selected.candidateKey}`, title: selected.title, image: selected.imageUrl,
       subtitle: `Similar product · ${selected.saved ? 'In My Stash' : selected.removed ? 'Removed from My Stash' : 'Saving needs attention'}`,
-      saved: selected.saved, removed: selected.removed, openProductId: selected.identityKey.slice(2),
+      saved: selected.saved, removed: selected.removed, catalogProductId: selected.identityKey.startsWith('c:') ? selected.identityKey.slice(2) : null, openProductId: selected.identityKey.slice(2),
       ...({ membership: { kind: 'suggestion' as const, id: selected.sourceProductId, identity: selected.identityKey, candidate: selected.candidateKey } }) });
   }
   for (const place of detail.places) rows.push({ key: `place:${place.id}`, title: place.name, image: null,placeId:place.placeId,

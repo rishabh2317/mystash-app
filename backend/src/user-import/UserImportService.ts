@@ -244,7 +244,8 @@ export class UserImportService {
       return (await this.repo.findById(row.id)) ?? row;
     }
     if (!outcome.canRetryExtraction) throw new UserImportServiceError('This find cannot be retried while work is active or complete', 409);
-    await this.repo.restart(row.id, new Date(this.nowMs()).toISOString());
+    const restarted = await this.repo.restartVisibleForRetry(row.id, userId, new Date(this.nowMs()).toISOString(), row.attemptStartedAt ?? null);
+    if (!restarted) throw new UserImportServiceError('This find changed before retry', 409);
     if (row.contentSourceId) {
       const contentSource = await this.contentSource.getById(row.contentSourceId);
       if (contentSource) {
@@ -254,7 +255,7 @@ export class UserImportService {
         });
       }
     }
-    const refreshed = (await this.repo.findById(row.id)) ?? row;
+    const refreshed = (await this.repo.findById(row.id)) ?? restarted;
     await this.syncBag(refreshed);
     return refreshed;
   }

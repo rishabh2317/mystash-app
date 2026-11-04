@@ -19,12 +19,12 @@ import { ProductCard } from '@/components/commerce/ProductCard';
 import { CartPurchaseConfirmModal } from '@/components/commerce/CartPurchaseConfirmModal';
 import { StashRecentProducts } from '@/components/commerce/StashRecentProducts';
 import { StashCategoryCard } from '@/components/commerce/StashCategoryCard';
+import { StashSourceRail } from '@/components/commerce/StashSourceRail';
 import { StashSignedOutState } from '@/components/commerce/StashSignedOutState';
 import { StashHomeSkeleton } from '@/components/commerce/StashHomeSkeleton';
 import { StashPlacesContent } from '@/components/place/StashPlacesContent';
 import { withPlaceSourceVideos } from '@/src/ui/placeSourceVideo';
 import { ProfileContentTabs } from '@/components/profile/ProfileContentTabs';
-import { YourActivitySection } from '@/components/search/YourActivitySection';
 import { Text } from '@/components/ui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
@@ -45,7 +45,6 @@ import {
 import { BAG_COPY, controlOpacity, displayBagError, resolveControlPhase } from '@/src/ui/contracts';
 import { productPagePath } from '@/src/ui/productPage';
 import { resolveListLoadState } from '@/src/ui/contentLoadState';
-import { shareActivityLandingItems } from '@/src/ui/shareActivity';
 import {
   DEFAULT_STASH_SEGMENT,
   STASH_PLACES_COPY,
@@ -121,7 +120,6 @@ export default function StashScreen() {
     enabled: Boolean(user),
     onBecameReady,
   });
-  const activityItems = useMemo(() => shareActivityLandingItems(shares), [shares]);
 
   // Already-READY imports (e.g. completed on Search) must not leave a stale cart.
   useFocusEffect(
@@ -323,6 +321,8 @@ export default function StashScreen() {
       return (
         <StashPlacesContent
           key={user.id}
+          owner={user.id}
+          onOpenFindSource={id => router.push(`/stash/source/${id}` as Href)}
           items={withPlaceSourceVideos(placeItems, shares)}
           status={placesStatus}
           refreshing={placesRefreshing}
@@ -454,12 +454,7 @@ export default function StashScreen() {
 
         {home.categories.length > 0 ? (
           <View style={[styles.section, { paddingHorizontal: GUTTER }]}>
-            <Text
-              style={[typeStyle(tokens, 'sectionTitle'), { marginBottom: tokens.space.sm }]}
-            >
-              Your products
-            </Text>
-            <View style={{ gap: GRID_GAP }}>
+            <StashSourceRail owner={user.id} kind="product" revision={items.map(item=>item.cartItemId).join('|')} onOpen={id=>router.push(`/stash/source/${id}` as Href)} fallback={<View style={{ gap: GRID_GAP }}>
               {categoryRows.map((row) => (
                 <View
                   key={row.map((c) => c.key).join('-')}
@@ -475,7 +470,7 @@ export default function StashScreen() {
                   {row.length === 1 ? <View style={{ flex: 1 }} /> : null}
                 </View>
               ))}
-            </View>
+            </View>} />
           </View>
         ) : null}
 
@@ -505,13 +500,6 @@ export default function StashScreen() {
             gap: tokens.space.md,
           }}
         >
-          <YourActivitySection
-            items={activityItems}
-            loading={!sharesLoaded}
-            onRefresh={async () => {
-              await refreshShares();
-            }}
-          />
           <ProfileContentTabs tabs={STASH_SEGMENT_TABS} active={stashTab} onChange={onStashTabChange} />
         </View>
       ) : null}

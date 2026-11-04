@@ -17,6 +17,7 @@ import { ProductCard } from '@/components/commerce/ProductCard';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import type { ImportSharePrimaryProduct } from '@/src/services/importShareMap';
 import { outlineCardChrome } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import {
@@ -32,6 +33,7 @@ type Props = {
   compact?: boolean;
   /** Expand/collapse inline — used by Your Activity and Your Shares. */
   expandable?: boolean;
+  presentation?: 'default' | 'finds';
   onRetry?: (importId: string) => void | Promise<void>;
   onDelete?: (importId: string) => void | Promise<void>;
 };
@@ -69,10 +71,12 @@ export function ShareActivityCard({
   item,
   compact = false,
   expandable = true,
+  presentation = 'default',
   onRetry,
   onDelete,
 }: Props) {
   const { tokens, isLight } = useThemeMode();
+  const refined = presentation === 'finds';
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -116,27 +120,27 @@ export function ShareActivityCard({
           if (expandable) setExpanded((v) => !v);
         }}
         disabled={!expandable || busy}
-        style={[styles.card, { paddingVertical: compact ? 10 : 12 }]}
+        style={[styles.card, { paddingVertical: compact ? 10 : 12 }, refined && { padding: tokens.space.sm, gap: tokens.space.sm, minHeight: 48 }]}
         accessibilityRole="button"
         accessibilityState={expandable ? { expanded } : undefined}
         accessibilityLabel={`${item.title}. ${item.subtitle}`}
       >
-        <View style={[styles.thumb, { backgroundColor: tokens.color.surfaceSubtle }]}>
+        <View style={[styles.thumb, { backgroundColor: tokens.color.surfaceSubtle }, refined && { borderRadius: tokens.radius.sm }]}>
           {item.imageUrl ? (
             <Image source={{ uri: item.imageUrl }} style={styles.thumbImage} contentFit="cover" />
           ) : (
             <Ionicons name={platformIcon(item.kind)} size={20} color={tokens.color.textMuted} />
           )}
         </View>
-        <View style={styles.body}>
+        <View style={[styles.body, refined && { gap: tokens.space.xxs }]}>
           <Text
-            style={{ color: tokens.color.text, fontSize: 14, fontWeight: '700' }}
+            style={refined ? typeStyle(tokens, 'tileTitle') : { color: tokens.color.text, fontSize: 14, fontWeight: '700' }}
             numberOfLines={1}
           >
             {item.title}
           </Text>
           <Text
-            style={{ color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}
+            style={refined ? typeStyle(tokens, 'caption') : { color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}
             numberOfLines={2}
           >
             {item.subtitle}
@@ -145,12 +149,12 @@ export function ShareActivityCard({
             {(item.hasInFlight ?? item.userState === 'processing') ? (
               <ActivityIndicator size="small" color={tokens.color.accent} />
             ) : (
-              <Text style={{ color: tokens.color.textMuted, fontSize: 12, fontWeight: '600' }}>
+              <Text style={refined ? [typeStyle(tokens, 'tileMeta'), { fontFamily: tokens.fontFamily.semibold }] : { color: tokens.color.textMuted, fontSize: 12, fontWeight: '600' }}>
                 {stateLabel}
               </Text>
             )}
             {time ? (
-              <Text style={{ color: tokens.color.textMuted, fontSize: 12 }}>{time}</Text>
+              <Text style={refined ? typeStyle(tokens, 'tileMeta') : { color: tokens.color.textMuted, fontSize: 12 }}>{time}</Text>
             ) : null}
           </View>
         </View>
@@ -164,15 +168,15 @@ export function ShareActivityCard({
       </Pressable>
 
       {expandable && expanded ? (
-        <View style={[styles.expanded, { borderTopColor: tokens.color.divider }]}>
-          {process.env.EXPO_PUBLIC_NATIVE_SHARE_ENABLED === 'true' || process.env.EXPO_PUBLIC_SHARE_INTENT_ENABLED === 'true' || process.env.EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED === 'true' ? <ShareImportDetails importId={item.importId} sourceUrl={item.sourceUrl} placeCount={item.placeCount} productCount={item.productCount} /> : null}
+        <View style={[styles.expanded, { borderTopColor: tokens.color.divider }, refined && { padding: tokens.space.sm, gap: tokens.space.md }]}>
+          {process.env.EXPO_PUBLIC_NATIVE_SHARE_ENABLED === 'true' || process.env.EXPO_PUBLIC_SHARE_INTENT_ENABLED === 'true' || process.env.EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED === 'true' ? <ShareImportDetails importId={item.importId} sourceUrl={item.sourceUrl} placeCount={item.placeCount} productCount={item.productCount} presentation={presentation} /> : null}
           {item.sourceUrl ? (
             <View style={styles.detailBlock}>
-              <Text style={[styles.detailLabel, { color: tokens.color.textMuted }]}>
+              <Text style={refined ? [typeStyle(tokens, 'tileMeta'), { fontFamily: tokens.fontFamily.semibold }] : [styles.detailLabel, { color: tokens.color.textMuted }]}>
                 {SHARE_ACTIVITY_COPY.sourceLabel}
               </Text>
               <Text
-                style={{ color: tokens.color.text, fontSize: 13, lineHeight: 18 }}
+                style={refined ? [typeStyle(tokens, 'caption'), { color: tokens.color.text }] : { color: tokens.color.text, fontSize: 13, lineHeight: 18 }}
                 numberOfLines={3}
                 selectable
               >
@@ -181,18 +185,18 @@ export function ShareActivityCard({
             </View>
           ) : null}
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: tokens.color.textMuted }]}>
+            <Text style={refined ? [typeStyle(tokens, 'tileMeta'), { fontFamily: tokens.fontFamily.semibold }] : [styles.detailLabel, { color: tokens.color.textMuted }]}>
               {SHARE_ACTIVITY_COPY.sharedAt}
             </Text>
-            <Text style={{ color: tokens.color.text, fontSize: 13 }}>
+            <Text style={refined ? [typeStyle(tokens, 'caption'), { color: tokens.color.text }] : { color: tokens.color.text, fontSize: 13 }}>
               {time || item.createdAt}
             </Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: tokens.color.textMuted }]}>
+            <Text style={refined ? [typeStyle(tokens, 'tileMeta'), { fontFamily: tokens.fontFamily.semibold }] : [styles.detailLabel, { color: tokens.color.textMuted }]}>
               {SHARE_ACTIVITY_COPY.stateLabel}
             </Text>
-            <Text style={{ color: tokens.color.text, fontSize: 13, fontWeight: '600' }}>
+            <Text style={refined ? [typeStyle(tokens, 'caption'), { color: tokens.color.text, fontFamily: tokens.fontFamily.semibold }] : { color: tokens.color.text, fontSize: 13, fontWeight: '600' }}>
               {stateLabel}
             </Text>
           </View>
@@ -223,15 +227,15 @@ export function ShareActivityCard({
               ))}
             </ScrollView>
           ) : item.userState === 'no_products' ? (
-            <Text style={{ color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
+            <Text style={refined ? typeStyle(tokens, 'caption') : { color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
               {item.subtitle}
             </Text>
           ) : failed ? (
-            <Text style={{ color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
+            <Text style={refined ? typeStyle(tokens, 'caption') : { color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
               {SHARE_ACTIVITY_COPY.failed}
             </Text>
           ) : item.userState === 'processing' ? (
-            <Text style={{ color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
+            <Text style={refined ? typeStyle(tokens, 'caption') : { color: tokens.color.textMuted, fontSize: 13, lineHeight: 18 }}>
               {item.subtitle}
             </Text>
           ) : null}
@@ -249,23 +253,23 @@ export function ShareActivityCard({
                 disabled={busy || !onRetry}
                 style={[
                   styles.actionBtn,
-                  { borderColor: tokens.color.border, backgroundColor: tokens.color.primarySurface },
+                  { borderColor: tokens.color.border, backgroundColor: tokens.color.primarySurface }, refined && { minHeight: 48, borderRadius: tokens.radius.md },
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel={SHARE_ACTIVITY_COPY.retry}
               >
-                <Text style={{ color: tokens.color.onPrimarySurface, fontWeight: '700', fontSize: 14 }}>
+                <Text style={refined ? [typeStyle(tokens, 'cta'), { color: tokens.color.onPrimarySurface }] : { color: tokens.color.onPrimarySurface, fontWeight: '700', fontSize: 14 }}>
                   {SHARE_ACTIVITY_COPY.retry}
                 </Text>
               </Pressable>
               <Pressable
                 onPress={confirmDelete}
                 disabled={busy || !onDelete}
-                style={[styles.actionBtn, { borderColor: tokens.color.border }]}
+                style={[styles.actionBtn, { borderColor: tokens.color.border }, refined && { minHeight: 48, borderRadius: tokens.radius.md }]}
                 accessibilityRole="button"
                 accessibilityLabel={SHARE_ACTIVITY_COPY.delete}
               >
-                <Text style={{ color: tokens.color.danger, fontWeight: '700', fontSize: 14 }}>
+                <Text style={refined ? [typeStyle(tokens, 'cta'), { color: tokens.color.danger }] : { color: tokens.color.danger, fontWeight: '700', fontSize: 14 }}>
                   {SHARE_ACTIVITY_COPY.delete}
                 </Text>
               </Pressable>
@@ -274,11 +278,11 @@ export function ShareActivityCard({
           {showBagLink ? (
             <Pressable
               onPress={() => router.push('/cart' as Href)}
-              style={[styles.bagLink, { borderColor: tokens.color.border }]}
+              style={[styles.bagLink, { borderColor: tokens.color.border }, refined && { minHeight: 48, borderRadius: tokens.radius.md }]}
               accessibilityRole="link"
               accessibilityLabel={SHARE_ACTIVITY_COPY.viewInBag}
             >
-              <Text style={{ color: tokens.color.primary, fontSize: 14, fontWeight: '700' }}>
+              <Text style={refined ? [typeStyle(tokens, 'cta'), { color: tokens.color.primary }] : { color: tokens.color.primary, fontSize: 14, fontWeight: '700' }}>
                 {SHARE_ACTIVITY_COPY.viewInBag}
               </Text>
               <Ionicons name="bag-handle-outline" size={16} color={tokens.color.primary} />
@@ -287,11 +291,11 @@ export function ShareActivityCard({
           {(item.placeCount ?? 0) > 0 ? (
             <Pressable
               onPress={() => router.push('/stash?segment=places' as Href)}
-              style={[styles.bagLink, { borderColor: tokens.color.border }]}
+              style={[styles.bagLink, { borderColor: tokens.color.border }, refined && { minHeight: 48, borderRadius: tokens.radius.md }]}
               accessibilityRole="link"
               accessibilityLabel="View places"
             >
-              <Text style={{ color: tokens.color.primary, fontSize: 14, fontWeight: '700' }}>View places</Text>
+              <Text style={refined ? [typeStyle(tokens, 'cta'), { color: tokens.color.primary }] : { color: tokens.color.primary, fontSize: 14, fontWeight: '700' }}>View places</Text>
               <Ionicons name="location-outline" size={16} color={tokens.color.primary} />
             </Pressable>
           ) : null}

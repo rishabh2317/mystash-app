@@ -8,6 +8,7 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { typeStyle } from '@/src/theme/typography';
+import { outlineCardChrome } from '@/src/theme/tokens';
 import { useFindCapture } from '@/src/hooks/useFindCapture';
 import { FIND_COPY, FIND_ROUTES, findDetailPath } from '@/src/ui/find';
 import {useFindImageCapture} from '@/src/hooks/useFindImageCapture';
@@ -23,10 +24,13 @@ export default function FindCaptureScreen() {
   return <View style={{ flex: 1, backgroundColor: tokens.color.canvasSoft, paddingLeft: insets.left, paddingRight: insets.right }}>
     <TopBar mode="page" title="Capture a Find" showBack onBack={() => {if(visibleInput.trim()&&!accepted&&!busy)observeFind(user?.id??null,'find.capture_cancelled',{origin:'url'});if(router.canGoBack())router.back();else router.replace(FIND_ROUTES.home as Href);}} />
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: tokens.space.md, paddingBottom: tokens.space.xxl, gap: tokens.space.lg }}>
+      <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: tokens.space.md, paddingBottom: tokens.space.xxl, gap: tokens.space.md }}>
+        <View style={{ gap: tokens.space.xs }}>
         <Text style={typeStyle(tokens,'sectionTitle')}>What caught your eye?</Text>
         <Text style={typeStyle(tokens,'bodyMuted')}>Paste an Instagram Reel, YouTube Short, or supported web link.</Text>
         <Text style={typeStyle(tokens,'caption')}>{FIND_COPY.automatic} No selection step is required.</Text>
+        </View>
+        <View style={{ ...outlineCardChrome(tokens), borderWidth: tokens.stroke.thin, borderRadius: tokens.radius.lg, padding: tokens.space.md, gap: tokens.space.md }}>
         {user?<View style={{gap:tokens.space.sm}}>
           <ActionButton wrapLabel label="Screenshot / Gallery" leadingIcon="images-outline" minTouchHeight={48} variant="secondary" disabled={!image.supported||image.busy||busy} onPress={()=>void image.capture('gallery')}/>
           <ActionButton wrapLabel label="Take a photo" leadingIcon="camera-outline" minTouchHeight={48} variant="secondary" disabled={!image.supported||image.busy||busy} onPress={()=>void image.capture('camera')}/>
@@ -47,6 +51,7 @@ export default function FindCaptureScreen() {
           <ActionButton wrapLabel minTouchHeight={48} label="Find from this link" leadingIcon="sparkles-outline" pending={busy} disabled={!visibleInput.trim()} onPress={() => { void submit(); }} />
           <Text style={typeStyle(tokens,'caption')}>Supported mobile installations queue links securely, even offline. Other installations need a connection and confirm receipt before clearing your text.</Text>
         </>}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   </View>;

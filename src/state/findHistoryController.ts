@@ -1,11 +1,11 @@
-import type { createFindClient, FindCounts, FindItem } from '@/src/services/findClient';
+import type { createFindClient, FindCounts, FindItem, FindSourceFilter } from '@/src/services/findClient';
 import { findNeedsRefresh } from '@/src/services/findClient';
 import { findHistoryMerge, type FindViewFilter } from '@/src/ui/find';
 
 type Api = Pick<ReturnType<typeof createFindClient>, 'list' | 'batch' | 'refreshLoaded'>;
-export type FindHistoryState = { owner: string | null; filter: FindViewFilter; items: FindItem[]; counts: FindCounts | null;
+export type FindHistoryState = { owner: string | null; filter: FindViewFilter; source: FindSourceFilter; items: FindItem[]; counts: FindCounts | null;
   loaded: boolean; refreshing: boolean; loadingMore: boolean; cursor: string | null; error: string | null; moreError: string | null };
-const empty = (owner: string | null, filter: FindViewFilter): FindHistoryState => ({ owner, filter, items: [], counts: null, loaded: false, refreshing: false, loadingMore: false, cursor: null, error: null, moreError: null });
+const empty = (owner: string | null, filter: FindViewFilter, source: FindSourceFilter = 'all'): FindHistoryState => ({ owner, filter, source, items: [], counts: null, loaded: false, refreshing: false, loadingMore: false, cursor: null, error: null, moreError: null });
 /** One foreground reader. Cursor ownership and epochs fence filter, navigation and account races. */
 export function createFindHistoryController(api: Api, timers: { schedule(fn: () => void, ms: number): unknown; cancel(handle: unknown): void }) {
   let state = empty(null, 'completed'), active = false, epoch = 0, revision = 0, busy = false, pageBusy = false, expanded = false;
@@ -36,7 +36,7 @@ export function createFindHistoryController(api: Api, timers: { schedule(fn: () 
         updated = rows;
       } else if (updated.length) updated = await api.refreshLoaded(updated, owner);
       if (!current(token)) return;
-      const head = await api.list({ filter: state.filter, limit: 20 });
+      const head = await api.list({ filter: state.filter, source: state.source, limit: 20 });
       if (!current(token)) return;
       if (head.ownerId !== owner) throw new Error('History owner changed');
       const items = expanded ? findHistoryMerge(updated, head.items, gone.filter(id => !head.items.some(item => item.id === id)), state.filter) : head.items;
@@ -50,9 +50,9 @@ export function createFindHistoryController(api: Api, timers: { schedule(fn: () 
   return {
     getState: () => state,
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
-    configure(owner: string | null, filter: FindViewFilter) {
-      if (state.owner === owner && state.filter === filter) return;
-      epoch++; revision++; clear(); busy = false; pageBusy = false; expanded = false; state = empty(owner, filter); publish({});
+    configure(owner: string | null, filter: FindViewFilter, source: FindSourceFilter = 'all') {
+      if (state.owner === owner && state.filter === filter && state.source === source) return;
+      epoch++; revision++; clear(); busy = false; pageBusy = false; expanded = false; state = empty(owner, filter, source); publish({});
       if (active) void refresh();
     },
     setActive(value: boolean) {
@@ -67,7 +67,7 @@ export function createFindHistoryController(api: Api, timers: { schedule(fn: () 
       const token = epoch, read = revision, cursor = state.cursor, owner = state.owner;
       pageBusy = true; publish({ loadingMore: true, moreError: null });
       try {
-        const page = await api.list({ filter: state.filter, cursor, limit: 20 });
+        const page = await api.list({ filter: state.filter, source: state.source, cursor, limit: 20 });
         if (!current(token) || read !== revision) return;
         if (page.ownerId !== owner) throw new Error('History owner changed');
         expanded = true;

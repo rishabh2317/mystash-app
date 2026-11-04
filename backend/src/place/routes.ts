@@ -6,6 +6,7 @@ import { PlaceService, PlacePageError, type PlacePageOptions } from './PlaceServ
 import { SupabasePlaceRepository } from './SupabasePlaceRepository';
 import { PlaceRepositoryError, type PlaceRepository } from './PlaceRepository';
 import { uuid } from '../user-import/share/contracts';
+import { logger } from '../logger';
 
 export type PlaceAuthenticator = (req: Request) => Promise<{ userId: string } | null>;
 
@@ -58,7 +59,8 @@ export function createPlaceListHandler(deps: {
     } catch (e) {
       if (e instanceof PlacePageError) { res.status(400).json({ error: e.message }); return; }
       if (sendAuthError(res, e)) return;
-      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+      logger.error({ route: 'places.list', errorType: e instanceof Error ? e.name : typeof e }, 'place.route_failed');
+      res.status(500).json({ error: 'Places are temporarily unavailable' });
     }
   };
 }
@@ -94,6 +96,7 @@ export function createPlaceMembershipHandler(deps: {
     } catch (error) {
       if (sendAuthError(res, error)) return;
       const status = error instanceof PlaceRepositoryError ? error.code === 'not_found' ? 404 : 409 : 503;
+      if (!(error instanceof PlaceRepositoryError)) logger.error({ route: 'places.membership', errorType: error instanceof Error ? error.name : typeof error }, 'place.route_failed');
       res.status(status).json({ error: status === 404 ? 'Place save not found' : 'Place membership could not be changed' });
     }
   };

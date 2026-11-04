@@ -4,6 +4,16 @@ import { createSupabaseAdmin } from '../supabase';
 import { CartServiceError, createCartService } from './factory';
 import type { CartItemSource, RemoveCartItemReason } from './domain/types';
 import { getEnv } from '../env';
+import { logger } from '../logger';
+
+export function sendCartRouteError(res: Response, error: unknown, route: string): void {
+  if (error instanceof CartServiceError) {
+    res.status(error.statusCode).json({ error: error.message });
+    return;
+  }
+  logger.error({ route, errorType: error instanceof Error ? error.name : typeof error }, 'cart.route_failed');
+  res.status(500).json({ error: 'Cart is temporarily unavailable' });
+}
 
 async function requireUserId(req: Request, res: Response): Promise<string | null> {
   return requireAuthUserId(req, res, { requireVerifiedEmail: true });
@@ -50,13 +60,7 @@ export function registerCartRoutes(app: Express): void {
         items: view.items.map(mapItemJson),
         itemCount: view.itemCount,
       });
-    } catch (e) {
-      if (e instanceof CartServiceError) {
-        res.status(e.statusCode).json({ error: e.message });
-        return;
-      }
-      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
-    }
+    } catch (e) { sendCartRouteError(res, e, 'list'); }
   });
 
   app.post('/cart/items', async (req, res) => {
@@ -110,13 +114,7 @@ export function registerCartRoutes(app: Express): void {
           },
         },
       });
-    } catch (e) {
-      if (e instanceof CartServiceError) {
-        res.status(e.statusCode).json({ error: e.message });
-        return;
-      }
-      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
-    }
+    } catch (e) { sendCartRouteError(res, e, 'add'); }
   });
 
   app.delete('/cart/items/:catalogProductId', async (req, res) => {
@@ -131,12 +129,6 @@ export function registerCartRoutes(app: Express): void {
       const result = await cart.removeItem(userId, req.params.catalogProductId, reason);
       res.status(204).send();
       void result;
-    } catch (e) {
-      if (e instanceof CartServiceError) {
-        res.status(e.statusCode).json({ error: e.message });
-        return;
-      }
-      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
-    }
+    } catch (e) { sendCartRouteError(res, e, 'remove'); }
   });
 }

@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 
 
 def main(verify_queries=False, verify_images=False, verify_delivery=False, verify_readiness=False):
@@ -136,6 +137,8 @@ INSERT INTO cart_items(user_id,catalog_product_id) VALUES('11111111-1111-4111-81
                 results = list(pool.map(lambda _: update_intent(), range(2)))
             assert sorted(results) == ['1', 'conflict']
             print('PASS snapshot-consistent details during mutations and existing intent revision concurrency')
+            sql((root / 'supabase/migrations/20261104120000_find_source_filter.sql').read_text())
+            sql((root / 'supabase/migrations/20261104130000_find_stash_sources.sql').read_text())
             integration = subprocess.run(['node', '--import', './backend/node_modules/tsx/dist/loader.mjs',
                                            'backend/src/user-import/find/queryIntegrationRunner.ts'], cwd=root,
                                           env={**env, 'FIND_TEST_PG_SOCKET': str(work)}, text=True,
@@ -143,6 +146,48 @@ INSERT INTO cart_items(user_id,catalog_product_id) VALUES('11111111-1111-4111-81
             if integration.returncode:
                 raise RuntimeError(integration.stderr[-5000:] or integration.stdout[-5000:])
             print(integration.stdout.strip())
+            print(sql((root / 'backend/scripts/sql/find_source_filter_checks.sql').read_text()))
+            print(sql((root / 'backend/scripts/sql/find_stash_sources_checks.sql').read_text()))
+            race_id = sql(f"""INSERT INTO user_imports(user_id,raw_input,source_url,normalized_url,dedupe_key,platform,content_source_id)
+VALUES('{owner}','retry-delete-race','https://fixture.invalid/race','https://fixture.invalid/race','retry-delete-race','web','{source}') RETURNING id;""")
+            delete_transaction = f"BEGIN; UPDATE user_imports SET hidden_at=clock_timestamp() WHERE id='{race_id}' AND user_id='{owner}'; SELECT pg_sleep(0.25); COMMIT;"
+            retry_update = f"UPDATE user_imports SET attempt_started_at=clock_timestamp() WHERE id='{race_id}' AND user_id='{owner}' AND hidden_at IS NULL AND attempt_started_at IS NULL RETURNING id;"
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                deletion = pool.submit(sql, delete_transaction)
+                time.sleep(0.05)
+                assert sql(retry_update) == '', 'A concurrent retry revived a deleted capture'
+                deletion.result()
+            assert sql(f"SELECT hidden_at IS NOT NULL FROM user_imports WHERE id='{race_id}';") == 't'
+            sql(f"UPDATE user_imports SET hidden_at=NULL WHERE id='{race_id}' AND user_id='{owner}';")
+            assert sql(f"SELECT hidden_at IS NULL FROM user_imports WHERE id='{race_id}';") == 't'
+            print('PASS concurrent delete fences extraction retry; deliberate re-share can restore')
+            sql(f"SELECT find_result_action('{owner}','{imported}','product','{product_row}',true,'c:{product}');")
+            for label, query in (
+                ('history source/status inner scan', f"SELECT * FROM find_read_rows('{owner}') WHERE item->>'sourceType'='youtube' AND item->'outcome'->>'category'='completed' ORDER BY created_at DESC,id DESC LIMIT 20"),
+                ('source summary projection', f"SELECT find_source_summaries('{owner}','product',20)"),
+                ('source saved-results inner projection', f"SELECT * FROM find_source_saved_rows('{owner}','{imported}') LIMIT 20"),
+                ('cart active-owner scan', f"SELECT * FROM cart_items WHERE user_id='{owner}' AND removed_at IS NULL LIMIT 50"),
+                ('places active-owner scan', f"SELECT * FROM user_place_saves WHERE user_id='{owner}' AND removed_at IS NULL LIMIT 50"),
+            ):
+                plan = json.loads(sql('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + query))[0]
+                node = plan['Plan']
+                print(f"PLAN {label}: {plan['Execution Time']:.3f} ms; root actual/estimated rows {node['Actual Rows']}/{node['Plan Rows']}; shared hits {node.get('Shared Hit Blocks',0)}, reads {node.get('Shared Read Blocks',0)}")
+            sql(f"SELECT find_result_action('{owner}','{imported}','product','{product_row}',false,'c:{product}');")
+            if not verify_images:
+                sql(f"""INSERT INTO catalog_products(id) SELECT md5('find-cart-bench-'||n)::uuid FROM generate_series(1,500) n;
+INSERT INTO cart_items(user_id,catalog_product_id) SELECT '{owner}',md5('find-cart-bench-'||n)::uuid FROM generate_series(1,500) n;
+INSERT INTO content_source_places(content_source_id,extracted_name,resolution_state,unresolved_reason,hypothesis_key)
+ SELECT '{source}','Benchmark place '||n,'unresolved','no_results','find-place-bench-'||n FROM generate_series(1,500) n;
+INSERT INTO user_place_saves(user_id,content_source_place_id,content_source_id,user_import_id)
+ SELECT '{owner}',id,'{source}','{imported}' FROM content_source_places WHERE hypothesis_key LIKE 'find-place-bench-%';
+ANALYZE cart_items; ANALYZE user_place_saves;""")
+                for label, query in (
+                    ('Cart 500-item page', f"SELECT * FROM cart_items WHERE user_id='{owner}' AND removed_at IS NULL ORDER BY added_at DESC,id DESC LIMIT 200"),
+                    ('Places 500-item page', f"SELECT * FROM user_place_saves WHERE user_id='{owner}' AND removed_at IS NULL ORDER BY created_at DESC,id DESC LIMIT 200"),
+                ):
+                    plan = json.loads(sql('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + query))[0]
+                    node = plan['Plan']
+                    print(f"PLAN {label}: {plan['Execution Time']:.3f} ms; root actual/estimated rows {node['Actual Rows']}/{node['Plan Rows']}; shared hits {node.get('Shared Hit Blocks',0)}, reads {node.get('Shared Read Blocks',0)}")
 
 
         if verify_images:

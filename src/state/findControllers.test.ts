@@ -28,6 +28,43 @@ test('filter changes and account switches fence late responses and clear private
   assert.equal(controller.getState().owner,'other'); assert.deepEqual(controller.getState().items.map(item => item.id),[findFixture(2).id]);
   controller.configure(null,'completed'); assert.deepEqual(controller.getState().items,[]); assert.equal(controller.getState().counts,null);
 });
+test('rapid source and status changes publish only the final scoped page', async () => {
+  const youtube = deferred<FindOwnedPage>(), image = deferred<FindOwnedPage>();
+  const requests: string[] = [];
+  const controller = createFindHistoryController({ list: async options => {
+    requests.push(`${options?.source}/${options?.filter}`);
+    return options?.source === 'youtube' ? youtube.promise : options?.source === 'image' ? image.promise : page([findFixture(3)], null);
+  }, batch: async () => ({ items: [], unavailableIds: [] }), refreshLoaded: async rows => rows }, timers());
+  controller.configure('owner','completed','youtube'); controller.setActive(true);
+  controller.configure('owner','processing','image');
+  assert.deepEqual(controller.getState().items, []);
+  assert.equal(controller.getState().counts, null);
+  controller.configure('owner','completed','web'); await flush();
+  youtube.resolve(page([findFixture(1)])); image.resolve(page([findFixture(2)])); await flush();
+  assert.equal(controller.getState().source, 'web');
+  assert.equal(controller.getState().filter, 'completed');
+  assert.deepEqual(controller.getState().items.map(item => item.id), [findFixture(3).id]);
+  assert.ok(requests.includes('youtube/completed'));
+  assert.ok(requests.includes('web/completed'));
+  controller.configure('other','all','all');
+  assert.equal(controller.getState().items.length, 0);
+  assert.equal(controller.getState().counts, null);
+});
+test('list filter changes do not refetch or reset the separate Activity reader', async () => {
+  let activityRequests = 0, listRequests = 0;
+  const activity = createFindHistoryController({ list: async () => { activityRequests++; return page([findFixture(1,'processing')]); },
+    batch: async () => ({ items: [], unavailableIds: [] }), refreshLoaded: async rows => rows }, timers());
+  const list = createFindHistoryController({ list: async () => { listRequests++; return page([findFixture(2,'completed')]); },
+    batch: async () => ({ items: [], unavailableIds: [] }), refreshLoaded: async rows => rows }, timers());
+  activity.configure('owner','processing'); activity.setActive(true);
+  list.configure('owner','all'); list.setActive(true); await flush();
+  const activityId=activity.getState().items[0].id, originalRequests=activityRequests;
+  list.configure('owner','completed','youtube'); await flush();
+  list.configure('owner','attention','image'); await flush();
+  assert.equal(activityRequests,originalRequests);
+  assert.equal(activity.getState().items[0].id,activityId);
+  assert.equal(listRequests,3);
+});
 test('a newer refresh wins over an in-flight page and duplicate page requests are bounded', async () => {
   const more = deferred<FindOwnedPage>(); let pages = 0;
   const controller = createFindHistoryController({ list: async options => options?.cursor ? (pages++,more.promise) : page([findFixture(1)],'cursor'), batch: async () => ({ items: [findFixture(1)],unavailableIds: [] }), refreshLoaded: async rows => rows }, timers());
