@@ -39,7 +39,7 @@ export function probeYtDlpJson(
     assertImportWorkActive();
     const child = spawn(
       'yt-dlp',
-      ['-j', '--skip-download', '--no-playlist', '--no-warnings', sourceUrl],
+      ['--js-runtimes', 'node', '-j', '--skip-download', '--no-playlist', '--no-warnings', sourceUrl],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let stdout = '';
@@ -84,6 +84,8 @@ export class YtDlpVideoProvider implements VideoProvider {
     await fs.mkdir(workDir, { recursive: true });
     const outTemplate = path.join(workDir, 'video.%(ext)s');
     const r = await run('yt-dlp', [
+      '--js-runtimes',
+      'node',
       '-f',
       'bv*[height<=720]+ba/b[height<=720]/b',
       '--merge-output-format',

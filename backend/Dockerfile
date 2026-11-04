@@ -12,11 +12,11 @@ FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production \
     INGEST_WORKER_EMBEDDED=false \
     PATH="/opt/video-tools/bin:${PATH}"
-# Match the installed local yt-dlp version; keep existing extraction commands.
+# Keep YouTube extraction support current and include the packaged JS challenge solver.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg python3 python3-venv \
     && python3 -m venv /opt/video-tools \
-    && /opt/video-tools/bin/pip install --no-cache-dir "yt-dlp==2026.7.4" \
+    && /opt/video-tools/bin/pip install --no-cache-dir "yt-dlp[default]==2026.10.26" \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
