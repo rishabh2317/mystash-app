@@ -13,6 +13,7 @@ export function rankCandidates(
   candidates: HybridCandidate[],
   laneWeights: LaneWeights,
   nowMs = Date.now(),
+  query = '',
 ): RankedHit[] {
   const ranked = candidates.map((c) => {
     const doc = c.document;
@@ -22,15 +23,17 @@ export function rankCandidates(
     const quality = qualityBoost(doc);
     const verification = verificationBoost(doc);
     const authority = authorityBoost(doc);
+    const exactness = exactMatchBoost(doc, query);
 
     const score =
-      0.42 * c.fusionScore +
-      0.18 * entityBoost +
-      0.12 * freshness +
-      0.12 * engagement +
-      0.08 * quality +
-      0.05 * verification +
-      0.03 * authority;
+      0.42 * exactness +
+      0.24 * c.fusionScore +
+      0.11 * entityBoost +
+      0.08 * freshness +
+      0.07 * engagement +
+      0.04 * quality +
+      0.025 * verification +
+      0.015 * authority;
 
     return {
       entityType: c.entityType,
@@ -50,6 +53,21 @@ function entityKey(t: SearchEntityType): keyof LaneWeights {
   if (t === 'collection') return 'collection';
   if (t === 'creator') return 'creator';
   return 'product';
+}
+
+function exactMatchBoost(doc: HybridCandidate['document'], query: string): number {
+  const q = query.normalize('NFKC').trim().toLowerCase().replace(/^@/, '');
+  if (!q) return 0;
+  const primary = doc.entityType === 'collection' ? doc.searchTitle ?? doc.slug
+    : doc.entityType === 'creator' ? doc.displayName ?? doc.username : doc.name;
+  const value = primary.normalize('NFKC').trim().toLowerCase();
+  if (doc.entityType === 'creator' && doc.username.toLowerCase() === q) return 1;
+  if (value === q) return 1;
+  if (doc.entityType === 'collection' && doc.slug.toLowerCase() === q) return 0.9;
+  if (doc.entityType === 'product' && [doc.model, doc.brand].some(v => v?.trim().toLowerCase() === q)) return 0.65;
+  if (value.startsWith(`${q} `) || value.startsWith(q)) return 0.45;
+  if (value.includes(q)) return 0.25;
+  return 0;
 }
 
 function freshnessBoost(doc: HybridCandidate['document'], nowMs: number): number {
@@ -98,20 +116,21 @@ function authorityBoost(doc: HybridCandidate['document']): number {
   return 0.3;
 }
 
-/** Reduce creator domination in Collection results. */
+/** Move excess same-creator Collections behind diverse hits without discarding results. */
 function diversifyCreators(hits: RankedHit[]): RankedHit[] {
   const seenCreators = new Map<string, number>();
   const out: RankedHit[] = [];
+  const overflow: RankedHit[] = [];
   for (const h of hits) {
     if (h.entityType === 'collection' && h.document.entityType === 'collection') {
       const cid = h.document.creator.creatorId;
       const n = seenCreators.get(cid) ?? 0;
-      if (n >= 3) continue;
+      if (n >= 3) { overflow.push(h); continue; }
       seenCreators.set(cid, n + 1);
     }
     out.push(h);
   }
-  return out;
+  return [...out, ...overflow];
 }
 
 function formatIndexPrice(amount: number | null, currency: string | null): string | null {

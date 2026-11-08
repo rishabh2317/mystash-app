@@ -161,6 +161,7 @@ function parseCards(raw: unknown): SearchResultCard[] {
 
 export async function searchBlended(input: {
   q: string;
+  entityType?: SearchEntityType;
   presentation?: 'unified' | 'typed';
   limit?: number;
   cursor?: string | null;
@@ -172,6 +173,7 @@ export async function searchBlended(input: {
   }
   const params = new URLSearchParams();
   params.set('q', q);
+  if (input.entityType) params.set('entity_type', input.entityType);
   params.set('presentation', input.presentation ?? 'typed');
   if (input.limit != null) params.set('limit', String(input.limit));
   if (input.cursor) params.set('cursor', input.cursor);

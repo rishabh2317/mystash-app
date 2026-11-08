@@ -13,7 +13,8 @@ test('navigation exposes Find centrally while retaining Creator Studio and legac
   assert.match(readFileSync('app/shares.tsx','utf8'),/Redirect[\s\S]*find\?filter=all/);
   assert.match(readFileSync('app/import.tsx','utf8'),/submitUserImport/);
   const search = readFileSync('app/(tabs)/search.tsx','utf8');
-  assert.match(search,/FIND_ROUTES.capture/); assert.match(search,/searchBlended/); assert.match(search,/searchAutocomplete/); assert.doesNotMatch(search,/submitUserImport/);
+  assert.doesNotMatch(search,/FIND_ROUTES|submitUserImport|YourActivitySection/);
+  assert.match(search,/searchBlended/); assert.match(search,/searchAutocomplete/);
 });
 test('outcome messages preserve automatic saving, partial results, delayed work, empty and saving failures', () => {
   const item = findFixture(); assert.match(findStatus(item).message,/automatically/); assert.match(findResultLabel(item),/2 products.*1 place/);

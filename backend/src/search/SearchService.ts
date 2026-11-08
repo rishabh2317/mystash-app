@@ -1,13 +1,16 @@
 import { EmbeddingError, type EmbeddingPort } from './embeddings/EmbeddingPort';
+import { createHash } from 'node:crypto';
 import { fuseHybridCandidates } from './domain/hybrid';
 import { detectQueryIntent } from './domain/intent';
 import { prepareQuery, prepareSearchQuery } from './domain/queryPrep';
-import { blendResults, rankCandidates } from './domain/ranking';
+import { blendResults, rankCandidates, toResultCard } from './domain/ranking';
 import type {
   AutocompleteResponse,
   AutocompleteSuggestion,
   BlendedSearchResponse,
   SearchDocument,
+  SearchEntityType,
+  SearchFilters,
   SearchQueryInput,
 } from './domain/types';
 import {
@@ -33,6 +36,34 @@ export class SearchServiceError extends Error {
 }
 
 type QueryEmbedCacheEntry = { embedding: number[]; expiresAt: number };
+type EntityCursor = { v: 2; key: string; ids: string[]; pos: number;
+  after: [number, string] | null; hasTail: boolean; fallback: boolean;
+  headMode: 'hybrid' | 'lexical_only' };
+
+function entityCursorKey(q: string, entityType: SearchEntityType, filters?: SearchFilters, lexicalOnly?: boolean): string {
+  return createHash('sha256').update(JSON.stringify({ q, entityType, filters, lexicalOnly: Boolean(lexicalOnly) })).digest('base64url').slice(0, 24);
+}
+
+function readEntityCursor(raw: string, key: string): EntityCursor {
+  try {
+    if (raw.length > 12000) throw new Error('too long');
+    const value = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as EntityCursor;
+    if (value.v !== 2 || value.key !== key || !Array.isArray(value.ids) || value.ids.length > 120 ||
+      !value.ids.every(id => typeof id === 'string' && id.length <= 200) ||
+      !Number.isInteger(value.pos) || value.pos < 0 || value.pos > value.ids.length ||
+      typeof value.hasTail !== 'boolean' || typeof value.fallback !== 'boolean' ||
+      (value.headMode !== 'hybrid' && value.headMode !== 'lexical_only') ||
+      (value.after !== null && (!Array.isArray(value.after) || value.after.length !== 2 ||
+        typeof value.after[0] !== 'number' || typeof value.after[1] !== 'string'))) throw new Error('invalid');
+    return value;
+  } catch {
+    throw new SearchServiceError('Invalid search cursor', 400);
+  }
+}
+
+function writeEntityCursor(value: EntityCursor): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
 
 /**
  * Search application boundary — indexing, hybrid retrieval, deterministic ranking/blend.
@@ -40,7 +71,9 @@ type QueryEmbedCacheEntry = { embedding: number[]; expiresAt: number };
  */
 export class SearchService {
   private readonly queryEmbedCache = new Map<string, QueryEmbedCacheEntry>();
+  private readonly queryEmbedInFlight = new Map<string, Promise<number[]>>();
   private readonly queryEmbedTtlMs = 10 * 60_000;
+  private readonly queryEmbedMaxEntries = 512;
 
   constructor(
     private readonly index: SearchIndexPort,
@@ -192,10 +225,18 @@ export class SearchService {
     }
     const activeFilters = Object.keys(filters).length ? filters : undefined;
 
+    if (input.entityType && this.index.lexicalPage && this.index.getMany) {
+      return this.searchEntityPage({ input, started, query: prepared.corrected, expanded: prepared.expanded,
+        entityType: input.entityType, filters: activeFilters, intent, laneWeights, limit, presentation });
+    }
+
     const candidateLimit = Math.max(limit * 3, 40);
+    const entityTypes = input.entityType ? [input.entityType] : undefined;
 
     let lexical = await this.index.lexicalSearch({
       q: prepared.expanded,
+      exact: prepared.corrected,
+      entityTypes,
       filters: activeFilters,
       limit: candidateLimit,
     });
@@ -206,6 +247,7 @@ export class SearchService {
         const emb = await this.embedQueryCached(prepared.corrected);
         vector = await this.index.vectorSearch({
           vector: emb,
+          entityTypes,
           filters: activeFilters,
           limit: candidateLimit,
         });
@@ -229,6 +271,8 @@ export class SearchService {
       if (prepared.corrected !== prepared.expanded) {
         lexical = await this.index.lexicalSearch({
           q: prepared.corrected,
+          exact: prepared.corrected,
+          entityTypes,
           filters: activeFilters,
           limit: candidateLimit,
         });
@@ -240,6 +284,7 @@ export class SearchService {
         const emb = await this.embedQueryCached(prepared.corrected);
         vector = await this.index.vectorSearch({
           vector: emb,
+          entityTypes,
           filters: activeFilters,
           limit: candidateLimit,
         });
@@ -253,7 +298,7 @@ export class SearchService {
       }
     }
     const usedPopularFallback = fused.length === 0;
-    if (fused.length === 0) {
+    if (fused.length === 0 && !input.entityType) {
       const popular = await this.index.popular({ limit, entityType: 'collection' });
       fused = popular.map((document, i) => ({
         entityType: document.entityType,
@@ -266,7 +311,7 @@ export class SearchService {
       if (fused.length > 0) degraded.push('popular_suggestions');
     }
 
-    const ranked = rankCandidates(fused, laneWeights);
+    const ranked = rankCandidates(fused, laneWeights, Date.now(), prepared.corrected);
     const window = Math.min(ranked.length, Math.max(limit * 5, 50));
     const blended = blendResults(ranked, presentation, window, prepared.corrected);
     const latencyMs = Date.now() - started;
@@ -316,6 +361,98 @@ export class SearchService {
       latencyMs,
       degraded: degraded.length ? degraded : undefined,
     };
+  }
+
+  private async searchEntityPage(args: {
+    input: SearchQueryInput; started: number; query: string; expanded: string;
+    entityType: SearchEntityType; filters?: SearchFilters; intent: BlendedSearchResponse['intent'];
+    laneWeights: ReturnType<typeof detectQueryIntent>['laneWeights']; limit: number;
+    presentation: 'unified' | 'typed';
+  }): Promise<BlendedSearchResponse> {
+    const { input, started, query, expanded, entityType, filters, intent, laneWeights, limit, presentation } = args;
+    const lexicalPage = this.index.lexicalPage!;
+    const getMany = this.index.getMany!;
+    const key = entityCursorKey(query, entityType, filters, input.lexicalOnly);
+    const degraded: string[] = [];
+    let retrievalMode: BlendedSearchResponse['retrievalMode'] = 'hybrid';
+    let cursor: EntityCursor;
+    let page: BlendedSearchResponse['results'];
+
+    if (!input.cursor) {
+      const headLimit = Math.max(limit, 60);
+      let vector: Awaited<ReturnType<SearchIndexPort['vectorSearch']>> = [];
+      let vectorError: unknown = null;
+      const lexicalRequest = lexicalPage.call(this.index, { q: expanded, exact: query,
+        entityType, filters, limit: headLimit });
+      const vectorRequest = input.lexicalOnly ? Promise.resolve() : this.embedQueryCached(query)
+        .then(embedding => this.index.vectorSearch({ vector: embedding,
+          entityTypes: [entityType], filters, limit: headLimit }))
+        .then(hits => { vector = hits; })
+        .catch(error => { vectorError = error; });
+      let [lexical] = await Promise.all([lexicalRequest, vectorRequest]);
+      if (input.lexicalOnly) {
+        retrievalMode = 'lexical_only';
+        degraded.push('lexical_only_requested');
+      } else if (vectorError) {
+        retrievalMode = 'lexical_only';
+        degraded.push('vector_unavailable');
+        emitSearchOps('SearchDegraded', { reason: 'embedding_or_vector_failed',
+          message: vectorError instanceof Error ? vectorError.message : String(vectorError) });
+      }
+      let fallback = false;
+      if (!lexical.candidates.length && !vector.length && expanded !== query) {
+        lexical = await lexicalPage.call(this.index, { q: query, exact: query, entityType, filters, limit: headLimit });
+        fallback = true;
+      }
+      const ranked = rankCandidates(fuseHybridCandidates(lexical.candidates, vector), laneWeights, Date.now(), query);
+      const ids = ranked.map(hit => hit.id);
+      page = ranked.slice(0, limit).map(hit => toResultCard(hit, query));
+      cursor = { v: 2, key, ids, pos: Math.min(limit, ids.length), after: lexical.after,
+        hasTail: lexical.hasMore, fallback, headMode: retrievalMode === 'hybrid' ? 'hybrid' : 'lexical_only' };
+    } else {
+      cursor = readEntityCursor(input.cursor, key);
+      retrievalMode = 'lexical_only';
+      if (cursor.pos < cursor.ids.length) {
+        retrievalMode = cursor.headMode;
+        const ids = cursor.ids.slice(cursor.pos, cursor.pos + limit);
+        const docs = await getMany.call(this.index, entityType, ids, filters);
+        const byId = new Map(docs.map(doc => [doc.id, doc]));
+        page = ids.flatMap(id => {
+          const doc = byId.get(id);
+          return doc ? [toResultCard({ entityType, id, document: doc,
+            score: 0, lexicalScore: 0, vectorScore: 0 }, query)] : [];
+        });
+        cursor.pos += ids.length;
+        if (cursor.pos === cursor.ids.length && cursor.hasTail && page.length < limit) {
+          const lexical = await lexicalPage.call(this.index, { q: cursor.fallback ? query : expanded,
+            exact: query, entityType, filters, limit: limit - page.length,
+            after: cursor.after, excludeIds: cursor.ids });
+          page.push(...lexical.candidates.map(hit => toResultCard({ ...hit, score: hit.score,
+            lexicalScore: hit.score, vectorScore: 0 }, query)));
+          cursor.after = lexical.after;
+          cursor.hasTail = lexical.hasMore;
+        }
+      } else if (cursor.hasTail) {
+        const lexical = await lexicalPage.call(this.index, { q: cursor.fallback ? query : expanded, exact: query,
+          entityType, filters, limit, after: cursor.after, excludeIds: cursor.ids });
+        page = lexical.candidates.map(hit => toResultCard({ ...hit, score: hit.score,
+          lexicalScore: hit.score, vectorScore: 0 }, query));
+        cursor.after = lexical.after;
+        cursor.hasTail = lexical.hasMore;
+      } else page = [];
+    }
+
+    const nextCursor = cursor.pos < cursor.ids.length || cursor.hasTail ? writeEntityCursor(cursor) : null;
+    const latencyMs = Date.now() - started;
+    this.telemetry.record({ eventType: page.length ? 'query' : 'zero_result', query,
+      userId: input.userId ?? null, resultIds: page.map(r => r.id), latencyMs,
+      intent, retrievalMode, occurredAt: new Date().toISOString() });
+    emitSearchOps('SearchQueryServed', { intent, retrievalMode, hits: page.length, latencyMs, degraded });
+    const lanes = { collections: page.filter(r => r.entityType === 'collection'),
+      creators: page.filter(r => r.entityType === 'creator'), products: page.filter(r => r.entityType === 'product') };
+    return { matchingResultCount: page.length, fallbackResultCount: 0, query, intent, retrievalMode,
+      presentation, results: page, lanes, nextCursor, zeroResult: page.length === 0 && !input.cursor,
+      latencyMs, degraded: degraded.length ? degraded : undefined };
   }
 
   async autocomplete(params: {
@@ -437,13 +574,26 @@ export class SearchService {
   private async embedQueryCached(normalizedQuery: string): Promise<number[]> {
     const key = `${this.embeddings.modelId}:${this.embeddings.version}:${this.embeddings.dimension}:${normalizedQuery}`;
     const hit = this.queryEmbedCache.get(key);
-    if (hit && hit.expiresAt > Date.now()) return hit.embedding;
-    const r = await this.embeddings.embedQuery(normalizedQuery);
-    this.queryEmbedCache.set(key, {
-      embedding: r.embedding,
-      expiresAt: Date.now() + this.queryEmbedTtlMs,
-    });
-    return r.embedding;
+    if (hit && hit.expiresAt > Date.now()) {
+      this.queryEmbedCache.delete(key);
+      this.queryEmbedCache.set(key, hit);
+      return hit.embedding;
+    }
+    this.queryEmbedCache.delete(key);
+    const inFlight = this.queryEmbedInFlight.get(key);
+    if (inFlight) return inFlight;
+    const pending = this.embeddings.embedQuery(normalizedQuery).then(result => {
+      this.queryEmbedCache.set(key, { embedding: result.embedding,
+        expiresAt: Date.now() + this.queryEmbedTtlMs });
+      while (this.queryEmbedCache.size > this.queryEmbedMaxEntries) {
+        const oldest = this.queryEmbedCache.keys().next().value;
+        if (!oldest) break;
+        this.queryEmbedCache.delete(oldest);
+      }
+      return result.embedding;
+    }).finally(() => { this.queryEmbedInFlight.delete(key); });
+    this.queryEmbedInFlight.set(key, pending);
+    return pending;
   }
 }
 

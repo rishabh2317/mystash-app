@@ -1,7 +1,6 @@
-import { FIND_ROUTES } from '@/src/ui/find';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter, type Href } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Keyboard,
@@ -19,20 +18,17 @@ import { PublicCollectionTile } from '@/components/collection/PublicCollectionTi
 import { ProductCard } from '@/components/commerce/ProductCard';
 import { StashCategoryCard } from '@/components/commerce/StashCategoryCard';
 import { CreatorCard } from '@/components/creator/CreatorCard';
-import { SearchModeSwitch, type SearchUtilityMode } from '@/components/search/SearchModeSwitch';
+import { SearchResultsTabs } from '@/components/search/SearchResultsTabs';
 import {
   SearchDiscoverSkeleton,
   SearchMoreSkeleton,
   SearchResultsSkeleton,
 } from '@/components/search/SearchSkeletonLayouts';
-import { YourActivitySection } from '@/components/search/YourActivitySection';
 import { ContentRail } from '@/components/ui/ContentRail';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Text } from '@/components/ui/Text';
 import { useAuth } from '@/contexts/AuthContext';
-import { useCart } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { useImportSharesPoll } from '@/src/hooks/useImportSharesPoll';
 import {
   dedupeById,
   mapSearchCollectionCard,
@@ -48,10 +44,13 @@ import {
   searchAutocomplete,
   searchBlended,
   type AutocompleteSuggestion,
+  type SearchEntityType,
   type SearchResultCard,
 } from '@/src/services/searchApi';
 import { fetchVideos } from '@/src/services/supabase';
 import { shouldResetSearchSession } from '@/src/state/searchSession';
+import { emptySearchSession, mergeSearchSections, replaceSearchQuery as nextSearchSession,
+  searchResponseIsCurrent, type SearchSections, type SearchTabState, type SearchSession } from '@/src/state/searchResultSession';
 import { outlineCardChrome } from '@/src/theme/tokens';
 import { typeStyle } from '@/src/theme/typography';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
@@ -77,15 +76,8 @@ import {
   SEARCH_DISCOVER_COPY,
   searchDiscoverHasContent,
 } from '@/src/ui/searchDiscoverUx';
-import {
-  popularFallbackMessage,
-  searchConstraintChipLabel,
-  searchSectionOrder,
-  searchSectionTitle,
-  type SearchSectionKind,
-} from '@/src/ui/searchSections';
-import { shareActivityLandingItems } from '@/src/ui/shareActivity';
-import { resolveListLoadState, resourceIdentity, retainLoadedContent } from '@/src/ui/contentLoadState';
+import { searchConstraintChipLabel } from '@/src/ui/searchSections';
+import { resolveListLoadState } from '@/src/ui/contentLoadState';
 
 const DEBOUNCE_MS = 300;
 const PAGE_LIMIT = 20;
@@ -98,18 +90,6 @@ const EMPTY_DISCOVER: SearchDiscoverLanding = {
 };
 
 const SEARCH_PLACEHOLDER = 'Search products, creators, collections';
-
-type SearchSections = {
-  collections: CollectionViewModel[];
-  creators: CreatorViewModel[];
-  products: CatalogProductViewModel[];
-};
-
-const EMPTY_SECTIONS: SearchSections = {
-  collections: [],
-  creators: [],
-  products: [],
-};
 
 async function cardsToSections(cards: {
   collections: SearchResultCard[];
@@ -132,14 +112,6 @@ async function cardsToSections(cards: {
   return { collections, creators, products };
 }
 
-function mergeSections(prev: SearchSections, next: SearchSections): SearchSections {
-  return {
-    collections: dedupeById([...prev.collections, ...next.collections], (c) => c.collectionId),
-    creators: dedupeById([...prev.creators, ...next.creators], (c) => c.userId),
-    products: dedupeById([...prev.products, ...next.products], (p) => p.id),
-  };
-}
-
 function partitionResults(results: SearchResultCard[]): {
   collections: SearchResultCard[];
   creators: SearchResultCard[];
@@ -153,17 +125,15 @@ function partitionResults(results: SearchResultCard[]): {
 }
 
 type ListRow =
-  | { key: string; kind: 'activity' }
   | { key: string; kind: 'discover_posts' }
   | { key: string; kind: 'discover_product_collections' }
   | { key: string; kind: 'discover_products' }
   | { key: string; kind: 'landing_empty' }
   | { key: string; kind: 'banner'; text: string }
   | { key: string; kind: 'status'; text: string; action?: () => void }
-  | { key: string; kind: 'section'; title: string }
-  | { key: string; kind: 'collection'; collection: CollectionViewModel }
+  | { key: string; kind: 'collection_row'; collections: CollectionViewModel[] }
   | { key: string; kind: 'creator'; creator: CreatorViewModel }
-  | { key: string; kind: 'product'; product: CatalogProductViewModel }
+  | { key: string; kind: 'product_row'; products: CatalogProductViewModel[] }
   | { key: string; kind: 'skeleton_discover' }
   | { key: string; kind: 'skeleton_search' }
   | { key: string; kind: 'skeleton_more' }
@@ -172,42 +142,29 @@ type ListRow =
 export default function SearchScreen() {
   const router = useRouter();
   const pathname = usePathname();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, fontScale } = useWindowDimensions();
   const { tokens } = useThemeMode();
   const { user } = useAuth();
-  const { refresh: refreshCart } = useCart();
   const onBuy = useProductBuyHandler();
   const onAddToCart = useProductAddToCartHandler();
-  const onImportBecameReady = useCallback(() => {
-    void refreshCart();
-  }, [refreshCart]);
-  const { shares, loaded: sharesLoaded, refresh: refreshShares } = useImportSharesPoll({
-    enabled: Boolean(user),
-    onBecameReady: onImportBecameReady,
-  });
-  const activityItems = useMemo(() => shareActivityLandingItems(shares), [shares]);
-
-  const [mode, setMode] = useState<SearchUtilityMode>('search');
   const [input, setInput] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [sections, setSections] = useState<SearchSections>(EMPTY_SECTIONS);
+  const [selectedCategory, setSelectedCategory] = useState<SearchEntityType>('collection');
+  const [session, setSession] = useState<SearchSession>(() => emptySearchSession());
   const [discover, setDiscover] = useState<SearchDiscoverLanding>(EMPTY_DISCOVER);
   const [discoverLoading, setDiscoverLoading] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [zeroResult, setZeroResult] = useState(false);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [searchIntent, setSearchIntent] = useState<string | null>(null);
-  const [searchDegraded, setSearchDegraded] = useState<string[]>([]);
-
-  const loadGen = useRef(0);
-  const activeQueryRef = useRef('');
-  const measurementRef=useRef<{requestId:string|null;results:{id:string;entityType:string}[]}>({requestId:null,results:[]});
+  const sessionRef = useRef(session), inputRef = useRef(input), queryEpoch = useRef(0);
+  const tabRequestRef = useRef<Record<SearchEntityType, number>>({ collection: 0, creator: 0, product: 0 });
+  const busyRef = useRef<Record<SearchEntityType, boolean>>({ collection: false, creator: false, product: false });
+  const previousOwnerRef = useRef(user?.id ?? null);
+  const measurementRef=useRef<Record<SearchEntityType,{requestId:string|null;results:{id:string;entityType:string}[]}>>({
+    collection:{requestId:null,results:[]},creator:{requestId:null,results:[]},product:{requestId:null,results:[]}});
   const prevPathRef = useRef<string | null>(null);
+  sessionRef.current = session;
+  inputRef.current = input;
 
   const text = tokens.color.text;
   const muted = tokens.color.textMuted;
@@ -217,6 +174,8 @@ export default function SearchScreen() {
   const postCardWidth = Math.min(148, Math.round(screenWidth * 0.38));
   const productCardWidth = Math.min(148, Math.round((screenWidth - GUTTER * 2 - GRID_GAP) / 2.15));
   const categoryCardWidth = (screenWidth - GUTTER * 2 - GRID_GAP) / 2;
+  const resultColumns = screenWidth < 360 || fontScale >= 1.6 ? 1 : 2;
+  const resultCardWidth = (screenWidth - GUTTER * 2 - GRID_GAP * (resultColumns - 1)) / resultColumns;
   const railGap = tokens.space.sm;
 
   const loadDiscover = useCallback(async () => {
@@ -237,131 +196,117 @@ export default function SearchScreen() {
     void loadDiscover();
   }, [loadDiscover]);
 
-  const resetTypedSearch = useCallback(() => {
-    loadGen.current += 1;
-    activeQueryRef.current = '';
-    setInput('');
-    setDebouncedQuery('');
-    setSections(EMPTY_SECTIONS);
-    setLoading(false);
-    setLoadingMore(false);
-    setRefreshing(false);
-    setError(null);
-    setZeroResult(false);
-    setNextCursor(null);
+  const replaceQuery = useCallback((value: string) => {
+    const query = value.trim();
+    inputRef.current = value;
+    setInput(value);
+    if (query !== sessionRef.current.query) {
+      queryEpoch.current++;
+      busyRef.current = { collection: false, creator: false, product: false };
+      const next = nextSearchSession(sessionRef.current, query);
+      sessionRef.current = next;
+      setSession(next);
+      setSelectedCategory('collection');
+      measurementRef.current = { collection:{requestId:null,results:[]},creator:{requestId:null,results:[]},product:{requestId:null,results:[]} };
+    }
     setSuggestions([]);
-    setShowSuggestions(false);
-    setSearchIntent(null);
-    setSearchDegraded([]);
   }, []);
+
+  const resetTypedSearch = useCallback(() => {
+    replaceQuery('');
+    setDebouncedQuery('');
+    setRefreshing(false);
+    setShowSuggestions(false);
+  }, [replaceQuery]);
 
   useEffect(() => {
     const prev = prevPathRef.current;
     if (shouldResetSearchSession(prev, pathname)) {
       resetTypedSearch();
-      setMode('search');
     }
     prevPathRef.current = pathname;
   }, [pathname, resetTypedSearch]);
 
   useEffect(() => {
-    if (mode !== 'search') {
-      setDebouncedQuery('');
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
     const t = setTimeout(() => setDebouncedQuery(input.trim()), DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [input, mode]);
+  }, [input]);
 
-  const runSearch = useCallback(async (q: string, opts?: { cursor?: string | null; append?: boolean }) => {
+  const activeTab = session.tabs[selectedCategory];
+  const sections = activeTab.sections;
+  const nextCursor = activeTab.nextCursor;
+  const searchIntent = activeTab.intent;
+  const error = activeTab.error;
+  const loading = activeTab.loading;
+  const loadingMore = activeTab.loadingMore;
+  const zeroResult = activeTab.zeroResult;
+
+  const updateTab = useCallback((query: string, category: SearchEntityType, update: (tab: SearchTabState) => SearchTabState) => {
+    const previous = sessionRef.current;
+    if (previous.query !== query) return;
+    const next = { ...previous, tabs: { ...previous.tabs, [category]: update(previous.tabs[category]) } };
+    sessionRef.current = next;
+    setSession(next);
+  }, []);
+
+  const runSearch = useCallback(async (q: string, category: SearchEntityType, opts?: { append?: boolean; force?: boolean }) => {
     const query = q.trim();
-    if (!query) {
-      setSections(EMPTY_SECTIONS);
-      setNextCursor(null);
-      setZeroResult(false);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
-    const gen = ++loadGen.current;
-    const previousQuery = activeQueryRef.current;
-    const queryIdentity = resourceIdentity('search', query);
-    const previousIdentity = resourceIdentity('search', previousQuery);
-    const append = Boolean(opts?.append && opts.cursor);
-    const keep = append || retainLoadedContent(queryIdentity, previousIdentity);
-    activeQueryRef.current = query;
-
-    if (append) setLoadingMore(true);
-    else {
-      if (!keep) {
-        setSections(EMPTY_SECTIONS);
-        setZeroResult(false);
-        setNextCursor(null);
-      }
-      setLoading(true);
-      setError(null);
-    }
+    if (!query || query !== inputRef.current.trim() || sessionRef.current.query !== query) return;
+    const current = sessionRef.current.tabs[category];
+    const append = Boolean(opts?.append && current.nextCursor);
+    if ((opts?.append && !append) || busyRef.current[category]
+      || (!append && current.loaded && !opts?.force)) return;
+    const cursor = append ? current.nextCursor : null;
+    const epoch = queryEpoch.current, request = ++tabRequestRef.current[category];
+    busyRef.current[category] = true;
+    updateTab(query, category, tab => ({ ...tab, loading: !append && !tab.loaded,
+      refreshing: !append && tab.loaded, loadingMore: append, error: null }));
 
     try {
       const res = await searchBlended({
         q: query,
-        presentation: 'typed',
+        entityType: category,
+        presentation: 'unified',
         measureTypedResults: true,
         limit: PAGE_LIMIT,
-        cursor: opts?.cursor ?? null,
+        cursor,
       });
-      if (gen !== loadGen.current) return;
-
-      if(!opts?.cursor)measurementRef.current={requestId:res.measurementRequestId??null,results:res.results};
+      if (!searchResponseIsCurrent(sessionRef.current, inputRef.current, query, epoch, queryEpoch.current, request, tabRequestRef.current[category])) return;
       const mapped = await cardsToSections(partitionResults(res.results));
-      if (gen !== loadGen.current) return;
-
-      setSections((prev) => (append ? mergeSections(prev, mapped) : mapped));
-      setNextCursor(res.nextCursor);
-      setZeroResult(Boolean(res.zeroResult) && !append);
-      setSearchIntent(typeof res.intent === 'string' ? res.intent : null);
-      setSearchDegraded(Array.isArray(res.degraded) ? res.degraded : []);
-      setError(null);
+      if (!searchResponseIsCurrent(sessionRef.current, inputRef.current, query, epoch, queryEpoch.current, request, tabRequestRef.current[category])) return;
+      if (!append) measurementRef.current[category] = { requestId: res.measurementRequestId ?? null, results: res.results };
+      updateTab(query, category, tab => ({ ...tab, sections: append ? mergeSearchSections(tab.sections, mapped) : mapped,
+        nextCursor: res.nextCursor, zeroResult: !append && Boolean(res.zeroResult),
+        intent: typeof res.intent === 'string' ? res.intent : null, error: null, loaded: true }));
     } catch (e) {
-      if (gen !== loadGen.current) return;
-      if (!append) {
-        setSections(EMPTY_SECTIONS);
-        setNextCursor(null);
-        setZeroResult(false);
-      }
-      setError(e instanceof Error ? e.message : 'Search failed');
+      if (!searchResponseIsCurrent(sessionRef.current, inputRef.current, query, epoch, queryEpoch.current, request, tabRequestRef.current[category])) return;
+      updateTab(query, category, tab => ({ ...tab, loaded: true, error: e instanceof Error ? e.message : 'Search failed' }));
     } finally {
-      if (gen === loadGen.current) {
-        setLoading(false);
-        setLoadingMore(false);
-        setRefreshing(false);
-      }
+      if (request === tabRequestRef.current[category]) busyRef.current[category] = false;
+      if (epoch === queryEpoch.current && request === tabRequestRef.current[category])
+        updateTab(query, category, tab => ({ ...tab, loading: false, loadingMore: false, refreshing: false }));
     }
-  }, []);
+  }, [updateTab]);
 
   useEffect(() => {
-    if (mode !== 'search' || !debouncedQuery) {
-      if (!debouncedQuery) {
-        loadGen.current += 1;
-        activeQueryRef.current = '';
-        setSections(EMPTY_SECTIONS);
-        setNextCursor(null);
-        setZeroResult(false);
-        setError(null);
-        setLoading(false);
-        setSuggestions([]);
-        setShowSuggestions(false);
-      }
-      return;
-    }
-    void runSearch(debouncedQuery);
-  }, [debouncedQuery, mode, runSearch]);
+    if (debouncedQuery && debouncedQuery === inputRef.current.trim()) void runSearch(debouncedQuery, selectedCategory);
+  }, [debouncedQuery, selectedCategory, runSearch]);
 
   useEffect(() => {
-    if (mode !== 'search') return;
+    const owner = user?.id ?? null;
+    if (previousOwnerRef.current === owner) return;
+    previousOwnerRef.current = owner;
+    queryEpoch.current++;
+    busyRef.current = { collection: false, creator: false, product: false };
+    const query = inputRef.current.trim(), next = emptySearchSession(query);
+    sessionRef.current = next;
+    setSession(next);
+    setSelectedCategory('collection');
+    setSuggestions([]);
+    if (query) void runSearch(query, 'collection');
+  }, [user?.id, runSearch]);
+
+  useEffect(() => {
     const q = input.trim();
     if (q.length < 2) {
       setSuggestions([]);
@@ -384,23 +329,24 @@ export default function SearchScreen() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [input, mode]);
+  }, [input, user?.id]);
 
   const emitClick = useCallback(
     (entityType: 'collection' | 'creator' | 'product', id: string) => {
-      const q = activeQueryRef.current || debouncedQuery;
+      const q = sessionRef.current.query;
       if (!q) return;
+      const measurement = measurementRef.current[entityType];
       void recordSearchClick({
         query: q,
         clickedId: id,
         clickedEntityType: entityType,
-        requestId:measurementRef.current.requestId,
-        rank:measurementRef.current.results.findIndex(r=>r.id===id&&r.entityType===entityType),
+        requestId:measurement.requestId,
+        rank:measurement.results.findIndex(r=>r.id===id&&r.entityType===entityType),
       }).catch(() => {
         /* analytics must not block nav */
       });
     },
-    [debouncedQuery],
+    [],
   );
 
   const onCollectionPress = useCallback(
@@ -418,6 +364,7 @@ export default function SearchScreen() {
       if (openSearchReel) {
         beginSearchReelSession({
           query: debouncedQuery,
+          entityType: 'collection',
           collections: sections.collections,
           startCollectionId: collection.collectionId,
           nextCursor,
@@ -492,6 +439,7 @@ export default function SearchScreen() {
         if (openSearchReel) {
           beginSearchReelSession({
             query: debouncedQuery,
+            entityType: 'collection',
             collections: sections.collections,
             startCollectionId: s.id,
             nextCursor,
@@ -507,34 +455,28 @@ export default function SearchScreen() {
         router.push(productPagePath(s.id) as Href);
         return;
       }
-      setInput(s.text);
+      replaceQuery(s.text);
       setDebouncedQuery(s.text.trim());
     },
-    [debouncedQuery, emitClick, nextCursor, router, sections.collections],
+    [debouncedQuery, emitClick, nextCursor, replaceQuery, router, sections.collections],
   );
 
-  const onModeChange = useCallback((next: SearchUtilityMode) => {
-    if (next === 'paste_url') { router.push(FIND_ROUTES.capture as Href); return; }
-    setMode(next);
-    setShowSuggestions(false);
-  }, [router]);
-
   const onLoadMore = useCallback(() => {
-    if (mode !== 'search' || !debouncedQuery || !nextCursor || loading || loadingMore) return;
-    void runSearch(debouncedQuery, { cursor: nextCursor, append: true });
-  }, [debouncedQuery, nextCursor, loading, loadingMore, mode, runSearch]);
+    if (!debouncedQuery || debouncedQuery !== input.trim() || !nextCursor || loading || loadingMore) return;
+    void runSearch(debouncedQuery, selectedCategory, { append: true });
+  }, [debouncedQuery, input, nextCursor, loading, loadingMore, selectedCategory, runSearch]);
 
   const onRefresh = useCallback(() => {
-    if (mode === 'paste_url' || !debouncedQuery) {
+    if (!input.trim()) {
       setRefreshing(true);
-      void Promise.all([refreshShares(), loadDiscover()]).finally(() => setRefreshing(false));
+      void loadDiscover().finally(() => setRefreshing(false));
       return;
     }
-    setRefreshing(true);
-    void runSearch(debouncedQuery);
-  }, [debouncedQuery, loadDiscover, mode, refreshShares, runSearch]);
+    if (debouncedQuery === input.trim()) void runSearch(debouncedQuery, selectedCategory, { force: true });
+  }, [debouncedQuery, input, loadDiscover, runSearch, selectedCategory]);
 
-  const hasQuery = mode === 'search' && debouncedQuery.length > 0;
+  const hasQuery = input.trim().length > 0;
+  const queryReady = debouncedQuery === input.trim();
   const hasResults =
     sections.collections.length > 0 ||
     sections.creators.length > 0 ||
@@ -546,11 +488,11 @@ export default function SearchScreen() {
     productCollectionRows.push(discover.productCollections.slice(i, i + 2));
   }
 
-  const resultCount =
-    sections.collections.length + sections.creators.length + sections.products.length;
+  const resultCount = selectedCategory === 'collection' ? sections.collections.length
+    : selectedCategory === 'creator' ? sections.creators.length : sections.products.length;
   const searchLoad = resolveListLoadState({
     itemCount: resultCount,
-    fetching: loading,
+    fetching: !queryReady || !activeTab.loaded || loading || activeTab.refreshing,
     fetchingMore: loadingMore,
     error: Boolean(error),
   });
@@ -561,9 +503,6 @@ export default function SearchScreen() {
 
   const rows: ListRow[] = [];
   if (!hasQuery) {
-    if (user) {
-      rows.push({ key: 'activity', kind: 'activity' });
-    }
     if (discoverLoad === 'skeleton') {
       rows.push({ key: 'skeleton_discover', kind: 'skeleton_discover' });
     } else {
@@ -580,14 +519,14 @@ export default function SearchScreen() {
         rows.push({ key: 'landing_empty', kind: 'landing_empty' });
       }
     }
-  } else if (searchLoad === 'skeleton') {
+  } else if (!queryReady || searchLoad === 'skeleton') {
     rows.push({ key: 'skeleton_search', kind: 'skeleton_search' });
   } else if (error && !hasResults) {
     rows.push({
       key: 'error',
       kind: 'status',
       text: error,
-      action: () => void runSearch(debouncedQuery),
+      action: () => void runSearch(debouncedQuery, selectedCategory, { force: true }),
     });
   } else if (zeroResult || (!loading && !hasResults)) {
     rows.push({
@@ -596,49 +535,24 @@ export default function SearchScreen() {
       text: `No results for “${debouncedQuery}”`,
     });
   } else {
-    const fallback = popularFallbackMessage(searchDegraded);
-    if (fallback) {
-      rows.push({ key: 'banner-fallback', kind: 'banner', text: fallback });
-    }
+    if (error) rows.push({ key: 'banner-error', kind: 'banner', text: 'Couldn’t refresh. Your results are still here.' });
     const constraint = searchConstraintChipLabel(searchIntent, debouncedQuery);
-    if (constraint) {
+    if (constraint && selectedCategory === 'product') {
       rows.push({ key: 'banner-constraint', kind: 'banner', text: constraint });
     }
-
-    const order = searchSectionOrder(searchIntent);
-    const pushSection = (kind: SearchSectionKind) => {
-      if (kind === 'collections' && sections.collections.length) {
-        rows.push({
-          key: 'sec-col',
-          kind: 'section',
-          title: searchSectionTitle('collections', searchIntent),
-        });
-        for (const c of sections.collections) {
-          rows.push({ key: `col-${c.collectionId}`, kind: 'collection', collection: c });
-        }
+    if (selectedCategory === 'collection') {
+      for (let i = 0; i < sections.collections.length; i += resultColumns) {
+        const collections = sections.collections.slice(i, i + resultColumns);
+        rows.push({ key: `col-${collections.map(c => c.collectionId).join('-')}`, kind: 'collection_row', collections });
       }
-      if (kind === 'creators' && sections.creators.length) {
-        rows.push({
-          key: 'sec-cre',
-          kind: 'section',
-          title: searchSectionTitle('creators', searchIntent),
-        });
-        for (const c of sections.creators) {
-          rows.push({ key: `cre-${c.userId}`, kind: 'creator', creator: c });
-        }
+    } else if (selectedCategory === 'creator') {
+      for (const creator of sections.creators) rows.push({ key: `cre-${creator.userId}`, kind: 'creator', creator });
+    } else {
+      for (let i = 0; i < sections.products.length; i += resultColumns) {
+        const products = sections.products.slice(i, i + resultColumns);
+        rows.push({ key: `prod-${products.map(p => p.id).join('-')}`, kind: 'product_row', products });
       }
-      if (kind === 'products' && sections.products.length) {
-        rows.push({
-          key: 'sec-prod',
-          kind: 'section',
-          title: searchSectionTitle('products', searchIntent),
-        });
-        for (const p of sections.products) {
-          rows.push({ key: `prod-${p.id}`, kind: 'product', product: p });
-        }
-      }
-    };
-    for (const kind of order) pushSection(kind);
+    }
     if (searchLoad === 'contentPaginating') {
       rows.push({ key: 'skeleton_more', kind: 'skeleton_more' });
     } else if (nextCursor || loadingMore) {
@@ -681,8 +595,8 @@ export default function SearchScreen() {
           <TextInput
             value={input}
             onChangeText={(v) => {
-              setInput(v);
-                                  if (mode === 'search') setShowSuggestions(true);
+              replaceQuery(v);
+              setShowSuggestions(true);
             }}
             placeholder={placeholder}
             placeholderTextColor={muted}
@@ -698,7 +612,7 @@ export default function SearchScreen() {
               Keyboard.dismiss();
             }}
             onFocus={() => {
-              if (mode === 'search' && suggestions.length > 0) setShowSuggestions(true);
+              if (suggestions.length > 0) setShowSuggestions(true);
             }}
             style={[
               styles.input,
@@ -711,8 +625,8 @@ export default function SearchScreen() {
             ]}
           />
         </View>
-        <SearchModeSwitch mode={mode} onChange={onModeChange} />
-        {mode === 'search' && showSuggestions && suggestions.length > 0 ? (
+        {hasQuery ? <SearchResultsTabs selected={selectedCategory} onSelect={setSelectedCategory} /> : null}
+        {showSuggestions && suggestions.length > 0 ? (
           <View
             style={[
               styles.suggestBox,
@@ -754,24 +668,12 @@ export default function SearchScreen() {
           },
         ]}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={text} />
+          <RefreshControl refreshing={hasQuery ? activeTab.refreshing : refreshing} onRefresh={onRefresh} tintColor={text} />
         }
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.4}
         onScrollBeginDrag={() => setShowSuggestions(false)}
         renderItem={({ item }) => {
-          if (item.kind === 'activity') {
-            return (
-              <YourActivitySection
-                presentation="finds"
-                items={activityItems}
-                loading={!sharesLoaded}
-                onRefresh={async () => {
-                  await refreshShares();
-                }}
-              />
-            );
-          }
           if (item.kind === 'discover_posts') {
             return (
               <View style={{ gap: tokens.space.md }}>
@@ -874,10 +776,10 @@ export default function SearchScreen() {
             return <SearchDiscoverSkeleton />;
           }
           if (item.kind === 'skeleton_search') {
-            return <SearchResultsSkeleton />;
+            return <SearchResultsSkeleton entityType={selectedCategory} />;
           }
           if (item.kind === 'skeleton_more') {
-            return <SearchMoreSkeleton />;
+            return <SearchMoreSkeleton entityType={selectedCategory} />;
           }
           if (item.kind === 'status') {
             return (
@@ -893,15 +795,12 @@ export default function SearchScreen() {
               </View>
             );
           }
-          if (item.kind === 'section') {
-            return <SectionHeader title={item.title} />;
-          }
-          if (item.kind === 'collection') {
-            return (
-              <View style={styles.tileWrap}>
-                <CollectionTile collection={item.collection} onPress={onCollectionPress} />
-              </View>
-            );
+          if (item.kind === 'collection_row') {
+            return <View style={{ flexDirection: 'row', gap: GRID_GAP }}>
+              {item.collections.map(collection => <View key={collection.collectionId} style={{ width: resultCardWidth }}>
+                <CollectionTile collection={collection} onPress={onCollectionPress} />
+              </View>)}
+            </View>;
           }
           if (item.kind === 'creator') {
             return (
@@ -910,19 +809,14 @@ export default function SearchScreen() {
               </View>
             );
           }
-          if (item.kind === 'product') {
-            return (
-              <View style={styles.cardWrap}>
-                <ProductCard
-                  product={item.product}
-                  variant="related"
-                  showIndexPrice
-                  onPress={onProductPress}
-                  onAddToCart={item.product.catalogProductId ? onAddToCart : undefined}
-                  onBuy={item.product.catalogProductId ? onBuy : undefined}
-                />
-              </View>
-            );
+          if (item.kind === 'product_row') {
+            return <View style={{ flexDirection: 'row', gap: GRID_GAP }}>
+              {item.products.map(product => <View key={product.id} style={{ width: resultCardWidth }}>
+                <ProductCard product={product} variant="related" showIndexPrice onPress={onProductPress}
+                  onAddToCart={product.catalogProductId ? onAddToCart : undefined}
+                  onBuy={product.catalogProductId ? onBuy : undefined} />
+              </View>)}
+            </View>;
           }
           return <View style={styles.footer} />;
         }}

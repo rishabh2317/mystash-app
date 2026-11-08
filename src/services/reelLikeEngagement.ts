@@ -10,7 +10,7 @@ import {
   unlikeReel,
   type ReelLikeSummary,
 } from '@/src/services/engagementApi';
-import { optimisticReelLike } from '@/src/ui/reelLikes';
+import { optimisticReelLike, reconcileVisibleLike } from '@/src/ui/reelLikes';
 
 const cache = new Map<string, ReelLikeSummary>();
 
@@ -31,12 +31,16 @@ export function useReelLikeEngagement(
   const [likePending, setLikePending] = useState(false);
   const requestId = useRef(0);
   const pendingRef = useRef(false);
+  const visibleRef = useRef<ReelLikeSummary>({ liked: false, likeCount: 0 });
+  const confirmedRef = useRef<ReelLikeSummary>({ liked: false, likeCount: 0 });
 
   useEffect(() => {
     const id = ++requestId.current;
     pendingRef.current = false;
     setLikePending(false);
     if (!reelId) {
+      visibleRef.current = { liked: false, likeCount: 0 };
+      confirmedRef.current = visibleRef.current;
       setLiked(false);
       setLikeCount(0);
       return;
@@ -44,21 +48,30 @@ export function useReelLikeEngagement(
 
     const key = cacheKey(reelId, user?.id);
     const cached = cache.get(key);
+    visibleRef.current = cached ?? { liked: false, likeCount: 0 };
+    confirmedRef.current = cached ?? { liked: false, likeCount: 0 };
     if (cached) {
       setLiked(cached.liked);
       setLikeCount(cached.likeCount);
+    } else {
+      setLiked(false);
+      setLikeCount(0);
     }
 
     let cancelled = false;
     void getReelLikeSummary(reelId)
       .then((summary) => {
         if (cancelled || requestId.current !== id) return;
-        cache.set(key, summary);
-        setLiked(summary.liked);
-        setLikeCount(summary.likeCount);
+        confirmedRef.current = summary;
+        if (!pendingRef.current) {
+          visibleRef.current = summary;
+          cache.set(key, summary);
+          setLiked(summary.liked);
+          setLikeCount(summary.likeCount);
+        }
       })
       .catch(() => {
-        if (cancelled || requestId.current !== id || cached) return;
+        if (cancelled || requestId.current !== id || cached || pendingRef.current) return;
         setLiked(false);
         setLikeCount(0);
       });
@@ -68,36 +81,47 @@ export function useReelLikeEngagement(
   }, [reelId, user?.id]);
 
   const onLikePress = useCallback(async () => {
-    if (!reelId || pendingRef.current) return;
+    if (!reelId) return;
     if (!user) {
       Alert.alert('Like Reel', 'Sign in to like Reels.');
       router.push('/(tabs)/profile');
       return;
     }
 
-    const previous: ReelLikeSummary = { liked, likeCount };
-    const optimistic = optimisticReelLike(previous);
-    const id = ++requestId.current;
+    const optimistic = optimisticReelLike(visibleRef.current);
+    visibleRef.current = optimistic;
     const key = cacheKey(reelId, user.id);
-    pendingRef.current = true;
-    setLikePending(true);
     setLiked(optimistic.liked);
     setLikeCount(optimistic.likeCount);
     cache.set(key, optimistic);
+    if (pendingRef.current) return;
+    const id = ++requestId.current;
+    pendingRef.current = true;
+    setLikePending(true);
 
     try {
-      const confirmed = optimistic.liked
-        ? await likeReel(reelId, surface)
-        : await unlikeReel(reelId, surface);
-      if (requestId.current !== id) return;
-      cache.set(key, confirmed);
-      setLiked(confirmed.liked);
-      setLikeCount(confirmed.likeCount);
+      while (confirmedRef.current.liked !== visibleRef.current.liked) {
+        const target = visibleRef.current.liked;
+        const confirmed = target
+          ? await likeReel(reelId, surface)
+          : await unlikeReel(reelId, surface);
+        if (requestId.current !== id) return;
+        confirmedRef.current = confirmed;
+        const next = reconcileVisibleLike(confirmed, visibleRef.current.liked);
+        visibleRef.current = next;
+        cache.set(key, next);
+        setLiked(next.liked);
+        setLikeCount(next.likeCount);
+      }
     } catch (error) {
       if (requestId.current !== id) return;
-      cache.set(key, previous);
-      setLiked(previous.liked);
-      setLikeCount(previous.likeCount);
+      const actual = await getReelLikeSummary(reelId).catch(() => confirmedRef.current);
+      if (requestId.current !== id) return;
+      confirmedRef.current = actual;
+      visibleRef.current = actual;
+      cache.set(key, actual);
+      setLiked(actual.liked);
+      setLikeCount(actual.likeCount);
       Alert.alert(
         'Like Reel',
         error instanceof Error ? error.message : 'Could not update this Like.',
@@ -108,7 +132,7 @@ export function useReelLikeEngagement(
         setLikePending(false);
       }
     }
-  }, [likeCount, liked, reelId, router, surface, user]);
+  }, [reelId, router, surface, user]);
 
   return {
     reelId,

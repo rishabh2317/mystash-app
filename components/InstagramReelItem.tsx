@@ -24,6 +24,7 @@ interface InstagramReelItemProps {
   onLoadError?: () => void;
   video: Video;
   isActive: boolean;
+  isMuted?: boolean;
   fadeMs?: number;
   webViewRef?: React.RefObject<any>;
 }
@@ -36,6 +37,7 @@ function logPlayback(trace: PlaybackTrace, event: Parameters<typeof playbackLogL
 export default function InstagramReelItem({
   video,
   isActive,
+  isMuted = true,
   fadeMs: _fadeMs = 300,
   webViewRef: externalWebViewRef,
   onReady,
@@ -45,6 +47,7 @@ export default function InstagramReelItem({
   const internalWebViewRef = useRef<WebView>(null);
   const webViewRef = externalWebViewRef || internalWebViewRef;
   const traceRef = useRef<PlaybackTrace | null>(null);
+  const posterFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   const embedUrl = video.embed_url?.trim() || '';
   const mountPlayer = Boolean(isActive && embedUrl);
   const revealed = mountPlayer && revealedUrl === embedUrl;
@@ -57,11 +60,17 @@ export default function InstagramReelItem({
     traceRef.current = trace;
     logPlayback(trace, 'mount', notePlayerMounted());
     return () => {
+      if (posterFallback.current) clearTimeout(posterFallback.current);
       recordPlaybackMark(trace, 'release');
       logPlayback(trace, 'release', notePlayerReleased());
       if (traceRef.current === trace) traceRef.current = null;
     };
   }, [embedUrl, mountPlayer]);
+
+  useEffect(() => {
+    if (!mountPlayer) return;
+    webViewRef.current?.injectJavaScript(`window.__mystashSetMuted?.(${isMuted}); true;`);
+  }, [isMuted, mountPlayer, webViewRef]);
 
   return (
     <View style={styles.container}>
@@ -99,17 +108,20 @@ export default function InstagramReelItem({
                 if (!trace) return;
                 recordPlaybackMark(trace, 'loadEnd');
                 logPlayback(trace, 'loadEnd', playbackPlayerCount());
+                webViewRef.current?.injectJavaScript(`window.__mystashSetMuted?.(${isMuted}); true;`);
               }}
               onMessage={(event) => {
                 const message = event.nativeEvent.data;
                 const trace = traceRef.current;
                 if (!trace) return;
                 if (message === 'playerVisible') {
-                  onReady?.();
+                  webViewRef.current?.injectJavaScript(`window.__mystashSetMuted?.(${isMuted}); true;`);
                   logPlayback(trace, 'playerVisible', playbackPlayerCount());
-                  setRevealedUrl(embedUrl);
+                  if (posterFallback.current) clearTimeout(posterFallback.current);
+                  posterFallback.current = setTimeout(() => { setRevealedUrl(embedUrl); onReady?.(); }, 4500);
                 }
                 if (shouldRevealFeedFrame(message)) {
+                  if (posterFallback.current) clearTimeout(posterFallback.current);
                   onReady?.();
                   recordPlaybackMark(trace, 'firstFrame');
                   logPlayback(trace, 'firstFrame', playbackPlayerCount());
@@ -117,10 +129,12 @@ export default function InstagramReelItem({
                 }
               }}
               onError={(error) => {
+                if (posterFallback.current) clearTimeout(posterFallback.current);
+                setRevealedUrl(null);
                 onLoadError?.();
                 if (__DEV__) console.warn('Instagram WebView:', error.nativeEvent);
               }}
-              onHttpError={onLoadError ? () => onLoadError() : undefined}
+              onHttpError={onLoadError ? () => { if (posterFallback.current) clearTimeout(posterFallback.current); setRevealedUrl(null); onLoadError(); } : undefined}
             />
           </View>
         ) : null}

@@ -64,20 +64,20 @@ Lifecycle:
 
 ## Embedding space
 
-Each generation stores `_meta`: `embeddingModelId`, `embeddingVersion`, `embeddingDimension`.
+Each generation stores `_meta`: `embeddingModelId`, `embeddingVersion`, `embeddingDimension`, and `mappingVersion`.
 
 Upserts with a mismatched space throw `EmbeddingSpaceMismatchError`.  
-Changing model/version/dimension requires a **new generation** + alias switch (handled by `ensureIndexes` when space differs).
+Changing model/version/dimension or the indexed field mapping requires a **complete new generation**. `ensureIndexes` refuses to switch an existing serving alias to an empty or incompatible generation.
 
 ## Rebuild Search
 
 Operationally:
 
 1. Point `EmbeddingPort` at the chosen model (after Mystash offline benchmark).
-2. `beginRebuild` per entity type (or let `ensureIndexes` create a new generation when space changes).
-3. Re-project documents from Collection / Catalog / User events (or bootstrap `/search/index/*`).
-4. `promoteGeneration`.
-5. Delete old generation when traffic is healthy.
+2. Pause Search index writers, drain or retain their pending events for replay, and verify the OpenSearch target, active aliases, and matching embedding configuration. Keep the API on the old generation during the copy.
+3. Run `scripts/rebuildSearchMapping.ts --apply` with `SEARCH_WRITERS_PAUSED=1`. It creates a new physical generation per type, copies the serving public projections with the new indexed fields, checks source/target counts, then promotes aliases. It retains previous generations for containment. This is an explicit operator action; it is never run by API startup.
+4. Resume writers against the matching backend code, replay events accumulated during the pause, verify Search and indexed updates, then consider deleting old generations after a safe period. The copy requires paused writers to avoid missing concurrent changes; count equality alone does not prove update parity.
+5. For a changed embedding model, re-project and re-embed from Collection / Catalog / User sources instead of copying old vectors. The 500-row dev bootstrap below is not a complete production reindex.
 
 ### Dev bootstrap after DB reset (InMemory or empty OpenSearch)
 

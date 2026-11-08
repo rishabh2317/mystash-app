@@ -1,6 +1,7 @@
 /* Offline SSR and interaction adapters. No app/server, dotenv, providers or native build. */
 const fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),assert=require('node:assert/strict');
 const {Buffer}=require('node:buffer');
+global.__DEV__=false;
 const React=require('react'),{renderToStaticMarkup}=require('react-dom/server'),web=require('react-native-web'),ts=require('typescript');
 const root=path.dirname(require.resolve('../package.json')),cache=new Map(),output=process.env.FIND_RENDER_DIR;
 let tokens,platform='ios',dimensions={width:390,height:844,fontScale:1,scale:1},actions=[],images=[],lists=[],navigation=[],apiCalls=[],keyboardAvoiders=[],overrideStates=null,stateIndex=0,clipboardReads=0,clipboardSupported=true;
@@ -41,6 +42,9 @@ function load(file){
   if(id==='@/src/services/supabase'||id==='./supabase')return{supabase:{auth:{getSession:async()=>({data:{session:{user:{id:transportOwner},access_token:'dummy'}}})}}};
   if(id==='@/components/search/NativePendingShares')return{NativePendingShares:()=>null};
   if(id==='@/components/feed/FeedProductSheet')return{FeedProductSheet:()=>null};
+  if(id==='@/components/place/PlaceSourceVideoModal')return{PlaceSourceVideoModal:()=>null};
+  if(id==='expo-linear-gradient')return{LinearGradient:props=>React.createElement(web.View,{style:props.style},props.children)};
+  if(id==='expo-haptics')return{impactAsync:async()=>{},notificationAsync:async()=>{},selectionAsync:async()=>{},ImpactFeedbackStyle:{Light:'light'},NotificationFeedbackType:{Success:'success'}};
   if(id==='@/src/services/placesApi')return{fetchAllPlaces:async()=>({items:[]})};
   if(id==='@/src/hooks/useDiscoverCreators')return{useDiscoverCreators:()=>({items:[],loading:false})};
   if(id==='@/components/profile/PersonalProfileHeader')return{PersonalProfileHeader:()=>React.createElement(web.Text,null,'@fixture')};
@@ -66,6 +70,7 @@ const Dashboard=load(path.join(root,'app/(tabs)/find/index')).default,Detail=loa
 const {AppTabBar}=load(path.join(root,'components/chrome/AppTabBar')),{FindImage}=load(path.join(root,'components/find/FindImage'));
 const {PersonalProfile}=load(path.join(root,'components/profile/PersonalProfile'));
 const {PendingImageCaptures}=load(path.join(root,'components/find/PendingImageCaptures'));
+const SourceScreen=load(path.join(root,'app/stash/source/[sourceId]')).default;
 const {FindPasteSheet}=load(path.join(root,'components/find/FindPasteSheet'));
 const {FindActivity,FindActivityPreviewRows}=load(path.join(root,'components/find/FindActivity'));
 const {findActivityPreviews}=load(path.join(root,'src/ui/findDashboard'));
@@ -80,11 +85,15 @@ async function main(){
  process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL='https://fixture.invalid';
  for(const theme of ['titanium','nebula'])for(const os of ['android','ios']){
   platform=os;native.Platform.OS=os;tokens=getThemeTokens(theme);
-  for(const width of [320,390,430])for(const scale of [1,1.7]){
+  for(const width of [320,360,390,414,430])for(const scale of [1,1.7]){
    dimensions={width,height:width===320?740:932,fontScale:scale,scale:1};reset();
    const html=render(Dashboard,{},true);
    const selectedTab=actions.find(action=>action['aria-selected']===true);assert.ok(selectedTab, 'Find tab is selected');assert.ok(html.includes('findOrb'), 'Selected Find tab renders its dimensional surface');
-   for(const text of ['Your Finds','Your Activity','All Finds','Completed 1190','Processing 10','Needs Attention 5'])assert.ok(html.includes(text),`${theme}/${os}/${width}: ${text}`);
+   for(const text of ['Your Finds','Your Activity','All Finds','Completed','Processing','Needs Attention','1190','10','5'])assert.ok(html.includes(text),`${theme}/${os}/${width}: ${text}`);
+   const statusButtons=['Processing, 10 finds','Completed, 1190 finds','Needs Attention, 5 finds'].map(label=>actions.find(action=>action.accessibilityLabel===label));
+   assert.ok(statusButtons.every(Boolean),`${theme}/${os}/${width}: all status buttons render`);
+   for(const button of statusButtons){const style=web.StyleSheet.flatten(button.style({pressed:false}));assert.equal(style.flex,1);assert.equal(style.minWidth,0);assert.ok(style.minHeight>=44);}
+   assert.ok((width-2*tokens.space.md-2*tokens.space.xs)/3>=80,`${theme}/${os}/${width}: filter width remains usable`);
    assert.ok(!html.includes('Recently Found'));
    assert.ok(!html.includes('Ready to review')&&!html.includes('Saved 900'));
    assert.equal(html.includes('Not available yet'),false);assert.ok(lists[0].onEndReached&&lists[0].onRefresh);
@@ -191,6 +200,27 @@ async function main(){
   assert.ok(html.indexOf('Creator Studio')>=0);actions.find(action=>action.accessibilityLabel==='Creator Studio').onPress();assert.deepEqual(navigation.at(-1),['push','/(tabs)/create']);checks++;
  }
  reset();tokens=getThemeTokens('titanium');overrideStates=['https://fixture.invalid/broken.jpg'];render(FindImage,{url:'https://fixture.invalid/broken.jpg',cacheKey:'broken',style:{width:80,height:80}});assert.equal(images.length,0);checks++;
+ for(const width of [320,360,414])for(const scale of [1,1.7]){
+  dimensions={width,height:844,fontScale:scale,scale:1};tokens=getThemeTokens('titanium');reset();params={sourceId:'fixture-import'};
+  const products=Array.from({length:4},(_,i)=>({kind:'product',result:{id:`source-product-${i}`,identityKey:`c:catalog-${i}`,title:`Source product ${i}`,imageUrl:null,catalogProductId:`catalog-${i}`,discoveredProductId:null,matchKind:'exact',saved:true,removed:false}}));
+  const places=Array.from({length:3},(_,i)=>({kind:'place',result:{id:`source-place-${i}`,name:`Source place ${i}`,placeId:`place-${i}`,resolution:'resolved',locality:'Paris',city:null,saved:true,removed:false}}));
+  overrideStates=[{owner:'owner',id:'fixture-import',items:[products[0],places[0],...products.slice(1),...places.slice(1)],cursor:'next',source:{...findFixture(),id:'fixture-import',title:'Fixture URL',sourceUrl:'https://example.com/find',outcome:{...findFixture().outcome,savedProducts:4,savedPlaces:3}},places:[],loaded:true,loading:false,refreshing:false,more:false,error:false,moreError:false},null,null];
+  const html=render(SourceScreen);assert.ok(html.includes('Products (4)')&&html.includes('Places (3)')&&html.includes('Fixture URL'));
+  assert.ok(html.includes('Source product 0')&&html.includes('Source place 2'));
+  assert.equal(lists[0].data.filter(row=>row.kind==='products').flatMap(row=>row.items).length,4);
+  assert.equal(lists[0].data.filter(row=>row.kind==='places').flatMap(row=>row.items).length,3);
+  assert.ok(lists[0].onRefresh&&lists[0].onEndReached&&lists[0].ListFooterComponent);
+  const productAction=actions.find(action=>action.accessibilityLabel?.includes('Source product 0')&&action.accessibilityLabel?.includes('Open product details'));
+  assert.ok(productAction);productAction.onPress();assert.ok(navigation.at(-1)[1].includes('/product/catalog-0'));
+  assert.ok(actions.some(action=>action.accessibilityLabel==='Search on Google, Source place 0'));
+  assert.equal(actions.filter(action=>action.accessibilityLabel?.startsWith('Remove ')).length,7);
+  const loaded=overrideStates[0];actions.find(action=>action.accessibilityLabel==='Back').onPress();assert.deepEqual(navigation.at(-1),['replace','/(tabs)/stash']);
+  reset();params={sourceId:'fixture-import'};overrideStates=[{...loaded,refreshing:true,error:true},null,null];const cached=render(SourceScreen);
+  assert.ok(cached.includes('Couldn’t refresh')&&cached.includes('Source product 0'));assert.equal(lists[0].refreshing,true);
+  reset();params={sourceId:'fixture-import'};overrideStates=[{...loaded,items:[],cursor:null,source:{...loaded.source,outcome:{...loaded.source.outcome,savedProducts:0,savedPlaces:0}}},null,null];
+  assert.ok(render(SourceScreen).includes('No saved items remain'));
+  checks+=10;
+ }
  // Exercise actual capture and Stash transports with an injected existing-session boundary.
  process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL='https://fixture.invalid';transportOwner='B';
  const {submitUserImport}=load(path.join(root,'src/services/userImportApi')),{fetchCart}=load(path.join(root,'src/services/cartApi'));
@@ -201,6 +231,6 @@ async function main(){
  transportOwner='A';global.fetch=async(_url,init)=>{assert.ok(init.signal instanceof require('abort-controller').AbortSignal);return Response.json({importId:findFixture().id,created:true,items:[],itemCount:0});};
  assert.equal((await submitUserImport('https://example.com/product','A')).created,true);assert.equal((await fetchCart('A')).itemCount,0);
  const {shareRequest}=load(path.join(root,'src/services/shareReviewApi'));assert.equal((await shareRequest('/history')).created,true);checks+=3;
- console.log(JSON.stringify({passed:true,checks,themes:2,platformAdapters:2,widths:[320,390,430],largeTypeAdapter:true,nativeAbortPolyfill:true,nativeExecution:false,artifacts:output??null}));
+ console.log(JSON.stringify({passed:true,checks,themes:2,platformAdapters:2,widths:[320,360,390,414,430],largeTypeAdapter:true,nativeAbortPolyfill:true,nativeExecution:false,artifacts:output??null}));
 }
 main().finally(()=>{global.fetch=oldFetch;global.AbortController=oldAbort;}).catch(error=>{console.error(error);process.exitCode=1;});

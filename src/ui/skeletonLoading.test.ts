@@ -42,7 +42,7 @@ describe('skeleton loading contracts', () => {
     assert.match(search, /SearchDiscoverSkeleton/);
     assert.match(activity, /ShareActivityCardSkeleton/);
     assert.match(search, /SearchResultsSkeleton/);
-    assert.match(search, /retainLoadedContent/);
+    assert.match(search, /activeTab\.refreshing/);
     assert.doesNotMatch(search, /Searching…/);
 
     const creator = read('app/creator/[username].tsx');
@@ -84,8 +84,8 @@ describe('skeleton loading contracts', () => {
     assert.match(collection, /setDetail\(null\)/);
 
     const search = read('app/(tabs)/search.tsx');
-    assert.match(search, /resourceIdentity\('search', query\)/);
-    assert.match(search, /setSections\(EMPTY_SECTIONS\)/);
+    assert.match(search, /queryEpoch\.current\+\+/);
+    assert.match(search, /nextSearchSession\(sessionRef\.current, query\)/);
 
     const creator = read('app/creator/[username].tsx');
     assert.match(creator, /setCreator\(null\)/);

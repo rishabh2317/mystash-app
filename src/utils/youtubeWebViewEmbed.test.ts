@@ -31,7 +31,10 @@ describe('youtube feed embed', () => {
     assert.equal(extractId('https://www.youtube.com/embed/abcdefghijk'), 'abcdefghijk');
   });
 
-  it('reveals the Watch poster on iframe load and only logs firstFrame', () => {
+  it('keeps the poster until playback with a bounded fallback, and enables single-video looping', () => {
+    assert.match(reelItem, /\{ loop: true \}/);
+    assert.match(src, /q\.set\('playlist', videoId\)/);
+    assert.match(reelItem, /posterFallback\.current = setTimeout/);
     const revealAt = reelItem.indexOf('shouldRevealYoutubePoster(message)');
     const frameAt = reelItem.indexOf('shouldRevealFeedFrame(message)');
     assert.ok(revealAt > 0);

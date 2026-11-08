@@ -33,18 +33,12 @@ function video(partial: Partial<Video> & Pick<Video, 'id'>): Video {
 }
 
 describe('Search Discover UX wiring', () => {
-  it('uses mode switch, Paste URL import path, Activity, and Stash typography', () => {
+  it('keeps Discover shelves and card navigation while Search owns only typed discovery', () => {
     const search = readFileSync(join(ROOT, 'app/(tabs)/search.tsx'), 'utf8');
-    assert.match(search, /SearchModeSwitch/);
-    assert.match(search, /FIND_ROUTES\.capture/);
+    assert.match(search, /SearchResultsTabs/);
+    assert.doesNotMatch(search, /SearchModeSwitch|FIND_ROUTES\.capture|YourActivitySection|useImportSharesPoll/);
     assert.match(search, /Search products, creators, collections/);
     assert.doesNotMatch(search, /submitUserImport/);
-    assert.match(search, /shareActivityLandingItems/);
-    assert.match(search, /YourActivitySection/);
-    assert.match(search, /sharesLoaded/);
-    assert.doesNotMatch(search, /activityItems\.length > 0/);
-    const activity = readFileSync(join(ROOT, 'components/search/YourActivitySection.tsx'), 'utf8');
-    assert.match(activity, /FIND_ROUTES\.history/);
     assert.match(search, /productPagePath/);
     assert.match(search, /typeStyle/);
     assert.match(search, /SectionHeader/);
@@ -52,8 +46,6 @@ describe('Search Discover UX wiring', () => {
     assert.match(search, /loadSearchDiscoverLanding/);
     assert.match(search, /searchDiscoverLoad/);
     assert.match(search, /fetchVideos/);
-    assert.match(search, /onBecameReady/);
-    assert.match(search, /refreshCart/);
     assert.match(search, /StashCategoryCard/);
     assert.match(search, /ContentRail/);
     assert.match(search, /itemGap/);
@@ -69,19 +61,13 @@ describe('Search Discover UX wiring', () => {
     assert.match(creator, /CreatorProfileTab/);
   });
 
-  it('legacy Your Shares opens Find while Search retains its expandable activity summary', () => {
+  it('legacy Your Shares opens Find and Search does not fetch activity', () => {
     const shares = readFileSync(join(ROOT, 'app/shares.tsx'), 'utf8');
     const search = readFileSync(join(ROOT, 'app/(tabs)/search.tsx'), 'utf8');
     const card = readFileSync(join(ROOT, 'components/search/ShareActivityCard.tsx'), 'utf8');
     assert.match(shares, /Redirect/);
     assert.match(shares, /\/find\?filter=all/);
-    const activity = readFileSync(join(ROOT, 'components/search/YourActivitySection.tsx'), 'utf8');
-    assert.match(search, /YourActivitySection/);
-    assert.match(activity, /ShareActivityCard/);
-    assert.match(activity, /expandable/);
-    assert.match(activity, /onRetry/);
-    assert.match(activity, /SHARE_ACTIVITY_COPY\.empty/);
-    assert.doesNotMatch(search, /shareActivityDestination/);
+    assert.doesNotMatch(search, /YourActivitySection|shareActivityDestination|shareActivityLandingItems/);
     assert.match(card, /viewInBag|View in Bag/);
     assert.match(card, /SHARE_ACTIVITY_COPY\.retry/);
     assert.match(card, /SHARE_ACTIVITY_COPY\.delete/);

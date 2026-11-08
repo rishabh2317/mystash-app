@@ -30,10 +30,11 @@ export class OpenSearchConfigError extends Error {
   }
 }
 
-type IndexMeta = EmbeddingSpace & { generation: number };
+type IndexMeta = EmbeddingSpace & { generation: number; mappingVersion?: number };
+const SEARCH_MAPPING_VERSION = 2;
 
 /**
- * OpenSearch adapter — frozen V1 search engine.
+ * OpenSearch adapter — versioned public Search projection.
  *
  * Serving uses aliases:
  *   {prefix}_collections  →  {prefix}_collections_vN
@@ -48,6 +49,7 @@ export class OpenSearchIndex implements SearchIndexPort {
   private readonly embeddingSpace: EmbeddingSpace;
   /** Cached generation per entity after ensure. */
   private generations = new Map<SearchEntityType, number>();
+  private startupCheck: Promise<void> | null = null;
 
   constructor(private readonly cfg: OpenSearchConfig) {
     this.prefix = cfg.indexPrefix ?? 'mystash_search';
@@ -91,6 +93,15 @@ export class OpenSearchIndex implements SearchIndexPort {
     await this.req('GET', '/');
   }
 
+  startStartupCheck(): Promise<void> {
+    this.startupCheck = this.ensureIndexes();
+    return this.startupCheck;
+  }
+
+  private async requireReady(): Promise<void> {
+    if (this.startupCheck) await this.startupCheck;
+  }
+
   private mappingBody(dimension: number) {
     return {
       settings: {
@@ -98,6 +109,9 @@ export class OpenSearchIndex implements SearchIndexPort {
         number_of_replicas: 0,
         'index.knn': true,
         analysis: {
+          normalizer: {
+            search_keyword: { type: 'custom', filter: ['lowercase', 'asciifolding'] },
+          },
           analyzer: {
             autocomplete_index: {
               type: 'custom',
@@ -125,10 +139,23 @@ export class OpenSearchIndex implements SearchIndexPort {
           embeddingModelId: this.embeddingSpace.embeddingModelId,
           embeddingVersion: this.embeddingSpace.embeddingVersion,
           embeddingDimension: dimension,
+          mappingVersion: SEARCH_MAPPING_VERSION,
         },
         properties: {
           entityType: { type: 'keyword' },
           id: { type: 'keyword' },
+          primaryText: { type: 'text', fields: { exact: { type: 'keyword', normalizer: 'search_keyword' } } },
+          secondaryText: { type: 'text' },
+          handle: { type: 'keyword', normalizer: 'search_keyword' },
+          creatorId: { type: 'keyword' },
+          brands: { type: 'keyword', normalizer: 'search_keyword' },
+          categories: { type: 'keyword', normalizer: 'search_keyword' },
+          verificationStatus: { type: 'keyword', normalizer: 'search_keyword' },
+          priceAmount: { type: 'double' },
+          publishedAt: { type: 'date' },
+          popularity: { type: 'double' },
+          followersCount: { type: 'long' },
+          engagementCount: { type: 'long' },
           searchableText: {
             type: 'text',
             analyzer: 'standard',
@@ -149,7 +176,7 @@ export class OpenSearchIndex implements SearchIndexPort {
           embedding: {
             type: 'knn_vector',
             dimension,
-            method: { name: 'hnsw', space_type: 'cosinesimil', engine: 'nmslib' },
+            method: { name: 'hnsw', space_type: 'cosinesimil', engine: 'lucene' },
           },
           embeddingModelId: { type: 'keyword' },
           embeddingVersion: { type: 'keyword' },
@@ -177,17 +204,16 @@ export class OpenSearchIndex implements SearchIndexPort {
           meta &&
           meta.embeddingModelId === this.embeddingSpace.embeddingModelId &&
           meta.embeddingVersion === this.embeddingSpace.embeddingVersion &&
-          meta.embeddingDimension === dim
+          meta.embeddingDimension === dim &&
+          meta.mappingVersion === SEARCH_MAPPING_VERSION
         ) {
           this.generations.set(entityType, existing.generation);
           continue;
         }
-        // Incompatible space → new generation + atomic alias switch
-        const nextGen = (existing.generation || 1) + 1;
-        await this.createGeneration(entityType, nextGen);
-        await this.switchAlias(entityType, nextGen, existing.physical);
-        this.generations.set(entityType, nextGen);
-        continue;
+        throw new OpenSearchConfigError(
+          `Search index ${existing.physical} needs a complete generation rebuild before serving mapping v${SEARCH_MAPPING_VERSION}. ` +
+          'Use beginRebuild, bulk-fill, validate, then promoteGeneration; the current alias was not changed.',
+        );
       }
       await this.createGeneration(entityType, 1);
       await this.switchAlias(entityType, 1, null);
@@ -200,12 +226,20 @@ export class OpenSearchIndex implements SearchIndexPort {
     const body = this.mappingBody(this.embeddingSpace.embeddingDimension);
     // attach generation in _meta
     (body.mappings._meta as Record<string, unknown>).generation = generation;
+    (body.mappings._meta as Record<string, unknown>).mappingVersion = SEARCH_MAPPING_VERSION;
     try {
       await this.req('PUT', `/${name}`, body);
     } catch (e) {
       // already exists
       const msg = e instanceof Error ? e.message : String(e);
-      if (!msg.includes('resource_already_exists') && !msg.includes('400')) throw e;
+      if (!msg.includes('resource_already_exists_exception')) throw e;
+    }
+    const meta = await this.readIndexMeta(name);
+    if (meta?.mappingVersion !== SEARCH_MAPPING_VERSION ||
+      meta.embeddingModelId !== this.embeddingSpace.embeddingModelId ||
+      meta.embeddingVersion !== this.embeddingSpace.embeddingVersion ||
+      meta.embeddingDimension !== this.embeddingSpace.embeddingDimension) {
+      throw new OpenSearchConfigError(`Generation ${name} has an incompatible mapping or embedding space`);
     }
     return name;
   }
@@ -258,6 +292,48 @@ export class OpenSearchIndex implements SearchIndexPort {
     await this.switchAlias(entityType, generation, prev?.physical ?? null);
   }
 
+  /** Copy the current public projection into a new mapping generation. Caller pauses writers and promotes later. */
+  async copyServingToGeneration(entityType: SearchEntityType, generation: number): Promise<{ sourceCount: number; targetCount: number }> {
+    const source = await this.resolveAlias(this.aliasName(entityType));
+    const target = this.physicalName(entityType, generation);
+    if (!source || source.physical === target) throw new OpenSearchConfigError('Source and target generations must differ');
+    const targetMeta = await this.readIndexMeta(target);
+    if (targetMeta?.mappingVersion !== SEARCH_MAPPING_VERSION) throw new OpenSearchConfigError('Target mapping version is incompatible');
+    if (await this.indexCount(target) !== 0) throw new OpenSearchConfigError('Target generation is not empty; refusing an ambiguous rebuild');
+    let scrollId: string | undefined;
+    try {
+      let raw = (await this.req('POST', `/${source.physical}/_search?scroll=2m`, {
+        size: 500, sort: ['_doc'], query: { match_all: {} },
+      })) as { _scroll_id?: string; hits?: { hits?: Array<{ _source?: { document?: SearchDocument; embedding?: number[] } }> } };
+      while (true) {
+        scrollId = raw._scroll_id ?? scrollId;
+        const hits = raw.hits?.hits ?? [];
+        if (!hits.length) break;
+        const docs: SearchDocument[] = [];
+        for (const hit of hits) {
+          const document = hit._source?.document;
+          if (!document) throw new OpenSearchConfigError('Source index contains a document without its projection');
+          docs.push({ ...document, embedding: hit._source?.embedding ?? document.embedding } as SearchDocument);
+        }
+        await this.upsertManyIntoPhysical(target, docs);
+        if (!scrollId) throw new OpenSearchConfigError('OpenSearch scroll cursor missing');
+        raw = (await this.req('POST', '/_search/scroll', { scroll: '2m', scroll_id: scrollId })) as typeof raw;
+      }
+    } finally {
+      if (scrollId) await this.req('DELETE', '/_search/scroll', { scroll_id: [scrollId] }).catch(() => {});
+    }
+    const sourceCount = await this.indexCount(source.physical);
+    const targetCount = await this.indexCount(target);
+    if (sourceCount !== targetCount) throw new OpenSearchConfigError(`Rebuild count mismatch: source=${sourceCount} target=${targetCount}`);
+    return { sourceCount, targetCount };
+  }
+
+  async indexCount(index: string): Promise<number> {
+    const raw = (await this.req('GET', `/${index}/_count`)) as { count?: number };
+    if (!Number.isSafeInteger(raw.count)) throw new OpenSearchConfigError(`Invalid count for ${index}`);
+    return raw.count!;
+  }
+
   async resolveAlias(
     alias: string,
   ): Promise<{ physical: string; generation: number } | null> {
@@ -291,6 +367,7 @@ export class OpenSearchIndex implements SearchIndexPort {
         embeddingVersion: meta.embeddingVersion,
         embeddingDimension: meta.embeddingDimension,
         generation: meta.generation ?? 1,
+        mappingVersion: meta.mappingVersion,
       };
     } catch {
       return null;
@@ -329,9 +406,26 @@ export class OpenSearchIndex implements SearchIndexPort {
 
   private sourceBody(doc: SearchDocument): Record<string, unknown> {
     this.assertEmbeddingSpace(doc);
+    const primaryText = doc.entityType === 'collection' ? doc.searchTitle ?? doc.slug
+      : doc.entityType === 'creator' ? doc.displayName ?? doc.username : doc.name;
+    const secondaryText = doc.entityType === 'collection'
+      ? [doc.slug, doc.creator.displayName, doc.creator.username].filter(Boolean).join(' ')
+      : doc.entityType === 'creator' ? doc.username : [doc.brand, doc.model, doc.category].filter(Boolean).join(' ');
     return {
       entityType: doc.entityType,
       id: doc.id,
+      primaryText,
+      secondaryText,
+      handle: doc.entityType === 'creator' ? doc.username : undefined,
+      creatorId: doc.entityType === 'collection' ? doc.creator.creatorId : doc.entityType === 'creator' ? doc.userId : undefined,
+      brands: doc.entityType === 'collection' ? doc.searchBrands : doc.entityType === 'product' ? doc.brand : undefined,
+      categories: doc.entityType === 'collection' ? doc.searchCategories : doc.entityType === 'product' ? doc.category : undefined,
+      verificationStatus: doc.entityType === 'product' ? doc.verificationStatus : undefined,
+      priceAmount: doc.entityType === 'product' ? doc.priceAmount : undefined,
+      publishedAt: doc.entityType === 'collection' ? doc.publishedAt : undefined,
+      popularity: doc.entityType === 'product' ? doc.popularity : undefined,
+      followersCount: doc.entityType === 'creator' ? doc.followersCount : undefined,
+      engagementCount: doc.entityType === 'collection' ? doc.savesCount + doc.viewsCount : undefined,
       searchableText: doc.searchableText,
       suggestText: this.suggestTextFor(doc),
       searchEligible: doc.searchEligible,
@@ -345,6 +439,7 @@ export class OpenSearchIndex implements SearchIndexPort {
   }
 
   async upsert(doc: SearchDocument): Promise<void> {
+    await this.requireReady();
     if (doc.deleted || !doc.searchEligible) {
       await this.delete(doc.entityType, doc.id);
       return;
@@ -354,6 +449,7 @@ export class OpenSearchIndex implements SearchIndexPort {
   }
 
   async upsertMany(docs: SearchDocument[]): Promise<void> {
+    await this.requireReady();
     if (docs.length === 0) return;
     const lines: string[] = [];
     for (const doc of docs) {
@@ -409,6 +505,7 @@ export class OpenSearchIndex implements SearchIndexPort {
   }
 
   async delete(entityType: SearchEntityType, id: string): Promise<void> {
+    await this.requireReady();
     try {
       await this.req(
         'DELETE',
@@ -420,52 +517,109 @@ export class OpenSearchIndex implements SearchIndexPort {
   }
 
   async get(entityType: SearchEntityType, id: string): Promise<SearchDocument | null> {
+    await this.requireReady();
     try {
       const raw = (await this.req(
         'GET',
         `/${this.aliasName(entityType)}/_doc/${encodeURIComponent(id)}`,
-      )) as { _source?: { document?: SearchDocument } };
-      return raw._source?.document ?? null;
+      )) as { _source?: { document?: SearchDocument; embedding?: number[] } };
+      const document = raw._source?.document;
+      return document ? { ...document, embedding: raw._source?.embedding ?? document.embedding } as SearchDocument : null;
     } catch {
       return null;
     }
   }
 
-  private filterClause(_filters?: SearchFilters): object[] {
-    return [{ term: { searchEligible: true } }];
+  private filterClause(filters?: SearchFilters): object[] {
+    const clauses: object[] = [{ term: { searchEligible: true } }];
+    if (!filters) return clauses;
+    if (filters.creatorId) clauses.push({ term: { creatorId: filters.creatorId } });
+    if (filters.brand) clauses.push({ term: { brands: filters.brand.toLowerCase() } });
+    if (filters.category) clauses.push({ term: { categories: filters.category.toLowerCase() } });
+    if (filters.verifiedOnly) clauses.push({ bool: { should: [
+      { bool: { must_not: [{ term: { entityType: 'product' } }] } },
+      { terms: { verificationStatus: ['verified', 'high'] } },
+    ], minimum_should_match: 1 } });
+    if (filters.recentlyPublished) clauses.push({ bool: { should: [
+      { bool: { must_not: [{ term: { entityType: 'collection' } }] } },
+      { range: { publishedAt: { gte: 'now-30d' } } },
+    ], minimum_should_match: 1 } });
+    if (filters.popular) clauses.push({ bool: { should: [
+      { range: { engagementCount: { gte: 10 } } },
+      { range: { followersCount: { gte: 10 } } },
+      { range: { popularity: { gte: 5 } } },
+    ], minimum_should_match: 1 } });
+    if (filters.priceMin != null || filters.priceMax != null) {
+      clauses.push({ range: { priceAmount: {
+        ...(filters.priceMin != null ? { gte: filters.priceMin } : {}),
+        ...(filters.priceMax != null ? { lte: filters.priceMax } : {}),
+      } } });
+    }
+    return clauses;
+  }
+
+  private lexicalQuery(q: string, filters?: SearchFilters, excludeIds?: string[], exact = q): object {
+    const normalized = exact.trim().toLowerCase();
+    return { bool: {
+      should: [
+        { term: { 'primaryText.exact': { value: normalized, boost: 12 } } },
+        { term: { handle: { value: normalized.replace(/^@/, ''), boost: 14 } } },
+        { match_phrase: { primaryText: { query: exact, boost: 7 } } },
+        { multi_match: { query: q, fields: ['primaryText^5', 'secondaryText^2', 'searchableText'],
+          type: 'best_fields', fuzziness: 'AUTO' } },
+      ],
+      minimum_should_match: 1,
+      filter: this.filterClause(filters),
+      ...(excludeIds?.length ? { must_not: [{ ids: { values: excludeIds } }] } : {}),
+    } };
+  }
+
+  async lexicalPage(params: {
+    q: string; exact?: string; entityType: SearchEntityType; filters?: SearchFilters; limit: number;
+    after?: [number, string] | null; excludeIds?: string[];
+  }): Promise<{ candidates: LexicalCandidate[]; after: [number, string] | null; hasMore: boolean }> {
+    await this.requireReady();
+    const raw = (await this.req('POST', `/${this.aliasName(params.entityType)}/_search`, {
+      size: params.limit + 1,
+      _source: { excludes: ['embedding'] },
+      query: this.lexicalQuery(params.q, params.filters, params.excludeIds, params.exact),
+      sort: [{ _score: 'desc' }, { id: 'asc' }],
+      ...(params.after ? { search_after: params.after } : {}),
+    })) as { hits?: { hits?: Array<{ _score?: number; sort?: [number, string]; _source?: { document?: SearchDocument } }> } };
+    const hits = raw.hits?.hits ?? [];
+    const page = hits.slice(0, params.limit);
+    const candidates = page.map(h => h._source?.document && {
+      entityType: h._source.document.entityType, id: h._source.document.id,
+      score: h._score ?? 0, document: h._source.document,
+    }).filter((v): v is LexicalCandidate => Boolean(v));
+    return { candidates, after: page.at(-1)?.sort ?? null, hasMore: hits.length > params.limit };
+  }
+
+  async getMany(entityType: SearchEntityType, ids: string[], filters?: SearchFilters): Promise<SearchDocument[]> {
+    await this.requireReady();
+    if (!ids.length) return [];
+    const raw = (await this.req('POST', `/${this.aliasName(entityType)}/_search`, {
+      size: ids.length, _source: { excludes: ['embedding'] },
+      query: { bool: { filter: [...this.filterClause(filters), { ids: { values: ids } }] } },
+    })) as { hits?: { hits?: Array<{ _source?: { document?: SearchDocument } }> } };
+    return (raw.hits?.hits ?? []).map(d => d._source?.document)
+      .filter((d): d is SearchDocument => Boolean(d?.searchEligible && !d.deleted && passesClientFilters(d, filters)));
   }
 
   async lexicalSearch(params: {
     q: string;
+    exact?: string;
     entityTypes?: SearchEntityType[];
     filters?: SearchFilters;
     limit: number;
   }): Promise<LexicalCandidate[]> {
+    await this.requireReady();
     const types = params.entityTypes ?? ['collection', 'creator', 'product'];
     const index = types.map((t) => this.aliasName(t)).join(',');
     const raw = (await this.req('POST', `/${index}/_search`, {
       size: params.limit,
-      query: {
-        bool: {
-          must: [
-            {
-              multi_match: {
-                query: params.q,
-                fields: [
-                  'searchableText^1',
-                  'document.searchTitle^2',
-                  'document.name^2',
-                  'document.username^2',
-                  'suggestText^1.5',
-                ],
-                type: 'best_fields',
-                fuzziness: 'AUTO',
-              },
-            },
-          ],
-          filter: this.filterClause(params.filters),
-        },
-      },
+      _source: { excludes: ['embedding'] },
+      query: this.lexicalQuery(params.q, params.filters, undefined, params.exact),
     })) as {
       hits?: { hits?: Array<{ _score?: number; _source?: { document?: SearchDocument } }> };
     };
@@ -489,6 +643,7 @@ export class OpenSearchIndex implements SearchIndexPort {
     filters?: SearchFilters;
     limit: number;
   }): Promise<VectorCandidate[]> {
+    await this.requireReady();
     if (params.vector.length !== this.embeddingSpace.embeddingDimension) {
       throw new EmbeddingSpaceMismatchError(
         `Query vector dim ${params.vector.length} != index ${this.embeddingSpace.embeddingDimension}`,
@@ -496,19 +651,18 @@ export class OpenSearchIndex implements SearchIndexPort {
     }
     const types = params.entityTypes ?? ['collection', 'creator', 'product'];
     const index = types.map((t) => this.aliasName(t)).join(',');
-    // OpenSearch knn as top-level query (filter via post_filter for eligibility)
+    // Lucene HNSW applies eligibility and structured filters within k-NN retrieval.
     const raw = (await this.req('POST', `/${index}/_search`, {
       size: params.limit,
+      _source: { excludes: ['embedding'] },
       query: {
         knn: {
           embedding: {
             vector: params.vector,
             k: params.limit,
+            filter: { bool: { filter: this.filterClause(params.filters) } },
           },
         },
-      },
-      post_filter: {
-        bool: { filter: this.filterClause(params.filters) },
       },
     })) as {
       hits?: { hits?: Array<{ _score?: number; _source?: { document?: SearchDocument } }> };
@@ -531,11 +685,13 @@ export class OpenSearchIndex implements SearchIndexPort {
     prefix: string;
     limit: number;
   }): Promise<Array<{ text: string; id: string; entityType: SearchEntityType }>> {
+    await this.requireReady();
     const index = ['collection', 'creator', 'product']
       .map((t) => this.aliasName(t as SearchEntityType))
       .join(',');
     const raw = (await this.req('POST', `/${index}/_search`, {
       size: params.limit,
+      _source: { excludes: ['embedding'] },
       query: {
         bool: {
           should: [
@@ -583,14 +739,16 @@ export class OpenSearchIndex implements SearchIndexPort {
     limit: number;
     entityType?: SearchEntityType;
   }): Promise<SearchDocument[]> {
+    await this.requireReady();
     const types = params.entityType
       ? [params.entityType]
       : (['collection', 'creator', 'product'] as SearchEntityType[]);
     const index = types.map((t) => this.aliasName(t)).join(',');
     const raw = (await this.req('POST', `/${index}/_search`, {
       size: params.limit,
+      _source: { excludes: ['embedding'] },
       query: { term: { searchEligible: true } },
-      sort: [{ 'document.savesCount': { order: 'desc', unmapped_type: 'long' } }],
+      sort: [{ engagementCount: { order: 'desc', unmapped_type: 'long' } }],
     })) as {
       hits?: { hits?: Array<{ _source?: { document?: SearchDocument } }> };
     };
@@ -606,13 +764,31 @@ function passesClientFilters(doc: SearchDocument, filters?: SearchFilters): bool
   if (filters.creatorId) {
     if (doc.entityType === 'collection' && doc.creator.creatorId !== filters.creatorId) return false;
     if (doc.entityType === 'creator' && doc.userId !== filters.creatorId) return false;
+    if (doc.entityType === 'product') return false;
   }
-  if (filters.brand && doc.entityType === 'product') {
-    if ((doc.brand ?? '').toLowerCase() !== filters.brand.toLowerCase()) return false;
+  if (filters.brand) {
+    const brand = filters.brand.toLowerCase();
+    if (doc.entityType === 'collection' && !doc.searchBrands.some(v => v.toLowerCase() === brand)) return false;
+    if (doc.entityType === 'product' && (doc.brand ?? '').toLowerCase() !== brand) return false;
+    if (doc.entityType === 'creator') return false;
+  }
+  if (filters.category) {
+    const category = filters.category.toLowerCase();
+    if (doc.entityType === 'collection' && !doc.searchCategories.some(v => v.toLowerCase() === category)) return false;
+    if (doc.entityType === 'product' && (doc.category ?? '').toLowerCase() !== category) return false;
+    if (doc.entityType === 'creator') return false;
   }
   if (filters.verifiedOnly && doc.entityType === 'product') {
     const v = (doc.verificationStatus ?? '').toLowerCase();
     if (v !== 'verified' && v !== 'high') return false;
+  }
+  if (filters.recentlyPublished && doc.entityType === 'collection') {
+    if (!doc.publishedAt || Date.now() - Date.parse(doc.publishedAt) > 30 * 86_400_000) return false;
+  }
+  if (filters.popular) {
+    if (doc.entityType === 'collection' && doc.savesCount + doc.viewsCount < 10) return false;
+    if (doc.entityType === 'creator' && doc.followersCount < 10) return false;
+    if (doc.entityType === 'product' && doc.popularity < 5) return false;
   }
   if (filters.priceMin != null || filters.priceMax != null) {
     if (doc.entityType !== 'product' || doc.priceAmount == null) return false;

@@ -60,12 +60,14 @@ export function collectionRefsFromSearchResults(
 
 export function beginSearchReelSession(input: {
   query: string;
+  entityType?: 'collection';
   collections: CollectionViewModel[];
   startCollectionId: string;
   nextCursor: string | null;
 }): SearchReelSession {
   const session: SearchReelSession = {
     query: input.query.trim(),
+    entityType: input.entityType,
     collections: collectionRefsFromViewModels(input.collections),
     startCollectionId: input.startCollectionId.trim(),
     nextCursor: input.nextCursor,

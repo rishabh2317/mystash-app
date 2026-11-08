@@ -6,13 +6,15 @@ const { transformSync } = require('@babel/core');
 const root = path.resolve(__dirname, '..');
 const target = require('../eas.json').build['render-test'].env.EXPO_PUBLIC_MYSTASH_INGEST_URL;
 
-function compile(profile, source = 'const endpoint = process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL;') {
+function compile(profile, source = 'const endpoint = process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL;', backend = 'render') {
   const oldProfile = process.env.EAS_BUILD_PROFILE;
   const oldUrl = process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL;
+  const oldBackend = process.env.MYSTASH_QA_BACKEND;
   try {
     if (profile) process.env.EAS_BUILD_PROFILE = profile;
     else delete process.env.EAS_BUILD_PROFILE;
     process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL = 'https://api-dev.mystash.in';
+    process.env.MYSTASH_QA_BACKEND = backend;
     return transformSync(source, {
       filename: path.join(root, 'src/renderBuildEndpointFixture.js'),
       configFile: path.join(root, 'babel.config.js'), babelrc: false,
@@ -23,6 +25,8 @@ function compile(profile, source = 'const endpoint = process.env.EXPO_PUBLIC_MYS
     else process.env.EAS_BUILD_PROFILE = oldProfile;
     if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL;
     else process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL = oldUrl;
+    if (oldBackend === undefined) delete process.env.MYSTASH_QA_BACKEND;
+    else process.env.MYSTASH_QA_BACKEND = oldBackend;
   }
 }
 
@@ -32,6 +36,12 @@ test('Render release embeds its profile endpoint despite stale shared preview en
     assert.ok(code.includes(target));
     assert.ok(!code.includes('api-dev.mystash.in'));
   }
+});
+test('GitHub QA Mac selection embeds the verified Mac endpoint', () => {
+  const code = compile('universal-find-qa-core', undefined, 'mac');
+  assert.ok(code.includes('https://api-dev.mystash.in'));
+  assert.ok(!code.includes(target));
+  assert.throws(() => compile('universal-find-qa-core', undefined, 'other'), /Unknown QA backend/);
 });
 test('local, preview, pilot and production endpoints remain untouched across cached configs', () => {
   for (const profile of [undefined, 'preview', 'analytics-pilot', 'production', 'render-test', undefined]) {

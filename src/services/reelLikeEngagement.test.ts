@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { optimisticReelLike } from '@/src/ui/reelLikes';
+import { optimisticReelLike, reconcileVisibleLike } from '@/src/ui/reelLikes';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 describe('Reel Like optimistic state', () => {
   it('increments on Like and decrements on Unlike without going below zero', () => {
@@ -21,6 +21,14 @@ describe('Reel Like optimistic state', () => {
       liked: false,
       likeCount: 0,
     });
+  });
+
+  it('preserves a rapid opposite tap while reconciling the first server response', () => {
+    const afterLike = optimisticReelLike({ liked: false, likeCount: 4 });
+    const afterUnlike = optimisticReelLike(afterLike);
+    assert.deepEqual(afterUnlike, { liked: false, likeCount: 4 });
+    assert.deepEqual(reconcileVisibleLike({ liked: true, likeCount: 5 }, afterUnlike.liked), afterUnlike);
+    assert.deepEqual(reconcileVisibleLike({ liked: false, likeCount: 4 }, afterUnlike.liked), afterUnlike);
   });
 
   it('wires Like independently from Collection Save in the Home action stack', () => {

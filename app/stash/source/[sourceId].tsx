@@ -1,77 +1,151 @@
-import React,{useCallback,useRef,useState} from 'react';
-import {Alert,FlatList,Linking,Pressable,View} from 'react-native';
-import {Ionicons} from '@expo/vector-icons';
-import {useFocusEffect,useLocalSearchParams,useRouter,type Href} from 'expo-router';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {TopBar} from '@/components/chrome/TopBar';
-import {FeedProductSheet} from '@/components/feed/FeedProductSheet';
-import {FindImage} from '@/components/find/FindImage';
-import {ActionButton} from '@/components/ui/ActionButton';
-import {Text} from '@/components/ui/Text';
-import {useAuth} from '@/contexts/AuthContext';
-import {useCartOptional} from '@/contexts/CartContext';
-import {useThemeMode} from '@/contexts/ThemeContext';
-import {findApi} from '@/src/services/findApi';
-import type {FindSourceResult} from '@/src/services/findClient';
-import {fetchAllPlaces} from '@/src/services/placesApi';
-import {findPlaceDestination} from '@/src/ui/findDetail';
-import {productPagePath} from '@/src/ui/productPage';
-import {outlineCardChrome} from '@/src/theme/tokens';
-import {typeStyle} from '@/src/theme/typography';
-import type {Product} from '@/src/mocks/videos';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Alert, FlatList, Linking, Pressable, View, useWindowDimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TopBar } from '@/components/chrome/TopBar';
+import { ProductCard } from '@/components/commerce/ProductCard';
+import { FeedProductSheet } from '@/components/feed/FeedProductSheet';
+import { PlaceCard } from '@/components/place/PlaceCard';
+import { PlaceSourceVideoModal } from '@/components/place/PlaceSourceVideoModal';
+import { ActionButton } from '@/components/ui/ActionButton';
+import { Text } from '@/components/ui/Text';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCartOptional } from '@/contexts/CartContext';
+import { useThemeMode } from '@/contexts/ThemeContext';
+import { findApi } from '@/src/services/findApi';
+import type { FindItem, FindSourceResult } from '@/src/services/findClient';
+import { fetchAllPlaces } from '@/src/services/placesApi';
+import { findDetailPath, findSourceLabel, safeFindUrl } from '@/src/ui/find';
+import { productPagePath } from '@/src/ui/productPage';
+import { placesColumnCount } from '@/src/ui/stashPlaces';
+import { groupSourceRows, mergeSourceResults, sourcePlaceModel, sourceProductId, sourceProductModel, sourceResultKey,
+  type SourceProduct } from '@/src/ui/stashSourceResults';
+import { typeStyle } from '@/src/theme/typography';
+import type { PlaceSourceVideo, PlaceStashItem } from '@/src/types/placeStash';
+import type { Product } from '@/src/mocks/videos';
 
-export default function StashSourceScreen(){
-  const router=useRouter(),params=useLocalSearchParams<{sourceId:string}>(),id=typeof params.sourceId==='string'?params.sourceId:'';
-  const {user}=useAuth(),owner=user?.id??null,{tokens}=useThemeMode(),insets=useSafeAreaInsets(),cart=useCartOptional();
-  const [state,setState]=useState<{owner:string|null;id:string;items:FindSourceResult[];cursor:string|null;loading:boolean;more:boolean;error:boolean}>({owner:null,id:'',items:[],cursor:null,loading:true,more:false,error:false});
-  const [shopping,setShopping]=useState<Product|null>(null),generation=useRef(0),busy=useRef(false),stateRef=useRef(state);stateRef.current=state;
-  const invalidate=useCallback(()=>{generation.current++;busy.current=false;setShopping(null);},[]);
-  const load=useCallback(async(append=false)=>{
-    if(!owner||!id||busy.current)return;
-    busy.current=true;const token=++generation.current;
-    setState(previous=>({...previous,owner,id,loading:!append,more:append,error:false}));
-    try{const current=stateRef.current,page=await findApi.sourceResults(id,{cursor:append&&current.owner===owner&&current.id===id?current.cursor??undefined:undefined},owner);
-      if(token!==generation.current)return;
-      setState(previous=>({owner,id,items:append?[...previous.items,...page.items]:page.items,cursor:page.nextCursor,loading:false,more:false,error:false}));
-    }catch{if(token===generation.current)setState(previous=>({...previous,owner,id,loading:false,more:false,error:true}));}
-    finally{if(token===generation.current)busy.current=false;}
-  },[owner,id]);
-  useFocusEffect(useCallback(()=>{invalidate();setState({owner,id,items:[],cursor:null,loading:true,more:false,error:false});void load();return invalidate;},[owner,id,load,invalidate]));
-  const visible=state.owner===owner&&state.id===id?state.items:[];
-  const openPlace=async(row:Extract<FindSourceResult,{kind:'place'}>)=>{
-    if(!owner)return;const token=generation.current;
-    try{const places=await fetchAllPlaces(()=>token===generation.current);
-      if(token!==generation.current)return;
-      const destination=findPlaceDestination(places.items,id,row.result.id,row.result.placeId);
-      if(!destination)throw Error();await Linking.openURL(destination.url);
-    }catch{if(token===generation.current)Alert.alert('Place unavailable','Couldn’t open this place right now.');}
+type SourceState = { owner: string | null; id: string; items: FindSourceResult[]; cursor: string | null;
+  source: FindItem | null; places: PlaceStashItem[]; loaded: boolean; loading: boolean; refreshing: boolean;
+  more: boolean; error: boolean; moreError: boolean };
+const empty = (owner: string | null, id: string): SourceState => ({ owner, id, items: [], cursor: null,
+  source: null, places: [], loaded: false, loading: true, refreshing: false, more: false, error: false, moreError: false });
+export default function StashSourceScreen() {
+  const router = useRouter(), params = useLocalSearchParams<{ sourceId: string }>();
+  const id = typeof params.sourceId === 'string' ? params.sourceId : '';
+  const { user } = useAuth(), owner = user?.id ?? null, { tokens } = useThemeMode();
+  const insets = useSafeAreaInsets(), dimensions = useWindowDimensions(), cart = useCartOptional();
+  const columns = placesColumnCount(dimensions.width - insets.left - insets.right - 2 * tokens.space.md, dimensions.fontScale);
+  const [state, setState] = useState<SourceState>(() => empty(null, ''));
+  const [shopping, setShopping] = useState<Product | null>(null);
+  const [selectedSources, setSelectedSources] = useState<PlaceSourceVideo[] | null>(null);
+  const generation = useRef(0), busy = useRef(false), stateRef = useRef(state), ownerRef = useRef(owner);
+  stateRef.current = state; ownerRef.current = owner;
+  const invalidate = useCallback(() => { generation.current++; busy.current = false; setShopping(null); setSelectedSources(null); }, []);
+  const load = useCallback(async (append = false) => {
+    if (!owner || !id || busy.current) return;
+    const before = stateRef.current, same = before.owner === owner && before.id === id;
+    const cursor = append && same ? before.cursor : null;
+    if (append && !cursor) return;
+    busy.current = true; const token = ++generation.current;
+    setState(previous => ({ ...previous, owner, id, loading: !append && !(same && previous.loaded),
+      refreshing: !append && same && previous.loaded, more: append,
+      error: append ? previous.error : false, moreError: false }));
+    try {
+      const page = await findApi.sourceResults(id, { cursor: cursor ?? undefined, limit: 50 }, owner);
+      if (token !== generation.current || ownerRef.current !== owner) return;
+      if (append) {
+        if (page.nextCursor === cursor) throw new Error('Source results cursor did not advance');
+        setState(previous => ({ ...previous, items: mergeSourceResults(previous.items, page.items),
+          cursor: page.nextCursor, more: false, moreError: false }));
+      } else {
+        const detail = await findApi.detail(id, owner).catch(() => null);
+        if (token !== generation.current || ownerRef.current !== owner) return;
+        setState({ owner, id, items: page.items, cursor: page.nextCursor, source: detail ?? (same ? before.source : null),
+          places: same ? before.places : [], loaded: true, loading: false, refreshing: false, more: false, error: false, moreError: false });
+        // Places enrichment is optional. Show source results immediately even when the Stash listing is slow or offline.
+        if ((detail?.outcome.savedPlaces ?? page.items.filter(row => row.kind === 'place').length) > 0)
+          void fetchAllPlaces(() => token === generation.current && ownerRef.current === owner).then(result => {
+            if (token === generation.current && ownerRef.current === owner)
+              setState(previous => previous.owner === owner && previous.id === id ? { ...previous, places: result.items } : previous);
+          }).catch(() => {});
+      }
+    } catch {
+      if (token === generation.current && ownerRef.current === owner)
+        setState(previous => ({ ...previous, loaded: true, loading: false, refreshing: false, more: false,
+          error: append ? previous.error : true, moreError: append }));
+    } finally { if (token === generation.current) busy.current = false; }
+  }, [owner, id]);
+  useFocusEffect(useCallback(() => {
+    invalidate();
+    if (stateRef.current.owner !== owner || stateRef.current.id !== id) setState(empty(owner, id));
+    void load();
+    return invalidate;
+  }, [owner, id, load, invalidate]));
+
+  const visible = state.owner === owner && state.id === id ? state : empty(owner, id);
+  const productCount = visible.source?.outcome.savedProducts ?? (visible.cursor ? null : visible.items.filter(row => row.kind === 'product').length);
+  const placeCount = visible.source?.outcome.savedPlaces ?? (visible.cursor ? null : visible.items.filter(row => row.kind === 'place').length);
+  const rows = useMemo(() => groupSourceRows(visible.items, columns, productCount, placeCount), [columns, placeCount, productCount, visible.items]);
+  const remove = (row: FindSourceResult) => Alert.alert('Remove from My Stash?', 'The discovery will remain in Find history.', [
+    { text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { void (async () => {
+      if (!owner || ownerRef.current !== owner) return;
+      try {
+        if (row.kind === 'place') await findApi.removeResult(id, 'places', row.result.id);
+        else if ('candidateKey' in row.result) await findApi.removeSavedSuggestion(id, row.result.sourceProductId, row.result.candidateKey, row.result.identityKey);
+        else await findApi.removeResult(id, 'products', row.result.id, row.result.identityKey ?? undefined);
+        if (ownerRef.current !== owner) return;
+        try { await cart?.refresh(); } catch { /* Source results remain authoritative if optional Cart refresh fails. */ }
+        if (ownerRef.current !== owner) return;
+        invalidate(); await load();
+      } catch { if (ownerRef.current === owner) Alert.alert('Couldn’t remove item', 'Please try again.'); }
+    })(); } },
+  ]);
+  const openProduct = (row: SourceProduct) => {
+    const productId = sourceProductId(row);
+    router.push((productId ? productPagePath(productId, { contentSourceId: visible.source?.contentSourceId, userImportId: id }) : findDetailPath(id)) as Href);
   };
-  const remove=(row:FindSourceResult)=>Alert.alert('Remove from My Stash?', 'The discovery will remain in Find history.',[
-    {text:'Cancel',style:'cancel'},{text:'Remove',style:'destructive',onPress:()=>{void (async()=>{try{
-      if(row.kind==='place')await findApi.removeResult(id,'places',row.result.id);
-      else if('candidateKey' in row.result)await findApi.removeSavedSuggestion(id,row.result.sourceProductId,row.result.candidateKey,row.result.identityKey);
-      else await findApi.removeResult(id,'products',row.result.id,row.result.identityKey??undefined);
-      await cart?.refresh();await load();
-    }catch{Alert.alert('Couldn’t remove item','Please try again.');}})();}}]);
-  const productId=(row:Extract<FindSourceResult,{kind:'product'}>)=>row.result.identityKey?.slice(2)??null;
-  return <View style={{flex:1,backgroundColor:tokens.color.canvasSoft,paddingLeft:insets.left,paddingRight:insets.right}}>
-    <TopBar mode="page" title="Saved from this Find" showBack showBag={false} onBack={()=>router.canGoBack()?router.back():router.replace('/(tabs)/stash' as Href)}/>
-    {!owner?<View style={{padding:tokens.space.lg}}><Text style={typeStyle(tokens,'body')}>Sign in to view your saved items.</Text></View>:
-    <FlatList data={visible} keyExtractor={row=>`${row.kind}:${row.kind==='product'?row.result.identityKey:row.result.placeId??row.result.id}`}
-      contentContainerStyle={{padding:tokens.space.md,paddingBottom:insets.bottom+tokens.space.xl,gap:tokens.space.sm}}
-      onRefresh={()=>void load()} refreshing={state.loading&&visible.length>0}
-      ListHeaderComponent={<Text style={typeStyle(tokens,'bodyMuted')}>Products and places currently saved from this capture.</Text>}
-      ListEmptyComponent={state.loading?<Text style={typeStyle(tokens,'bodyMuted')}>Loading saved items…</Text>:state.error?<ActionButton label="Retry" onPress={()=>void load()}/>:<Text style={typeStyle(tokens,'bodyMuted')}>No saved items remain from this Find.</Text>}
-      ListFooterComponent={state.cursor?<ActionButton label={state.more?'Loading…':'Load more'} disabled={state.more} onPress={()=>void load(true)} variant="quiet"/>:null}
-      renderItem={({item:row})=>{
-        const product=row.kind==='product',productResult=row.kind==='product'?row.result:null,placeResult=row.kind==='place'?row.result:null;
-        const shoppingId=row.kind==='product'?productId(row):null;
-        return <View style={{...outlineCardChrome(tokens),borderWidth:tokens.stroke.thin,borderRadius:tokens.radius.lg,padding:tokens.space.sm,flexDirection:'row',gap:tokens.space.sm,alignItems:'center'}}>
-          {productResult?.imageUrl?<FindImage url={productResult.imageUrl} cacheKey={shoppingId??productResult.title} style={{width:64,height:64,borderRadius:tokens.radius.md}}/>:<View style={{width:64,height:64,borderRadius:tokens.radius.md,backgroundColor:tokens.color.surfaceSubtle,alignItems:'center',justifyContent:'center'}}><Ionicons name={product?'cube-outline':'location-outline'} size={24} color={tokens.color.textMuted}/></View>}
-          <View style={{flex:1,gap:tokens.space.xxs}}><Text numberOfLines={2} style={typeStyle(tokens,'tileTitle')}>{productResult?.title??placeResult?.name}</Text>
-            {productResult&&shoppingId?<View style={{flexDirection:'row',gap:tokens.space.sm}}><Pressable accessibilityRole="button" onPress={()=>router.push(productPagePath(shoppingId,{userImportId:id}) as Href)} style={{minHeight:44,justifyContent:'center'}}><Text style={typeStyle(tokens,'link')}>View product</Text></Pressable><Pressable accessibilityRole="button" onPress={()=>setShopping({id:shoppingId,name:productResult.title,image:productResult.imageUrl??'',price:''})} style={{minHeight:44,justifyContent:'center'}}><Text style={typeStyle(tokens,'link')}>Buy now</Text></Pressable></View>:placeResult?<Pressable accessibilityRole="button" onPress={()=>void openPlace(row as Extract<FindSourceResult,{kind:'place'}>)} style={{minHeight:44,justifyContent:'center'}}><Text style={typeStyle(tokens,'link')}>View on Google</Text></Pressable>:null}
-          </View><Pressable accessibilityRole="button" accessibilityLabel={`Remove ${productResult?.title??placeResult?.name} from My Stash`} onPress={()=>remove(row)} style={{width:44,height:44,alignItems:'center',justifyContent:'center'}}><Ionicons name="trash-outline" size={18} color={tokens.color.textMuted}/></Pressable>
-        </View>;
-      }}/>}<FeedProductSheet video={null} product={shopping} shoppingProductId={shopping?.id} visible={Boolean(shopping)} measurementSurface="find" onClose={()=>setShopping(null)}/>
+  const onPlaceSearch = (url: string) => { const safe = safeFindUrl(url); if (safe) void Linking.openURL(safe).catch(() => Alert.alert('Place unavailable', 'Couldn’t open this place right now.')); };
+  const sourceTitle = visible.source?.title?.trim() || (visible.source ? findSourceLabel(visible.source.sourceType) : 'Saved from this Find');
+  const sourceUrl = safeFindUrl(visible.source?.sourceUrl);
+  return <View style={{ flex: 1, backgroundColor: tokens.color.canvasSoft, paddingLeft: insets.left, paddingRight: insets.right }}>
+    <TopBar mode='page' title='Saved from this Find' showBack showBag={false}
+      onBack={() => router.canGoBack() ? router.back() : router.replace('/(tabs)/stash' as Href)} />
+    {!owner ? <View style={{ padding: tokens.space.lg }}><Text style={typeStyle(tokens, 'body')}>Sign in to view your saved items.</Text></View> :
+    <FlatList data={rows} keyExtractor={row => row.key}
+      contentContainerStyle={{ padding: tokens.space.md, paddingBottom: insets.bottom + tokens.space.xl, gap: tokens.space.sm }}
+      onRefresh={() => void load()} refreshing={visible.refreshing}
+      onEndReached={() => { if (visible.cursor && !visible.more && !visible.moreError) void load(true); }} onEndReachedThreshold={0.35}
+      ListHeaderComponent={<View style={{ gap: tokens.space.xs, paddingBottom: tokens.space.sm }}>
+        <Text accessibilityRole='header' numberOfLines={2} style={typeStyle(tokens, 'sectionTitle')}>{sourceTitle}</Text>
+        {sourceUrl ? <Text selectable numberOfLines={2} style={typeStyle(tokens, 'tileMeta')}>{sourceUrl}</Text> : null}
+        <Text style={typeStyle(tokens, 'bodyMuted')}>Products and places saved from this capture.</Text>
+        {visible.error && visible.items.length ? <View accessibilityRole='alert' style={{ gap: tokens.space.xs }}><Text style={typeStyle(tokens, 'bodyMuted')}>Couldn’t refresh. Your saved results are still here.</Text><ActionButton label='Try refreshing' variant='quiet' onPress={() => void load()} /></View> : null}
+      </View>}
+      ListEmptyComponent={visible.loading && !visible.loaded ? <Text style={typeStyle(tokens, 'bodyMuted')}>Loading saved items…</Text>
+        : visible.error ? <View accessibilityRole='alert' style={{ gap: tokens.space.sm }}><Text style={typeStyle(tokens, 'bodyMuted')}>Couldn’t load saved items from this Find.</Text><ActionButton label='Retry' onPress={() => void load()} /></View>
+          : <Text style={typeStyle(tokens, 'bodyMuted')}>No saved items remain from this Find.</Text>}
+      ListFooterComponent={visible.moreError ? <View accessibilityRole='alert' style={{ gap: tokens.space.xs }}><Text style={typeStyle(tokens, 'bodyMuted')}>Couldn’t load more results.</Text><ActionButton label='Try loading more' variant='quiet' onPress={() => void load(true)} /></View>
+        : visible.cursor ? <ActionButton label={visible.more ? 'Loading…' : 'Load more results'} disabled={visible.more} onPress={() => void load(true)} variant='quiet' /> : null}
+      renderItem={({ item: row }) => row.kind === 'heading'
+        ? <Text accessibilityRole='header' style={[typeStyle(tokens, 'sectionTitle'), { marginTop: tokens.space.md }]}>{row.label}{row.count === null ? '' : ` (${row.count})`}</Text>
+        : <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: tokens.space.sm }}>
+          {row.items.map(item => <View key={sourceResultKey(item)} style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+            {item.kind === 'product' ? <>
+              {(() => { const model = sourceProductModel(item, cart?.items ?? []); return model ? <ProductCard product={model} variant='related' showIndexPrice onPress={() => openProduct(item)} /> : null; })()}
+              <Pressable accessibilityRole='button' accessibilityLabel={`Buy now, ${item.result.title}`}
+                onPress={() => { const productId = sourceProductId(item); if (productId) setShopping({ id: productId, name: item.result.title, image: item.result.imageUrl ?? '', price: '' }); }}
+                style={{ minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start', paddingHorizontal: tokens.space.xs }}><Text style={typeStyle(tokens, 'link')}>Buy now</Text></Pressable>
+            </> : <PlaceCard item={sourcePlaceModel(item, id, visible.places)} onSearch={onPlaceSearch}
+              onOpenSource={(source, sources) => setSelectedSources(sources?.length ? sources : [source])} />}
+            <Pressable accessibilityRole='button' accessibilityLabel={`Remove ${'title' in item.result ? item.result.title : item.result.name} from My Stash`}
+              onPress={() => remove(item)} style={{ position: 'absolute', top: tokens.space.xs, right: tokens.space.xs,
+                width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: tokens.radius.pill,
+                backgroundColor: tokens.immersive.controlStrong }}><Ionicons name='trash-outline' size={18} color={tokens.immersive.icon} /></Pressable>
+          </View>)}
+          {row.items.length < columns ? <View style={{ flex: 1 }} /> : null}
+        </View>} />}
+    <FeedProductSheet video={null} product={shopping} shoppingProductId={shopping?.id} visible={Boolean(shopping)} measurementSurface='find' onClose={() => setShopping(null)} />
+    {selectedSources?.[0] ? <PlaceSourceVideoModal key={selectedSources[0].url} source={selectedSources[0]} sources={selectedSources} onClose={() => setSelectedSources(null)} /> : null}
   </View>;
 }

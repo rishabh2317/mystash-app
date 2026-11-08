@@ -5,7 +5,7 @@ import { AppState } from 'react-native';
 import { Product, Video } from '@/src/mocks/videos';
 import { mapVideoRow } from '@/src/mappers/videoRowMapper';
 import { bindAuthAutoRefresh } from '@/src/auth/sessionLifecycle';
-import { FEED_PAGE_SIZE, FEED_VIDEO_COLUMNS, feedHasMore, feedPageRange } from '@/src/ui/feedQuery';
+import { FEED_PAGE_SIZE, FEED_VIDEO_COLUMNS, feedCursorFromRow, feedHasMore, type FeedCursor } from '@/src/ui/feedQuery';
 import type { CatalogProductRow } from '@/src/types/catalogProduct';
 import { createClient } from '@supabase/supabase-js';
 
@@ -141,13 +141,17 @@ async function fetchProductsForVideos(videoIds: string[]): Promise<Map<string, P
 }
 
 /** First paint: one page of reel metadata. Product rows load for the active reel only. */
-export async function fetchFeedPage(page: number): Promise<{ videos: Video[]; hasMore: boolean }> {
-  const { from, to } = feedPageRange(page, FEED_PAGE_SIZE);
-  const { data, error } = await supabase
+export async function fetchFeedPage(cursor: FeedCursor | null): Promise<{ videos: Video[]; hasMore: boolean; nextCursor: FeedCursor | null }> {
+  let query = supabase
     .from('videos')
     .select(FEED_VIDEO_COLUMNS)
     .order('created_at', { ascending: false })
-    .range(from, to);
+    .order('id', { ascending: false })
+    .limit(FEED_PAGE_SIZE);
+  if (cursor) {
+    query = query.or(`created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`);
+  }
+  const { data, error } = await query;
 
   if (error) {
     console.error('Supabase feed page error:', error.code, error.message);
@@ -158,6 +162,7 @@ export async function fetchFeedPage(page: number): Promise<{ videos: Video[]; ha
   return {
     videos: rows.map((video) => mapVideoRow(video, [])),
     hasMore: feedHasMore(rows.length, FEED_PAGE_SIZE),
+    nextCursor: feedCursorFromRow(rows.at(-1)),
   };
 }
 

@@ -10,6 +10,8 @@ export type SearchReelCollectionRef = {
 
 export type SearchReelSession = {
   query: string;
+  /** Scoped Search cursor, when opened from the Collections results tab. */
+  entityType?: 'collection';
   /** Collection hits in Search ranking order (typed results only). */
   collections: SearchReelCollectionRef[];
   startCollectionId: string;

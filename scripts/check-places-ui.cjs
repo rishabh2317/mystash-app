@@ -394,5 +394,23 @@ try {
     }));
     assert.ok(photo.includes('https://fixture.invalid/current.jpg')); checks++;
   }
+  const { ReelActionStack } = load(path.join(root, 'components/feed/ReelActionStack'));
+  const { FollowControl } = load(path.join(root, 'components/engagement/FollowControl'));
+  for (const theme of ['titanium', 'nebula']) {
+    tokens = getThemeTokens(theme);
+    const html = renderControlled(ReelActionStack, {
+      isMuted: false, onVolumeToggle() {}, bottomOffset: 120,
+      like: { isLiked: true, pending: true, count: 7, onPress() {} },
+      save: { isSaved: true, pending: true, count: 3, onPress() {} },
+    });
+    assert.ok(html.includes('Mute'));
+    assert.ok(html.includes('7') && html.includes('3'));
+    assert.ok(captured.actions.some(action => action.accessibilityLabel === 'Unlike Reel' && !action.disabled));
+    assert.ok(captured.actions.some(action => action.accessibilityLabel === 'Saved' && !action.disabled));
+    checks++;
+    renderControlled(FollowControl, { isFollowing: true, pending: true, immersive: true, onPress() {} });
+    assert.ok(captured.actions.some(action => action.accessibilityLabel === 'Following' && !action.disabled));
+    checks++;
+  }
 } finally { global.fetch = originalFetch; }
-console.log(`${checks} Places/Create/profile render and interaction checks passed. SSR does not verify native image loading, gestures, or device layout.`);
+console.log(`${checks} Places/Create/profile/Watch render and interaction checks passed. SSR does not verify native image loading, gestures, or device layout.`);

@@ -2,6 +2,7 @@ import { useThemeMode } from '@/contexts/ThemeContext';
 import type { Product, Video } from '@/src/mocks/videos';
 import { IMMERSIVE_TOKENS } from '@/src/theme/tokens';
 import { feedThumbnailFadeMs } from '@/src/ui/feedA11y';
+import { setFeedMuted, useFeedMuted } from '@/src/ui/feedAudioPreference';
 import {
   creatorDisplayNameFromFeed,
   creatorUsernameFromFeed,
@@ -14,8 +15,8 @@ import type {
   FeedReelShare,
 } from '@/src/ui/feedReelTypes';
 import { usePrefersReducedMotion } from '@/src/ui/usePrefersReducedMotion';
-import React, { useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { getVideoUrlInfo, transformToEmbedUrl } from '../src/utils/videoUtils';
 import { FeedReelOverlay } from './feed/FeedReelOverlay';
 import { ReelActionStack } from './feed/ReelActionStack';
@@ -183,6 +184,8 @@ function ReelStageShell({
   creatorDisplayName,
   onVolumeToggle,
   isMuted,
+  playbackFailed,
+  onPlaybackRetry,
   bottomChromeInset = 0,
 }: {
   video: Video;
@@ -198,6 +201,8 @@ function ReelStageShell({
   creatorDisplayName?: string | null;
   onVolumeToggle?: () => void;
   isMuted?: boolean;
+  playbackFailed?: boolean;
+  onPlaybackRetry?: () => void;
   bottomChromeInset?: number;
 }) {
   const { tokens } = useThemeMode();
@@ -213,6 +218,19 @@ function ReelStageShell({
   return (
     <View style={styles.stage}>
       {media}
+      {playbackFailed ? (
+        <View style={styles.recovery}>
+          <Text style={styles.recoveryText}>This video could not play here.</Text>
+          <View style={styles.recoveryActions}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Retry video" onPress={onPlaybackRetry} style={styles.recoveryButton}>
+              <Text style={styles.recoveryText}>Retry</Text>
+            </Pressable>
+            <Pressable accessibilityRole="link" accessibilityLabel="Open video source" onPress={() => void Linking.openURL(video.url)} style={styles.recoveryButton}>
+              <Text style={styles.recoveryText}>Open source</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       <ReelActionStack
         onVolumeToggle={onVolumeToggle}
         isMuted={isMuted}
@@ -282,12 +300,22 @@ function InstagramReelStage({
   creatorDisplayName?: string | null;
   bottomChromeInset?: number;
 }) {
-  const [isMuted, setIsMuted] = useState(true);
+  const isMuted = useFeedMuted();
   const webViewRef = useRef<any>(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (!isActive || ready || playbackFailed) return;
+    const timer = setTimeout(() => setPlaybackFailed(true), 14000);
+    return () => clearTimeout(timer);
+  }, [isActive, ready, playbackFailed, retryAttempt, video.id]);
+  useEffect(() => { setReady(false); setPlaybackFailed(false); setRetryAttempt(0); }, [video.id]);
+  const retryPlayback = () => { setReady(false); setPlaybackFailed(false); setRetryAttempt((n) => n + 1); };
 
   const toggleAudio = () => {
     const nextMuted = !isMuted;
-    setIsMuted(nextMuted);
+    setFeedMuted(nextMuted);
     injectMuted(webViewRef, nextMuted);
   };
 
@@ -296,10 +324,14 @@ function InstagramReelStage({
       video={originalVideo}
       media={
         <InstagramReelItem
+          key={`${video.id}:${retryAttempt}`}
           video={video}
-          isActive={isActive}
+          isActive={isActive && !playbackFailed}
           webViewRef={webViewRef}
           fadeMs={fadeMs}
+          isMuted={isMuted}
+          onReady={() => { setReady(true); setPlaybackFailed(false); }}
+          onLoadError={() => setPlaybackFailed(true)}
         />
       }
       onProductPress={onProductPress}
@@ -313,6 +345,8 @@ function InstagramReelStage({
       creatorDisplayName={creatorDisplayName}
       onVolumeToggle={toggleAudio}
       isMuted={isMuted}
+      playbackFailed={playbackFailed}
+      onPlaybackRetry={retryPlayback}
       bottomChromeInset={bottomChromeInset}
     />
   );
@@ -349,19 +383,29 @@ function YouTubeReelStage({
   creatorDisplayName?: string | null;
   bottomChromeInset?: number;
 }) {
-  const [isMuted, setIsMuted] = useState(true);
+  const isMuted = useFeedMuted();
   const webViewRef = useRef<any>(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (!isActive || ready || playbackFailed) return;
+    const timer = setTimeout(() => setPlaybackFailed(true), 14000);
+    return () => clearTimeout(timer);
+  }, [isActive, ready, playbackFailed, retryAttempt, video.id]);
+  useEffect(() => { setReady(false); setPlaybackFailed(false); setRetryAttempt(0); }, [video.id]);
+  const retryPlayback = () => { setReady(false); setPlaybackFailed(false); setRetryAttempt((n) => n + 1); };
 
   const toggleAudio = () => {
     const nextMuted = !isMuted;
-    setIsMuted(nextMuted);
+    setFeedMuted(nextMuted);
     injectMuted(webViewRef, nextMuted);
   };
 
   return (
     <ReelStageShell
       video={originalVideo}
-      media={<YouTubeReelItem video={video} isActive={isActive} webViewRef={webViewRef} fadeMs={fadeMs} />}
+      media={<YouTubeReelItem key={`${video.id}:${retryAttempt}`} video={video} isActive={isActive && !playbackFailed} isMuted={isMuted} webViewRef={webViewRef} fadeMs={fadeMs} onReady={() => { setReady(true); setPlaybackFailed(false); }} onLoadError={() => setPlaybackFailed(true)} />}
       onProductPress={onProductPress}
       follow={follow}
       like={like}
@@ -373,12 +417,18 @@ function YouTubeReelStage({
       creatorDisplayName={creatorDisplayName}
       onVolumeToggle={toggleAudio}
       isMuted={isMuted}
+      playbackFailed={playbackFailed}
+      onPlaybackRetry={retryPlayback}
       bottomChromeInset={bottomChromeInset}
     />
   );
 }
 
 const styles = StyleSheet.create({
+  recovery: { position: 'absolute', top: '38%', alignSelf: 'center', zIndex: 10, alignItems: 'center', gap: 10 },
+  recoveryActions: { flexDirection: 'row', gap: 12 },
+  recoveryButton: { minHeight: 44, minWidth: 96, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.65)' },
+  recoveryText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
   stage: {
     flex: 1,
     width: '100%',

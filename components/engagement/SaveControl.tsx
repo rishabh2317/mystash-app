@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -52,10 +51,10 @@ export function SaveControl({
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled || pending}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: disabled || pending, busy: pending, selected: isSaved }}
+      accessibilityState={{ disabled, busy: pending, selected: isSaved }}
       hitSlop={hitSlopToMinTarget(40)}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
@@ -72,10 +71,7 @@ export function SaveControl({
         },
       ]}
     >
-      {pending ? (
-        <ActivityIndicator color={color} size={iconOnly ? 'small' : undefined} />
-      ) : (
-        <>
+      <>
           <Ionicons
             name={isSaved ? 'bookmark' : 'bookmark-outline'}
             size={iconOnly ? 20 : 18}
@@ -84,8 +80,7 @@ export function SaveControl({
           {iconOnly ? null : (
             <Text style={[styles.label, { color, fontSize: tokens.fontSize.bodyStrong }]}>{label}</Text>
           )}
-        </>
-      )}
+      </>
     </Pressable>
   );
 }

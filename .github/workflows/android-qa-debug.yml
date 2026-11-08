@@ -6,7 +6,7 @@ on:
       backend:
         description: QA API to embed in the APK
         required: true
-        default: render
+        default: mac
         type: choice
         options:
           - render
@@ -22,6 +22,7 @@ jobs:
     env:
       CI: "1"
       EAS_BUILD_PROFILE: universal-find-qa-core
+      MYSTASH_QA_BACKEND: ${{ inputs.backend }}
       EXPO_PUBLIC_MYSTASH_INGEST_URL: ${{ inputs.backend == 'mac' && 'https://api-dev.mystash.in' || 'https://mystash-free-test.onrender.com' }}
       EXPO_PUBLIC_SUPABASE_URL: https://womdeohfpvzmhomgqwig.supabase.co
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}

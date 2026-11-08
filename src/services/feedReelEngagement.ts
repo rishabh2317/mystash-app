@@ -22,6 +22,8 @@ import {
 import { creatorMoreReelTarget, type CreatorMoreReelTarget } from '@/src/ui/collectionCreatorMore';
 
 const contextCache = new Map<string, FeedCollectionContext>();
+const creatorCollectionsCache = new Map<string, { at: number; page: Awaited<ReturnType<typeof listCreatorCollections>> }>();
+const CREATOR_COLLECTIONS_TTL_MS = 60_000;
 
 function bumpCounter(
   counters: FeedCollectionCounters,
@@ -52,6 +54,7 @@ export function useFeedReelEngagement(
   const requestId = useRef(0);
 
   useEffect(() => {
+    const id = ++requestId.current;
     if (!collectionId) {
       setContext(null);
       return;
@@ -61,7 +64,7 @@ export function useFeedReelEngagement(
       setContext(cached);
       return;
     }
-    const id = ++requestId.current;
+    setContext(null);
     let cancelled = false;
     void fetchCollectionById(collectionId)
       .then((aggregate) => {
@@ -76,6 +79,8 @@ export function useFeedReelEngagement(
       cancelled = true;
     };
   }, [collectionId]);
+
+  const currentContext = context?.collectionId === collectionId ? context : null;
 
   useEffect(() => {
     if (!user || !collectionId) {
@@ -95,16 +100,26 @@ export function useFeedReelEngagement(
     };
   }, [collectionId, user]);
 
-  const creatorId = context?.creator.id?.trim() || '';
+  const creatorId = currentContext?.creator.id?.trim() || '';
 
   useEffect(() => {
     if (!creatorId || !collectionId) {
       setMoreFromCreator(null);
       return;
     }
+    const cached = creatorCollectionsCache.get(creatorId);
+    if (cached && Date.now() - cached.at < CREATOR_COLLECTIONS_TTL_MS) {
+      setMoreFromCreator(creatorMoreReelTarget(cached.page.collections, collectionId));
+      return;
+    }
     let cancelled = false;
     void listCreatorCollections(creatorId, { limit: 4 })
       .then((page) => {
+        if (creatorCollectionsCache.size >= 100) {
+          const oldest = creatorCollectionsCache.keys().next().value;
+          if (oldest) creatorCollectionsCache.delete(oldest);
+        }
+        creatorCollectionsCache.set(creatorId, { at: Date.now(), page });
         if (cancelled) return;
         setMoreFromCreator(creatorMoreReelTarget(page.collections, collectionId));
       })
@@ -135,13 +150,13 @@ export function useFeedReelEngagement(
   }, [creatorId, user]);
 
   const username =
-    context?.creator.username ?? (video ? creatorUsernameFromFeed(video) : null);
+    currentContext?.creator.username ?? (video ? creatorUsernameFromFeed(video) : null);
   const displayName =
-    context?.creator.displayName ?? (video ? creatorDisplayNameFromFeed(video) : 'Creator');
-  const avatarUrl = context?.creator.avatarUrl ?? null;
+    currentContext?.creator.displayName ?? (video ? creatorDisplayNameFromFeed(video) : 'Creator');
+  const avatarUrl = currentContext?.creator.avatarUrl ?? null;
   const isSelf = Boolean(user && creatorId && user.id === creatorId);
 
-  const counters = context?.counters ?? { views: 0, saves: 0, shares: 0 };
+  const counters = currentContext?.counters ?? { views: 0, saves: 0, shares: 0 };
 
   const patchCounters = useCallback(
     (patch: (prev: FeedCollectionCounters) => FeedCollectionCounters) => {
@@ -191,6 +206,12 @@ export function useFeedReelEngagement(
     setSavePending(true);
     try {
       await saveHandler();
+      const fresh = mapAggregateToFeedCollectionContext(await fetchCollectionById(collectionId));
+      contextCache.set(collectionId, fresh);
+      setContext((current) => current?.collectionId === collectionId ? fresh : current);
+    } catch {
+      // The save handler already reconciles membership; keep the existing card
+      // if refreshing the optional counter projection is temporarily unavailable.
     } finally {
       setSavePending(false);
     }
@@ -213,7 +234,7 @@ export function useFeedReelEngagement(
     try {
       const shared = await shareCollection({
         collectionId,
-        title: context?.title ?? video?.video_title ?? video?.product_name ?? null,
+        title: currentContext?.title ?? video?.video_title ?? video?.product_name ?? null,
         creatorId: creatorId || null,
         surface: engagementSurface,
       });
@@ -225,7 +246,7 @@ export function useFeedReelEngagement(
     }
   }, [
     collectionId,
-    context?.title,
+    currentContext?.title,
     creatorId,
     engagementSurface,
     patchCounters,

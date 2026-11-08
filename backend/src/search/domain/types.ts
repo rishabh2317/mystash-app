@@ -108,6 +108,8 @@ export type SearchFilters = {
 
 export type SearchQueryInput = {
   q: string;
+  /** Optional result lane; retrieval must be scoped before candidate ranking. */
+  entityType?: SearchEntityType;
   userId?: string | null;
   cursor?: string | null;
   limit?: number;
@@ -117,6 +119,12 @@ export type SearchQueryInput = {
   /** Disable vector lane (tests / degradation). */
   lexicalOnly?: boolean;
 };
+
+/** Unknown HTTP query values are rejected instead of silently widening to all entities. */
+export function readSearchEntityType(value: unknown): SearchEntityType | null | undefined {
+  if (value === undefined) return undefined;
+  return value === 'collection' || value === 'creator' || value === 'product' ? value : null;
+}
 
 export type RankedHit = {
   entityType: SearchEntityType;

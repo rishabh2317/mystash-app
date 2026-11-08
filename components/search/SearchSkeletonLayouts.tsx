@@ -8,6 +8,7 @@ import { CreatorCardSkeleton } from '@/components/creator/CreatorCardSkeleton';
 import { SkeletonBlock } from '@/components/status/SkeletonBlock';
 import { SkeletonGrid, SkeletonStack } from '@/components/status/SkeletonStack';
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
+import type { SearchEntityType } from '@/src/services/searchApi';
 
 export function SearchDiscoverSkeleton() {
   const tokens = useThemeTokens();
@@ -45,24 +46,22 @@ export function SearchDiscoverSkeleton() {
   );
 }
 
-export function SearchResultsSkeleton() {
+export function SearchResultsSkeleton({ entityType }: { entityType?: SearchEntityType }) {
   const tokens = useThemeTokens();
   return (
     <SkeletonStack gap={tokens.space.md}>
-      <SkeletonBlock height={16} width={110} />
-      <CollectionTileSkeleton />
-      <CreatorCardSkeleton />
-      <ProductCardSkeleton variant="related" />
-      <ProductCardSkeleton variant="related" />
+      {entityType === 'creator' ? <><CreatorCardSkeleton /><CreatorCardSkeleton /></>
+        : entityType === 'product' ? <><ProductCardSkeleton variant="related" /><ProductCardSkeleton variant="related" /></>
+          : entityType === 'collection' ? <><CollectionTileSkeleton /><CollectionTileSkeleton /></>
+            : <><SkeletonBlock height={16} width={110} /><CollectionTileSkeleton /><CreatorCardSkeleton /><ProductCardSkeleton variant="related" /></>}
     </SkeletonStack>
   );
 }
 
-export function SearchMoreSkeleton() {
+export function SearchMoreSkeleton({ entityType }: { entityType?: SearchEntityType }) {
   return (
     <SkeletonStack gap={12} style={{ paddingVertical: 8 }}>
-      <ProductCardSkeleton variant="related" />
-      <CollectionTileSkeleton />
+      {entityType === 'creator' ? <CreatorCardSkeleton /> : entityType === 'product' ? <ProductCardSkeleton variant="related" /> : <CollectionTileSkeleton />}
     </SkeletonStack>
   );
 }

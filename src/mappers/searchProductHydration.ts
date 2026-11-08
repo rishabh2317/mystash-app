@@ -11,7 +11,13 @@ export async function hydrateSearchProducts(
   const productCards = cards.filter((c) => c.entityType === 'product' && c.id.trim());
   if (productCards.length === 0) return [];
   const ids = productCards.map((c) => c.id.trim());
-  const rows = await fetchCatalogProductsByIds(ids);
+  let rows: Awaited<ReturnType<typeof fetchCatalogProductsByIds>>;
+  try {
+    rows = await fetchCatalogProductsByIds(ids);
+  } catch {
+    // Search results remain usable when the optional Catalog enrichment request fails.
+    rows = new Map();
+  }
   const out: CatalogProductViewModel[] = [];
   for (const card of productCards) {
     const row = rows.get(card.id.trim());

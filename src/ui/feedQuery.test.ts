@@ -4,9 +4,11 @@ import { describe, it } from 'node:test';
 import {
   FEED_PAGE_SIZE,
   FEED_VIDEO_COLUMNS,
+  appendUniqueFeedRows,
   countMountedFeedPlayers,
   feedHasMore,
   feedPageRange,
+  feedCursorFromRow,
   pickActiveFeedIndex,
   shouldMountFeedPlayer,
 } from './feedQuery';
@@ -21,6 +23,15 @@ describe('feed query', () => {
     assert.equal(FEED_VIDEO_COLUMNS.includes('thumbnail'), true);
     assert.equal(FEED_VIDEO_COLUMNS.includes('*'), false);
     assert.equal(FEED_VIDEO_COLUMNS.includes('description'), false);
+  });
+
+  it('uses the last database row as the next cursor and drops repeated rows', () => {
+    assert.deepEqual(feedCursorFromRow({ created_at: '2026-11-06T00:00:00Z', id: 'b' }), {
+      createdAt: '2026-11-06T00:00:00Z', id: 'b',
+    });
+    assert.deepEqual(appendUniqueFeedRows([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }, { id: 'c' }]), [
+      { id: 'a' }, { id: 'b' }, { id: 'c' },
+    ]);
   });
 
   it('mounts a player only for the active reel that has an embed', () => {

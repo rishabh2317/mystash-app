@@ -4,8 +4,14 @@ import { LocalEmbeddingProvider } from './embeddings/LocalEmbeddingProvider';
 import { InMemorySearchIndex } from './index/InMemorySearchIndex';
 import { SearchService } from './SearchService';
 import { SearchTelemetryStore } from './telemetry';
+import { readSearchEntityType } from './domain/types';
 
 describe('SearchService V1', () => {
+  it('accepts only the three named result types at the HTTP boundary', () => {
+    assert.equal(readSearchEntityType(undefined), undefined);
+    for (const value of ['collection', 'creator', 'product']) assert.equal(readSearchEntityType(value), value);
+    for (const value of ['all', 'video', '', ['product'], { type: 'product' }]) assert.equal(readSearchEntityType(value), null);
+  });
   async function seeded() {
     const index = new InMemorySearchIndex();
     const embeddings = new LocalEmbeddingProvider(64);
@@ -114,6 +120,48 @@ describe('SearchService V1', () => {
     const res = await svc.search({ q: 'travel gadgets', lexicalOnly: true });
     assert.equal(res.retrievalMode, 'lexical_only');
     assert.ok(res.results.some((r) => r.id === 'col-gadgets'));
+  });
+
+  it('scopes retrieval before ranking and does not show unrelated popular results in an empty tab', async () => {
+    const { svc } = await seeded();
+    const creator = await svc.search({ q: 'tech', entityType: 'creator', presentation: 'unified' });
+    assert.ok(creator.results.length > 0);
+    assert.ok(creator.results.every(row => row.entityType === 'creator'));
+    const product = await svc.search({ q: 'sony', entityType: 'product', presentation: 'unified' });
+    assert.ok(product.results.some(row => row.id === 'prod-xm5'));
+    assert.ok(product.results.every(row => row.entityType === 'product'));
+    const empty = await svc.search({ q: 'nothingmatchesfixturexyz', entityType: 'creator', presentation: 'unified', lexicalOnly: true });
+    assert.deepEqual(empty.results, []);
+    assert.equal(empty.zeroResult, true);
+    const legacy = await svc.search({ q: 'nothingmatchesfixturexyz', lexicalOnly: true });
+    assert.ok(legacy.results.every(row => row.entityType === 'collection'));
+  });
+
+  it('finds a matching type even when many other types compete for the bounded candidate set', async () => {
+    const { svc } = await seeded();
+    for (let i = 0; i < 55; i++) await svc.indexCollection({
+      collectionId: `crowded-${i}`, slug: `crowded-${i}`, searchTitle: `Crowded fixture ${i}`,
+      searchText: 'crowded fixture', searchEligible: true, contentRevision: 1,
+      creator: { creatorId: `owner-${i}`, displayName: 'Fixture', username: `fixture${i}`, avatarRef: null },
+    });
+    await svc.indexProduct({ catalogProductId: 'only-product', name: 'Crowded fixture product', popularity: 1 });
+    const page = await svc.search({ q: 'crowded fixture', entityType: 'product', presentation: 'unified', limit: 5, lexicalOnly: true });
+    assert.deepEqual(page.results.map(row => row.id), ['only-product']);
+  });
+
+  it('paginates a typed result lane without mixing entities or repeating a page', async () => {
+    const { svc } = await seeded();
+    for (let i = 0; i < 12; i++) await svc.indexProduct({
+      catalogProductId: `typed-${i}`, name: `Typed camera ${i}`, popularity: 12 - i,
+    });
+    const first = await svc.search({ q: 'Typed camera', entityType: 'product', presentation: 'unified', limit: 5, lexicalOnly: true });
+    assert.equal(first.results.length, 5);
+    assert.ok(first.nextCursor);
+    const second = await svc.search({ q: 'Typed camera', entityType: 'product', presentation: 'unified', limit: 5,
+      cursor: first.nextCursor, lexicalOnly: true });
+    assert.equal(second.results.length, 5);
+    assert.ok([...first.results, ...second.results].every(row => row.entityType === 'product'));
+    assert.equal(new Set([...first.results, ...second.results].map(row => row.id)).size, 10);
   });
 
   it('removes ineligible collections from serving', async () => {

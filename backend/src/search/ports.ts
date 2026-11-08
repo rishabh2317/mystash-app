@@ -14,6 +14,12 @@ export type VectorCandidate = {
   document: SearchDocument;
 };
 
+export type LexicalPage = {
+  candidates: LexicalCandidate[];
+  after: [number, string] | null;
+  hasMore: boolean;
+};
+
 export type HybridCandidate = {
   entityType: SearchEntityType;
   id: string;
@@ -34,10 +40,22 @@ export type SearchIndexPort = {
   get(entityType: SearchEntityType, id: string): Promise<SearchDocument | null>;
   lexicalSearch(params: {
     q: string;
+    exact?: string;
     entityTypes?: SearchEntityType[];
     filters?: SearchFilters;
     limit: number;
   }): Promise<LexicalCandidate[]>;
+  /** Optional OpenSearch keyset path for entity-scoped discovery. */
+  lexicalPage?(params: {
+    q: string;
+    exact?: string;
+    entityType: SearchEntityType;
+    filters?: SearchFilters;
+    limit: number;
+    after?: [number, string] | null;
+    excludeIds?: string[];
+  }): Promise<LexicalPage>;
+  getMany?(entityType: SearchEntityType, ids: string[], filters?: SearchFilters): Promise<SearchDocument[]>;
   vectorSearch(params: {
     vector: number[];
     entityTypes?: SearchEntityType[];

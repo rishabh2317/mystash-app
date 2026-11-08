@@ -18,6 +18,7 @@ describe('searchReelSession', () => {
   it('stores collection order and start id', () => {
     setSearchReelSession({
       query: 'linen shirts',
+      entityType: 'collection',
       collections: [
         { collectionId: 'a', heroThumbnailUrl: null },
         { collectionId: 'b', heroThumbnailUrl: 'https://img/b.jpg' },
@@ -30,6 +31,7 @@ describe('searchReelSession', () => {
     const session = getSearchReelSession();
     assert.ok(session);
     assert.equal(session.query, 'linen shirts');
+    assert.equal(session.entityType, 'collection');
     assert.deepEqual(session.collections.map((c) => c.collectionId), ['a', 'b', 'c']);
     assert.equal(session.startCollectionId, 'c');
     assert.equal(session.nextCursor, 'cursor-1');

@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -74,7 +73,6 @@ export function FollowControl({
   const restingText = immersive ? tokens.immersive.text : tokens.color.text;
   const accentFill = brand ? tokens.color.primary : tokens.color.text;
   const accentLabel = brand ? tokens.color.onPrimary : tokens.color.textOnAccent;
-  const spinnerColor = onAccent ? accentLabel : restingText;
   const labelColor = onAccent ? accentLabel : restingText;
   const labelSize = micro
     ? tokens.fontSize.micro
@@ -87,10 +85,10 @@ export function FollowControl({
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled || pending}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: disabled || pending, busy: pending, selected: isFollowing }}
+      accessibilityState={{ disabled, busy: pending, selected: isFollowing }}
       hitSlop={hit}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
@@ -121,10 +119,7 @@ export function FollowControl({
         },
       ]}
     >
-      {pending ? (
-        <ActivityIndicator color={spinnerColor} size={inline ? 'small' : undefined} />
-      ) : (
-        <Text
+      <Text
           style={[
             styles.label,
             {
@@ -142,8 +137,7 @@ export function FollowControl({
           ]}
         >
           {label}
-        </Text>
-      )}
+      </Text>
     </Pressable>
   );
 }

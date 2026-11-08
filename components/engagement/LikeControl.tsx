@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
@@ -35,10 +35,10 @@ export function LikeControl({
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled || pending}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={isLiked ? 'Unlike Reel' : 'Like Reel'}
-      accessibilityState={{ disabled: disabled || pending, busy: pending, selected: isLiked }}
+      accessibilityState={{ disabled, busy: pending, selected: isLiked }}
       hitSlop={hitSlopToMinTarget(40)}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
@@ -51,15 +51,7 @@ export function LikeControl({
         },
       ]}
     >
-      {pending ? (
-        <ActivityIndicator color={color} size="small" />
-      ) : (
-        <Ionicons
-          name={isLiked ? 'heart' : 'heart-outline'}
-          size={22}
-          color={color}
-        />
-      )}
+      <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={22} color={color} />
     </Pressable>
   );
 }

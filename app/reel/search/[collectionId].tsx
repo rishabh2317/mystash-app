@@ -201,7 +201,8 @@ export default function SearchReelFeedHost() {
     try {
       const res = await searchBlended({
         q: query,
-        presentation: 'typed',
+        entityType: session?.entityType,
+        presentation: session?.entityType ? 'unified' : 'typed',
         limit: PAGE_LIMIT,
         cursor,
       });
@@ -232,7 +233,7 @@ export default function SearchReelFeedHost() {
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, session?.query]);
+  }, [loadingMore, session?.entityType, session?.query]);
 
   useEffect(() => {
     if (rows.length === 0) return;

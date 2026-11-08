@@ -9,7 +9,7 @@ import {
   shoppableProductOffers,
 } from './feedShop';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 describe('feedShop helpers', () => {
   it('classifies single vs multi merchant presentation', () => {

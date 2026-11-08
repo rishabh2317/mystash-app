@@ -31,6 +31,7 @@ interface YouTubeReelItemProps {
   onLoadError?: () => void;
   video: Video;
   isActive: boolean;
+  isMuted?: boolean;
   webViewRef?: React.RefObject<any>;
   fadeMs?: number;
 }
@@ -43,6 +44,7 @@ function logPlayback(trace: PlaybackTrace, event: Parameters<typeof playbackLogL
 export default function YouTubeReelItem({
   video,
   isActive,
+  isMuted = true,
   webViewRef: externalWebViewRef,
   fadeMs: _fadeMs = 300,
   onReady,
@@ -53,6 +55,7 @@ export default function YouTubeReelItem({
   const internalWebViewRef = useRef<WebView>(null);
   const webViewRef = externalWebViewRef || internalWebViewRef;
   const traceRef = useRef<PlaybackTrace | null>(null);
+  const posterFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stageHeightRef = useRef(0);
 
   const parentOrigin = useMemo(() => resolveYoutubeParentOrigin(), []);
@@ -63,7 +66,7 @@ export default function YouTubeReelItem({
   const youtubeHtml = useMemo(
     () =>
       videoId
-        ? buildYoutubeWebHtml(videoId, parentOrigin, youtubeStageCropScale(0))
+        ? buildYoutubeWebHtml(videoId, parentOrigin, youtubeStageCropScale(0), { loop: true })
         : '<!DOCTYPE html><html><body style="background:#000"></body></html>',
     [parentOrigin, videoId],
   );
@@ -82,11 +85,17 @@ export default function YouTubeReelItem({
     const mounted = notePlayerMounted();
     logPlayback(trace, 'mount', mounted);
     return () => {
+      if (posterFallback.current) clearTimeout(posterFallback.current);
       recordPlaybackMark(trace, 'release');
       logPlayback(trace, 'release', notePlayerReleased());
       if (traceRef.current === trace) traceRef.current = null;
     };
   }, [mountPlayer, videoId]);
+
+  useEffect(() => {
+    if (!mountPlayer) return;
+    webViewRef.current?.injectJavaScript(`window.__mystashSetMuted?.(${isMuted}); true;`);
+  }, [isMuted, mountPlayer, webViewRef]);
 
   useEffect(() => {
     if (!mountPlayer || stageHeight <= 0) return;
@@ -140,6 +149,7 @@ export default function YouTubeReelItem({
                   logPlayback(trace, 'loadEnd', playbackPlayerCount());
                 }
                 applyCrop();
+                webViewRef.current?.injectJavaScript(`window.__mystashSetMuted?.(${isMuted}); true;`);
               }}
               onMessage={(event) => {
                 const message = event.nativeEvent.data;
@@ -149,8 +159,14 @@ export default function YouTubeReelItem({
                   recordPlaybackMark(trace, 'iframeLoaded');
                   logPlayback(trace, 'iframeLoaded', playbackPlayerCount());
                   applyCrop();
+                  webViewRef.current?.injectJavaScript(`window.__mystashSetMuted?.(${isMuted}); true;`);
+                  // Some embeds never emit onStateChange. Keep the poster until
+                  // playback is confirmed, then use a bounded iframe fallback.
+                  if (posterFallback.current) clearTimeout(posterFallback.current);
+                  posterFallback.current = setTimeout(() => setRevealedId(videoId), 4500);
                 }
                 if (shouldRevealYoutubePoster(message)) {
+                  if (posterFallback.current) clearTimeout(posterFallback.current);
                   setRevealedId(videoId);
                 }
                 if (shouldRevealFeedFrame(message)) {
@@ -160,10 +176,12 @@ export default function YouTubeReelItem({
                 }
               }}
               onError={(error) => {
+                if (posterFallback.current) clearTimeout(posterFallback.current);
+                setRevealedId(null);
                 onLoadError?.();
                 if (__DEV__) console.warn('YouTube WebView:', error.nativeEvent);
               }}
-              onHttpError={onLoadError ? () => onLoadError() : undefined}
+              onHttpError={onLoadError ? () => { if (posterFallback.current) clearTimeout(posterFallback.current); setRevealedId(null); onLoadError(); } : undefined}
             />
           </View>
         ) : null}

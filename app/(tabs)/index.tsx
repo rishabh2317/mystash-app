@@ -22,13 +22,15 @@ import {
   shouldShowFeedTeach,
 } from '@/src/ui/feedA11y';
 import { FEED_VIEWABILITY_HOLD_MS } from '@/src/ui/feedPlaybackTiming';
-import { pickActiveFeedIndex } from '@/src/ui/feedQuery';
+import { appendUniqueFeedRows, pickActiveFeedIndex, type FeedCursor } from '@/src/ui/feedQuery';
+import { useIsFocused } from '@react-navigation/native';
 import { feedItemLayout, nextFeedThumbnailUrl, preserveFeedIndex } from '@/src/ui/feedViewport';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Image } from 'expo-image';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
+  AppState,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -41,6 +43,12 @@ const WINDOW_HEIGHT = Dimensions.get('window').height;
 
 export default function HomeScreen() {
   const { tokens } = useThemeMode();
+  const isFocused = useIsFocused();
+  const [isForeground, setIsForeground] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => setIsForeground(state === 'active'));
+    return () => subscription.remove();
+  }, []);
   const tabBarHeight = useBottomTabBarHeight();
   const [activeIndex, setActiveIndex] = useState(0);
   const [videos, setVideos] = useState<Video[]>([]);
@@ -51,9 +59,11 @@ export default function HomeScreen() {
   const [teachDismissed, setTeachDismissed] = useState<boolean | null>(null);
   const [feedGeneration, setFeedGeneration] = useState(0);
   const hasLoadedOnce = useRef(false);
-  const pageRef = useRef(0);
+  const cursorRef = useRef<FeedCursor | null>(null);
+  const requestGenerationRef = useRef(0);
   const hasMoreRef = useRef(true);
   const loadingMoreRef = useRef(false);
+  const refreshingPageRef = useRef(false);
   const productsLoadedRef = useRef(new Set<string>());
   const videosRef = useRef<Video[]>([]);
   const activeVideoIdRef = useRef<string | undefined>(undefined);
@@ -98,17 +108,20 @@ export default function HomeScreen() {
   const loadFromSupabase = useCallback(
     async (opts: { showFullScreenSpinner: boolean; isCancelled?: () => boolean }) => {
       const { showFullScreenSpinner, isCancelled } = opts;
+      const requestGeneration = ++requestGenerationRef.current;
+      refreshingPageRef.current = true;
       try {
         if (showFullScreenSpinner) setLoading(true);
-        pageRef.current = 0;
+        cursorRef.current = null;
         productsLoadedRef.current.clear();
         setFeedGeneration((generation) => generation + 1);
-        const page = await fetchFeedPage(0);
-        if (isCancelled?.()) return;
+        const page = await fetchFeedPage(null);
+        if (isCancelled?.() || requestGeneration !== requestGenerationRef.current) return;
+        cursorRef.current = page.nextCursor;
         hasMoreRef.current = page.hasMore;
         applyVideoRows(page.videos);
       } catch (error) {
-        if (isCancelled?.()) return;
+        if (isCancelled?.() || requestGeneration !== requestGenerationRef.current) return;
         const kind = classifyFeedLoadFailure(error);
         if (hasLoadedOnce.current && videosRef.current.length > 0) {
           setFailureKind(null);
@@ -118,8 +131,9 @@ export default function HomeScreen() {
           setVideos([]);
         }
       } finally {
+        if (isCancelled?.() || requestGeneration !== requestGenerationRef.current) return;
+        refreshingPageRef.current = false;
         setRefreshing(false);
-        if (isCancelled?.()) return;
         hasLoadedOnce.current = true;
         if (showFullScreenSpinner) setLoading(false);
       }
@@ -135,6 +149,7 @@ export default function HomeScreen() {
     });
     return () => {
       cancelled = true;
+      requestGenerationRef.current += 1;
     };
     // Once: switching tabs must not refetch or jump to item 0.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,7 +208,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     const video = videos[activeIndex];
-    if (!video) return;
+    if (!video || !isFocused || !isForeground) return;
     const collectionId = video.collection_id?.trim();
     if (!collectionId) return;
     recordCollectionViewOnce({
@@ -201,7 +216,7 @@ export default function HomeScreen() {
       creatorId: video.curator_id ?? null,
       surface: 'home_reel',
     });
-  }, [activeIndex, videos]);
+  }, [activeIndex, videos, isFocused, isForeground]);
 
   useEffect(() => {
     const uri = nextFeedThumbnailUrl(videos, activeIndex);
@@ -237,19 +252,16 @@ export default function HomeScreen() {
   ).current;
 
   const loadMore = useCallback(() => {
-    if (!hasMoreRef.current || loadingMoreRef.current || !hasLoadedOnce.current) return;
+    if (!isFocused || !hasMoreRef.current || loadingMoreRef.current || refreshingPageRef.current || !hasLoadedOnce.current) return;
     loadingMoreRef.current = true;
-    const nextPage = pageRef.current + 1;
-    void fetchFeedPage(nextPage)
+    const generation = requestGenerationRef.current;
+    void fetchFeedPage(cursorRef.current)
       .then((page) => {
-        pageRef.current = nextPage;
+        if (generation !== requestGenerationRef.current) return;
+        cursorRef.current = page.nextCursor;
         hasMoreRef.current = page.hasMore;
         if (page.videos.length === 0) return;
-        const seen = new Set(videosRef.current.map((row) => row.id));
-        const merged = videosRef.current.slice();
-        for (const row of page.videos) {
-          if (!seen.has(row.id)) merged.push(row);
-        }
+        const merged = appendUniqueFeedRows(videosRef.current, page.videos);
         videosRef.current = merged;
         setVideos(merged);
       })
@@ -259,7 +271,7 @@ export default function HomeScreen() {
       .finally(() => {
         loadingMoreRef.current = false;
       });
-  }, []);
+  }, [isFocused]);
 
   const handleProductPress = useCallback((video: Video, product: Product) => {
     setInspect({ video, product });
@@ -272,7 +284,7 @@ export default function HomeScreen() {
 
   const renderItem = useCallback(
     ({ item, index }: { item: Video; index: number }) => {
-      const active = index === activeIndex;
+      const active = index === activeIndex && isFocused && isForeground;
       return (
         <CollectionExposure collectionId={item.collection_id} style={{ height: itemHeight, width: '100%' }}>
           <ReelItem
@@ -328,6 +340,8 @@ export default function HomeScreen() {
     },
     [
       activeIndex,
+      isFocused,
+      isForeground,
       engagement.avatarUrl,
       engagement.canSaveShare,
       engagement.displayName,

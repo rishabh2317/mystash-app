@@ -4,6 +4,17 @@ export const FEED_PAGE_SIZE = 8;
 export const FEED_VIDEO_COLUMNS =
   'id, url, thumbnail, creator_name, stash_score, product_name, embed_url, video_title, curator_id, collection_id, created_at';
 
+export type FeedCursor = { createdAt: string; id: string };
+
+export function feedCursorFromRow(row: { created_at?: string; id: string } | undefined): FeedCursor | null {
+  return row?.created_at ? { createdAt: row.created_at, id: row.id } : null;
+}
+
+export function appendUniqueFeedRows<T extends { id: string }>(current: readonly T[], incoming: readonly T[]): T[] {
+  const seen = new Set(current.map((row) => row.id));
+  return [...current, ...incoming.filter((row) => !seen.has(row.id) && Boolean(seen.add(row.id)))];
+}
+
 export function feedPageRange(page: number, pageSize = FEED_PAGE_SIZE): { from: number; to: number } {
   const safe = Number.isFinite(page) ? Math.max(0, Math.floor(page)) : 0;
   const from = safe * pageSize;

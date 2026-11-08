@@ -7,6 +7,7 @@ import {
   SearchServiceError,
 } from './factory';
 import { createSearchEventConsumer } from './eventConsumer';
+import { readSearchEntityType } from './domain/types';
 
 async function optionalUserId(req: Request): Promise<string | null> {
   return optionalVerifiedUserId(req);
@@ -28,6 +29,11 @@ export function registerSearchRoutes(app: Express): void {
         req.query.presentation === 'typed' ? 'typed' : 'unified';
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const cursor = req.query.cursor ? String(req.query.cursor) : null;
+      const entityType = readSearchEntityType(req.query.entity_type);
+      if (entityType === null) {
+        res.status(400).json({ error: 'Invalid entity_type' });
+        return;
+      }
 
       const filters: {
         creatorId?: string;
@@ -66,6 +72,7 @@ export function registerSearchRoutes(app: Express): void {
         presentation,
         limit,
         cursor,
+        entityType,
         filters: Object.keys(filters).length ? filters : undefined,
         lexicalOnly: req.query.lexical_only === '1',
       });

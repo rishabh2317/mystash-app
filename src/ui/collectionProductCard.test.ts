@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 import { COLLECTION_PRODUCT_COPY } from '@/src/ui/collectionProductActions';
 import { COLLECTION_SECTION_COPY } from '@/src/ui/collectionSections';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 describe('collection product card actions', () => {
   it('ProductCard supports AI Review and merchant shortcut props', () => {

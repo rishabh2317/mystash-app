@@ -154,7 +154,7 @@ export function createSearchService(opts?: SearchRuntimeOptions): SearchService 
         embeddingSpace: spaceFromEmbeddings(embeddings),
       });
       index = os;
-      void os.ensureIndexes()
+      void os.startStartupCheck()
         .then(() => {
           logger.info(
             { backend: 'opensearch', opensearchUrl: url },
