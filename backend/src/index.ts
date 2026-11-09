@@ -31,7 +31,7 @@ import { createProductRedirectHandler } from './shopping/productRedirect';
 import { registerCollectionRoutes } from './collection/routes';
 import { registerUserRoutes } from './user/routes';
 import { registerEngagementRoutes } from './engagement/routes';
-import { logSearchRuntime } from './search/factory';
+import { checkSearchReadiness, logSearchRuntime } from './search/factory';
 import { registerSearchRoutes } from './search/routes';
 import { registerCartRoutes } from './cart/routes';
 import { registerPlaceRoutes } from './place/routes';
@@ -85,6 +85,11 @@ app.get('/ready/ingestion', async (_req, res) => {
     clients: () => redis.client('LIST') as Promise<string>,
   });
   res.status(result.ready ? 200 : 503).json(result);
+});
+
+app.get('/ready/search', async (_req, res) => {
+  try { res.json(await checkSearchReadiness()); }
+  catch { res.status(503).json({ ready: false, backend: 'unavailable' }); }
 });
 
 app.get('/products/:id/redirect', createProductRedirectHandler(createSupabaseAdmin()));

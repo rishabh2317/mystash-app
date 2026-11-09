@@ -15,6 +15,8 @@ describe('Search factory backend selection', () => {
     'SEARCH_INDEX_BACKEND',
     'OPENSEARCH_URL',
     'EMBEDDING_PROVIDER',
+    'MYSTASH_RENDER_FREE_TEST',
+    'RENDER',
   ] as const;
   const saved: Record<string, string | undefined> = {};
 
@@ -58,6 +60,19 @@ describe('Search factory backend selection', () => {
     process.env.SEARCH_ENV = 'production';
     process.env.SEARCH_INDEX_BACKEND = 'memory';
     assert.throws(() => resolveSearchIndexBackend(), SearchConfigurationError);
+  });
+
+  it('allows PostgreSQL only in the explicit Render Free QA profile', () => {
+    clearEnv();
+    process.env.NODE_ENV = 'production';
+    process.env.SEARCH_INDEX_BACKEND = 'postgres_qa';
+    assert.throws(() => resolveSearchIndexBackend(), SearchConfigurationError);
+    process.env.MYSTASH_RENDER_FREE_TEST = 'true';
+    assert.throws(() => resolveSearchIndexBackend(), SearchConfigurationError);
+    process.env.RENDER = 'true';
+    assert.equal(resolveSearchIndexBackend(), 'postgres_qa');
+    assert.equal(describeSearchRuntime().backend, 'postgres_qa');
+    assert.equal(describeSearchRuntime().opensearchUrl, null);
   });
 
   it('forceInMemory works for unit tests', () => {

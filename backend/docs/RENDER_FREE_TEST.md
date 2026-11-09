@@ -16,11 +16,14 @@ application identifiers as part of this deployment.
   existing five queue consumers and serializes heavy creator/user-import
   extraction across those queues. Only this explicit profile adds FFmpeg decoder
   and encoder `-threads 1`; timestamps, dimensions and JPEG quality stay unchanged.
-- `NODE_ENV=production` keeps production logging/auth behavior. The existing
-  supported testing search selection is `SEARCH_ENV=development`,
-  `SEARCH_INDEX_BACKEND=memory`, `EMBEDDING_PROVIDER=local`.
-- Search starts empty, is process-local and is lost on restart. Do not claim
-  persistent full-catalog search parity.
+- `NODE_ENV=production` keeps production logging/auth behavior. The QA profile
+  uses `SEARCH_ENV=development` and `EMBEDDING_PROVIDER=local`; the backend
+  selection below is restricted by the explicit Render Free marker.
+- The consolidated QA entrypoint now explicitly selects `SEARCH_INDEX_BACKEND=postgres_qa`.
+  Migration `20261109210000_search_qa_postgres.sql` creates a public-only projection
+  maintained by source-table triggers. Search survives Render restarts; it remains
+  lexical-only and is not OpenSearch relevance or scale parity. `/ready/search`
+  checks the function and reports the provider without exposing credentials.
 - Container memory (including media subprocesses), process RSS and sampled peak
   values are logged every 10 seconds. Sample interval is 500 ms; a sampled peak
   can miss a shorter transient. A cloud extraction test is required before acceptance.
@@ -60,13 +63,13 @@ The API can retain the existing measurement/reporting/personalization capability
 flags without changing any account preference or admin authorization. Reporting
 still requires verified sessions; admin membership still comes from Supabase.
 
-Analytics rollups, interest refresh, maintenance and notification background work
-keep their existing owners. This entrypoint forces those scheduler flags and push
-dispatch off, avoiding competing global jobs on the shared Supabase project.
-Existing report snapshots and inbox rows remain readable; continuous rollups,
-privacy maintenance and new notification materialization are not provided when
-their Mac-hosted owner is offline. Do not describe this as the full always-on
-Analytics/notification deployment.
+This QA entrypoint runs the existing consent-aware Creator/Admin Analytics rollups,
+privacy maintenance, and PostgreSQL-leased in-app notification materializer on
+Render. It does not depend on a Mac for new inbox rows or Analytics refreshes.
+Interest-profile refresh and push dispatch remain off. Existing Mac schedulers may
+still race harmlessly on the shared Supabase project; disable their ownership when
+moving QA to Render. Render Free sleep pauses all scheduled work until wake, so
+Analytics and notification delivery are delayed while the service is idle.
 
 Render Free sleeps after 15 minutes without incoming traffic. All embedded work
 stops while asleep; the next real request wakes the service. Do not add synthetic

@@ -34,6 +34,8 @@ export type HybridCandidate = {
  * Owns retrieval primitives only; Mystash SearchService owns final ranking.
  */
 export type SearchIndexPort = {
+  /** Explicit lexical-only provider; SearchService does not request embeddings. */
+  supportsVector?: boolean;
   upsert(doc: SearchDocument): Promise<void>;
   upsertMany(docs: SearchDocument[]): Promise<void>;
   delete(entityType: SearchEntityType, id: string): Promise<void>;

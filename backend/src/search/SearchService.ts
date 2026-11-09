@@ -242,7 +242,7 @@ export class SearchService {
     });
 
     let vector: Awaited<ReturnType<SearchIndexPort['vectorSearch']>> = [];
-    if (!input.lexicalOnly) {
+    if (!input.lexicalOnly && this.index.supportsVector !== false) {
       try {
         const emb = await this.embedQueryCached(prepared.corrected);
         vector = await this.index.vectorSearch({
@@ -261,7 +261,7 @@ export class SearchService {
       }
     } else {
       retrievalMode = 'lexical_only';
-      degraded.push('lexical_only_requested');
+      degraded.push(input.lexicalOnly ? 'lexical_only_requested' : 'semantic_unavailable_qa');
     }
 
     let fused = fuseHybridCandidates(lexical, vector);
@@ -279,7 +279,7 @@ export class SearchService {
         fused = fuseHybridCandidates(lexical, vector);
       }
     }
-    if (fused.length === 0 && vector.length === 0 && !input.lexicalOnly) {
+    if (fused.length === 0 && vector.length === 0 && !input.lexicalOnly && this.index.supportsVector !== false) {
       try {
         const emb = await this.embedQueryCached(prepared.corrected);
         vector = await this.index.vectorSearch({
@@ -384,15 +384,15 @@ export class SearchService {
       let vectorError: unknown = null;
       const lexicalRequest = lexicalPage.call(this.index, { q: expanded, exact: query,
         entityType, filters, limit: headLimit });
-      const vectorRequest = input.lexicalOnly ? Promise.resolve() : this.embedQueryCached(query)
+      const vectorRequest = input.lexicalOnly || this.index.supportsVector === false ? Promise.resolve() : this.embedQueryCached(query)
         .then(embedding => this.index.vectorSearch({ vector: embedding,
           entityTypes: [entityType], filters, limit: headLimit }))
         .then(hits => { vector = hits; })
         .catch(error => { vectorError = error; });
       let [lexical] = await Promise.all([lexicalRequest, vectorRequest]);
-      if (input.lexicalOnly) {
+      if (input.lexicalOnly || this.index.supportsVector === false) {
         retrievalMode = 'lexical_only';
-        degraded.push('lexical_only_requested');
+        degraded.push(input.lexicalOnly ? 'lexical_only_requested' : 'semantic_unavailable_qa');
       } else if (vectorError) {
         retrievalMode = 'lexical_only';
         degraded.push('vector_unavailable');

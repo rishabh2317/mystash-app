@@ -21,6 +21,7 @@ No vendor account required for local Docker.
 | **Development** without URL | InMemory (zero-infra local) |
 | `SEARCH_INDEX_BACKEND=memory` | InMemory — **forbidden in production** |
 | `SEARCH_INDEX_BACKEND=opensearch` | OpenSearch — requires `OPENSEARCH_URL` |
+| `SEARCH_INDEX_BACKEND=postgres_qa` | Explicit Render Free QA only (`MYSTASH_RENDER_FREE_TEST=true`, `RENDER=true`); PostgreSQL public-only projection, FTS/trigram, lexical-only. Requires `20261109210000_search_qa_postgres.sql`. Never selected implicitly. |
 | Unit tests | Inject `forceInMemory: true` or pass an `InMemorySearchIndex` |
 
 Env vars:
@@ -30,6 +31,12 @@ Env vars:
 - `OPENSEARCH_INDEX_PREFIX` (default `mystash_search`)
 - `EMBEDDING_PROVIDER=local|openai` (default `local`)
 - `SEARCH_ENV` / `SEARCH_INDEX_BACKEND`
+
+The QA projection is derived from currently eligible Collections, active Creator
+profiles, and active catalog products. Triggers update it within the source write
+transaction; direct index-write requests cannot alter it. `anon` and `authenticated`
+have no table or function access. A QA provider is deliberately weaker than
+OpenSearch v2 and should not be used for production Search capacity decisions.
 
 ## Run tests
 

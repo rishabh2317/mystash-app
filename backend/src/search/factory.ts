@@ -4,6 +4,8 @@ import { createEmbeddingPort } from './embeddings/factory';
 import type { EmbeddingPort } from './embeddings/EmbeddingPort';
 import { LocalEmbeddingProvider } from './embeddings/LocalEmbeddingProvider';
 import { InMemorySearchIndex } from './index/InMemorySearchIndex';
+import { PostgresQaSearchIndex } from './index/PostgresQaSearchIndex';
+import { createSupabaseAdmin } from '../supabase';
 import {
   OpenSearchIndex,
   type EmbeddingSpace,
@@ -40,11 +42,12 @@ export function isProductionSearchRuntime(): boolean {
  * Backend selection (normative):
  * - forceInMemory → memory (tests)
  * - SEARCH_INDEX_BACKEND=memory → memory (forbidden in production)
+ * - SEARCH_INDEX_BACKEND=postgres_qa → PostgreSQL, only in explicit Render Free QA
  * - production OR SEARCH_INDEX_BACKEND=opensearch → opensearch (OPENSEARCH_URL required)
  * - development + OPENSEARCH_URL → opensearch
  * - development without URL → memory (explicit zero-infra local)
  */
-export function resolveSearchIndexBackend(forceInMemory?: boolean): 'memory' | 'opensearch' {
+export function resolveSearchIndexBackend(forceInMemory?: boolean): 'memory' | 'opensearch' | 'postgres_qa' {
   if (forceInMemory) return 'memory';
 
   const explicit = (getEnv('SEARCH_INDEX_BACKEND') ?? '').toLowerCase();
@@ -59,6 +62,13 @@ export function resolveSearchIndexBackend(forceInMemory?: boolean): 'memory' | '
     return 'memory';
   }
 
+  if (explicit === 'postgres_qa') {
+    if (getEnv('MYSTASH_RENDER_FREE_TEST') !== 'true' || getEnv('RENDER') !== 'true') {
+      throw new SearchConfigurationError('PostgreSQL Search is restricted to the explicit Render Free QA profile.');
+    }
+    return 'postgres_qa';
+  }
+
   if (explicit === 'opensearch' || prod) {
     return 'opensearch';
   }
@@ -68,7 +78,7 @@ export function resolveSearchIndexBackend(forceInMemory?: boolean): 'memory' | '
 }
 
 export type SearchRuntimeSnapshot = {
-  backend: 'memory' | 'opensearch';
+  backend: 'memory' | 'opensearch' | 'postgres_qa';
   embeddingProvider: 'local' | 'openai';
   embeddingModelId: string;
   embeddingDimension: number;
@@ -136,6 +146,8 @@ export function createSearchService(opts?: SearchRuntimeOptions): SearchService 
       index = new InMemorySearchIndex({
         embeddingSpace: spaceFromEmbeddings(embeddings),
       });
+    } else if (backend === 'postgres_qa') {
+      index = new PostgresQaSearchIndex(createSupabaseAdmin());
     } else {
       const url = getEnv('OPENSEARCH_URL');
       if (!url) {
@@ -171,18 +183,33 @@ export function createSearchService(opts?: SearchRuntimeOptions): SearchService 
     }
   }
 
+  sharedIndex = index;
   return new SearchService(index, embeddings, telemetry);
 }
 
 let shared: SearchService | null = null;
+let sharedIndex: SearchIndexPort | null = null;
 
 export function getSharedSearchService(): SearchService {
-  if (!shared) shared = createSearchService();
+  if (!shared) {
+    const backend = resolveSearchIndexBackend();
+    sharedIndex = backend === 'postgres_qa' ? new PostgresQaSearchIndex(createSupabaseAdmin()) : null;
+    shared = createSearchService(sharedIndex ? { index: sharedIndex } : undefined);
+  }
   return shared;
+}
+
+export async function checkSearchReadiness(): Promise<{ backend: SearchRuntimeSnapshot['backend']; ready: boolean }> {
+  getSharedSearchService();
+  const backend = resolveSearchIndexBackend();
+  if (backend === 'postgres_qa' && sharedIndex instanceof PostgresQaSearchIndex) await sharedIndex.ping();
+  if (backend === 'opensearch' && sharedIndex instanceof OpenSearchIndex) await sharedIndex.ping();
+  return { backend, ready: true };
 }
 
 export function resetSharedSearchServiceForTests(): void {
   shared = null;
+  sharedIndex = null;
 }
 
 export { SearchService, SearchServiceError } from './SearchService';
