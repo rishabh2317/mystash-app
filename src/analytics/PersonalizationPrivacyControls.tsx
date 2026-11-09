@@ -38,13 +38,13 @@ export function PersonalizationPrivacyControls(){
   }catch{if(n===generation.current){setError(true);Alert.alert('Personalization privacy','This change has not been confirmed by the server. Reconnect and try again.');}}
   finally{setBusy(false);}
  };
- return <SettingsSection title="Personalization privacy">
-  <SettingsRow variant="toggle" title="Build my interest profile" icon="sparkles-outline"
-   subtitle="Separate opt-in: current saves/follows and future shared product/collection actions. No playback, search text or place/location profiling. Recommendations stay unchanged."
+ return <SettingsSection title="Your interests">
+  <SettingsRow variant="toggle" title="Remember my interests" icon="sparkles-outline"
+   subtitle="Use saved items, follows, and product or collection actions to learn your interests. Recommendations do not change yet."
    toggleValue={settings?.preferences.enabled===true} disabled={busy||!settings||(!settings.preferences.enabled&&!enableAllowed)}
    onToggle={v=>void change(v)}/>
-  <Text style={typeStyle(tokens,'bodyMuted')}>Current saves and follows are direct intent signals. Categories and repeated visits are inferred interests. Profiles expire after 24 hours without refresh; activity is limited to seven days.</Text>
-  {settings?.preferences.enabled?<ActionButton label="Reset inferred interests" variant="secondary" disabled={busy} onPress={()=>Alert.alert('Reset inferred interests','Past measured activity will no longer seed your profile. Your saved items and follows stay intact and remain eligible as current intent signals.',[{text:'Cancel',style:'cancel'},{text:'Reset',onPress:()=>void change(false,true)}])}/>:null}
-  {error?<ActionButton label="Retry privacy sync" variant="quiet" disabled={busy} onPress={()=>void refresh()}/>:null}
+  <Text style={typeStyle(tokens,'bodyMuted')}>Your saved items and follows stay in place if you turn this off. Interest activity is kept for up to seven days.</Text>
+  {settings?.preferences.enabled?<ActionButton label="Clear learned interests" variant="secondary" disabled={busy} onPress={()=>Alert.alert('Clear learned interests?','Past activity will no longer shape your interests. Your saved items and follows stay in place.',[{text:'Cancel',style:'cancel'},{text:'Clear',onPress:()=>void change(false,true)}])}/>:null}
+  {error?<ActionButton label="Try syncing again" variant="quiet" disabled={busy} onPress={()=>void refresh()}/>:null}
  </SettingsSection>;
 }

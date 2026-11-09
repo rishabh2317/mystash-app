@@ -34,7 +34,7 @@ CREATE TABLE public.content_source_products(id uuid PRIMARY KEY,content_source_i
 CREATE TABLE public.content_source_places(id uuid PRIMARY KEY,content_source_id uuid REFERENCES public.content_sources,resolution_state text);
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 SQL
-for m in 20260807120000_engagement_domain.sql 20260908120000_reel_likes.sql 20261027120000_engagement_atomic_foundations.sql 20261027130000_behavioral_measurement.sql 20261027140000_creator_analytics.sql 20261027150000_admin_analytics.sql 20261027160000_interest_profiles.sql 20261027170000_analytics_readiness.sql; do
+for m in 20260807120000_engagement_domain.sql 20260908120000_reel_likes.sql 20261027120000_engagement_atomic_foundations.sql 20261027130000_behavioral_measurement.sql 20261027140000_creator_analytics.sql 20261027150000_admin_analytics.sql 20261027160000_interest_profiles.sql 20261027170000_analytics_readiness.sql 20261109120000_creator_analytics_custom_range.sql; do
  "${PSQL[@]}" -f "$ROOT/supabase/migrations/$m"
 done
 "${PSQL[@]}" -f "$ROOT/backend/scripts/sql/analytics_readiness_checks.sql"
@@ -90,6 +90,7 @@ wait "$merchant_withdraw_pid"
 "${PSQL[@]}" -c "SELECT public.test_assert(NOT EXISTS(SELECT 1 FROM public.product_clicks WHERE user_id='90000000-0000-4000-8000-000000000001') AND NOT EXISTS(SELECT 1 FROM public.engagement_interaction_facts WHERE actor_user_id='90000000-0000-4000-8000-000000000001' AND interaction_type='merchant_click'),'merchant withdrawal race cannot leave actor linkage');"
 echo 'analytics-sql: consent, isolation, idempotency, result attribution, deletion, expiry and player-exclusion checks passed'
 "${PSQL[@]}" -f "$ROOT/backend/scripts/sql/creator_analytics_checks.sql"
+"${PSQL[@]}" -f "$ROOT/backend/scripts/sql/creator_custom_range_checks.sql"
 "${PSQL[@]}" -c "CREATE TABLE public.scratch_creator_expected AS SELECT sum(value) AS total FROM public.analytics_creator_daily;"
 pids=()
 for i in $(seq 1 4); do

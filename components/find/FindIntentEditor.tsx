@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Pressable, TextInput, View } from 'react-native';
+import { TextInput, View } from 'react-native';
 import { Text } from '@/components/ui/Text';
 import { ActionButton } from '@/components/ui/ActionButton';
+import { TactileFilterChip } from '@/components/ui/TactileFilterChip';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { typeStyle } from '@/src/theme/typography';
-import { stashFilterChipChrome } from '@/src/theme/tokens';
 import type { FindItem } from '@/src/services/findClient';
 export function FindIntentEditor({ intent, busy, onSave }: { intent: FindItem['intent']; busy: boolean; onSave(value: FindItem['intent']): Promise<boolean> }) {
   const { tokens } = useThemeMode();
@@ -17,11 +17,11 @@ export function FindIntentEditor({ intent, busy, onSave }: { intent: FindItem['i
   return <View style={{ gap: tokens.space.sm }}>
     <Text style={typeStyle(tokens,'body')}>What caught your eye?</Text>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: tokens.space.sm }}>
-      {(['product','place','both'] as const).map(kind => <Pressable key={kind} accessibilityRole="button" accessibilityState={{ selected: draft.kind === kind, disabled: busy }} disabled={busy}
+      {(['product','place','both'] as const).map(kind => <TactileFilterChip key={kind} selected={draft.kind === kind} accessibilityRole="button" accessibilityState={{ selected: draft.kind === kind, disabled: busy }} disabled={busy}
         onPress={() => setDraft({ ...draft, kind: draft.kind === kind ? null : kind })}
-        style={{ ...stashFilterChipChrome(tokens, draft.kind === kind), minHeight: 48, justifyContent: 'center', paddingHorizontal: tokens.space.sm, paddingVertical: tokens.space.xs }}>
+        contentStyle={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: tokens.space.sm, paddingVertical: tokens.space.xs }}>
         <Text style={[typeStyle(tokens,'caption'), { color: tokens.color.text, fontFamily: draft.kind === kind ? tokens.fontFamily.medium : tokens.fontFamily.regular }]}>{kind === 'product' ? 'Products' : kind === 'place' ? 'Places' : 'Both'}</Text>
-      </Pressable>)}
+      </TactileFilterChip>)}
     </View>
     <TextInput value={draft.note ?? ''} onChangeText={note => setDraft({ ...draft,note })} editable={!busy} multiline maxLength={280} accessibilityLabel="Optional private note, 280 characters maximum"
       placeholder="What would you like to remember?" placeholderTextColor={tokens.color.textMuted}

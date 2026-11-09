@@ -31,10 +31,20 @@ describe('settings hub', () => {
     assert.match(src, /signOut/);
     assert.match(src, /\/settings\/edit-profile/);
     assert.match(src, /\/settings\/creator-onboarding/);
+    assert.match(src, /\/settings\/privacy/);
     assert.doesNotMatch(src, /SETTINGS_COPY\.plan|Mystash Pro Beta|Visa ••••/);
     assert.doesNotMatch(src, /shipping|notificationsValue|privacyValue|mystash\.ai|@mystash_app/);
     assert.doesNotMatch(src, /router\.push\('\/cart'\)/);
     assert.equal(SETTINGS_COPY.publicProfileValue, 'View as others see you');
+  });
+
+  it('links a clearly marked draft Privacy page from Settings without presenting policy text as approved', () => {
+    const layout = readFileSync(join(ROOT, 'app/settings/_layout.tsx'), 'utf8');
+    const page = readFileSync(join(ROOT, 'app/settings/privacy.tsx'), 'utf8');
+    assert.match(layout, /name="privacy"/);
+    assert.match(page, /draft placeholder/);
+    assert.match(page, /not the Mystash Privacy Policy/);
+    assert.equal(SETTINGS_COPY.privacy, 'Privacy');
   });
 
   it('only shows a chevron when the row has a real action', () => {

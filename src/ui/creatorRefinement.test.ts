@@ -59,7 +59,7 @@ it('Create notices and confirmation keep the shared font and opaque modal surfac
 it('creator-facing Analytics omits internal diagnostics while keeping honest missing-data and privacy copy', () => {
   const source = readFileSync('components/analytics/CreatorAnalyticsScreen.tsx', 'utf8');
   assert.doesNotMatch(source, /continuous worker coverage|Coverage samples worker|Awaiting the first aggregation|Partial measurement coverage|error\.message/);
-  assert.match(source, /people who opted in/);
+  assert.match(source, /people who allowed activity measurement/);
   assert.match(source, /dash means data is unavailable/);
   assert.match(source, /report\.stale/);
   assert.match(source, /report\.provisional/);

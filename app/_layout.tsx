@@ -66,6 +66,7 @@ export default function RootLayout() {
                     <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
                     <Stack.Screen name="product-list/[id]" options={{ headerShown: false }} />
                     <Stack.Screen name="product/[productId]" options={{ headerShown: false }} />
+                    <Stack.Screen name="stash/source/[sourceId]" options={{ title: 'Saved from Find' }} />
                     <Stack.Screen name="merchant-browser" options={{ headerShown: false }} />
                     <Stack.Screen name="compare" options={{ headerShown: false }} />
                     <Stack.Screen name="reel" options={{ headerShown: false }} />

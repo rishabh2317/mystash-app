@@ -35,6 +35,8 @@ function load(file){
   if(id==='@/src/services/captureRuntime')return{imageOutbox:{list:async()=>[],remove:async()=>{}},retryImageCaptures:async()=>{}};
   if(id==='@/src/services/nativeShare')return{subscribePendingShares:()=>()=>{},notifyPendingShares(){}};
   if(id==='@/src/services/findApi')return{findApi:api};
+  if(id==='@/src/services/creatorReportApi')return{getCreatorReport:async()=>{throw Error('Network forbidden');}};
+  if(id==='@/src/services/engagementApi')return{EngagementApiError:class EngagementApiError extends Error{},getMyCreatorAnalytics:async()=>null};
   if(id==='@/src/analytics/findMeasurement')return{observeFind(){}};
   if(id==='@/src/analytics/client')return{enqueueObservation(){},analyticsSnapshot:()=>({enabled:false})};
   if(id==='expo-modules-core')return{requireOptionalNativeModule:()=>clipboardSupported?({getStringAsync:async()=>{clipboardReads++;return 'https://example.com/item';}}):null};
@@ -47,8 +49,9 @@ function load(file){
   if(id==='expo-haptics')return{impactAsync:async()=>{},notificationAsync:async()=>{},selectionAsync:async()=>{},ImpactFeedbackStyle:{Light:'light'},NotificationFeedbackType:{Success:'success'}};
   if(id==='@/src/services/placesApi')return{fetchAllPlaces:async()=>({items:[]})};
   if(id==='@/src/hooks/useDiscoverCreators')return{useDiscoverCreators:()=>({items:[],loading:false})};
-  if(id==='@/components/profile/PersonalProfileHeader')return{PersonalProfileHeader:()=>React.createElement(web.Text,null,'@fixture')};
-  if(id==='@/components/profile/DiscoverCreatorsSection')return{DiscoverCreatorsSection:()=>null};
+  if(id==='@/components/profile/ProfileIdentityHeader')return{ProfileIdentityHeader:props=>React.createElement(web.View,null,props.statsSlot,props.action)};
+  if(id==='@/components/profile/ProfileStatsStrip')return{ProfileStatsStrip:()=>null};
+  if(id==='@/components/profile/DiscoverCreatorsSection')return{DiscoverCreatorsSection:()=>React.createElement(web.Text,null,'Discover creators fixture')};
   if(id==='@/components/collection/PublicCollectionTile')return{PublicCollectionTile:()=>null};
   if(id==='@/components/haptic-tab')return{HapticTab:native.Pressable};
   if(id==='react-native-safe-area-context')return{useSafeAreaInsets:()=>({top:platform==='ios'?47:24,bottom:platform==='ios'?34:24,left:0,right:0}),SafeAreaView:native.View};
@@ -69,6 +72,9 @@ const {getThemeTokens}=load(path.join(root,'src/theme/tokens')),{findFixture,fin
 const Dashboard=load(path.join(root,'app/(tabs)/find/index')).default,Detail=load(path.join(root,'app/(tabs)/find/[findId]')).default,Capture=load(path.join(root,'app/(tabs)/find/capture')).default;
 const {AppTabBar}=load(path.join(root,'components/chrome/AppTabBar')),{FindImage}=load(path.join(root,'components/find/FindImage'));
 const {PersonalProfile}=load(path.join(root,'components/profile/PersonalProfile'));
+const CreatorAnalyticsScreen=load(path.join(root,'components/analytics/CreatorAnalyticsScreen')).default;
+const {SearchResultsTabs}=load(path.join(root,'components/search/SearchResultsTabs'));
+const PrivacyScreen=load(path.join(root,'app/settings/privacy')).default;
 const {PendingImageCaptures}=load(path.join(root,'components/find/PendingImageCaptures'));
 const SourceScreen=load(path.join(root,'app/stash/source/[sourceId]')).default;
 const {FindPasteSheet}=load(path.join(root,'components/find/FindPasteSheet'));
@@ -92,7 +98,7 @@ async function main(){
    for(const text of ['Your Finds','Your Activity','All Finds','Completed','Processing','Needs Attention','1190','10','5'])assert.ok(html.includes(text),`${theme}/${os}/${width}: ${text}`);
    const statusButtons=['Processing, 10 finds','Completed, 1190 finds','Needs Attention, 5 finds'].map(label=>actions.find(action=>action.accessibilityLabel===label));
    assert.ok(statusButtons.every(Boolean),`${theme}/${os}/${width}: all status buttons render`);
-   for(const button of statusButtons){const style=web.StyleSheet.flatten(button.style({pressed:false}));assert.equal(style.flex,1);assert.equal(style.minWidth,0);assert.ok(style.minHeight>=44);}
+   for(const button of statusButtons){const style=web.StyleSheet.flatten(typeof button.style==='function'?button.style({pressed:false}):button.style);assert.ok(style.minHeight>=44);}
    assert.ok((width-2*tokens.space.md-2*tokens.space.xs)/3>=80,`${theme}/${os}/${width}: filter width remains usable`);
    assert.ok(!html.includes('Recently Found'));
    assert.ok(!html.includes('Ready to review')&&!html.includes('Saved 900'));
@@ -196,10 +202,47 @@ async function main(){
   dimensions={width:320,height:740,fontScale:1,scale:1};reset();detail.data.products[0].title='Professional wireless noise cancelling over ear headphones with long descriptive name';params={findId:detail.data.id};html=render(Detail,{},true);assert.ok(actions.some(action=>action.accessibilityLabel==='View product Professional wireless noise cancelling over ear headphones with long descriptive name'));save(`detail-narrow-${theme}-${os}`,html);checks++;
   dimensions={width:320,height:740,fontScale:1.7,scale:1};reset();params={findId:detail.data.id};html=render(Detail,{},true);assert.ok(html.includes('Restore to My Stash'));save(`detail-large-${theme}-${os}`,html);checks++;
   reset();html=render(Capture,{},true);assert.ok(html.includes('Find from this link'));save(`capture-large-${theme}-${os}`,html);checks++;
-  dimensions={width:390,height:932,fontScale:1,scale:1};reset();html=render(PersonalProfile,{creator:{userId:'owner',username:'fixture'},collections:[],saved:[],onEditPress(){},onSharePress(){},onPressCollection(){},onPressStat(){},onCreateCollection:()=>router.push('/(tabs)/create')});
-  assert.ok(html.indexOf('Creator Studio')>=0);actions.find(action=>action.accessibilityLabel==='Creator Studio').onPress();assert.deepEqual(navigation.at(-1),['push','/(tabs)/create']);checks++;
+  for(const profileWidth of [320,360,414])for(const fontScale of [1,1.7]){
+   dimensions={width:profileWidth,height:932,fontScale,scale:1};reset();
+   const props={creator:{userId:'owner',username:'fixture'},collections:[],saved:[],onEditPress(){},onSharePress(){},onPressCollection(){},onPressStat(){},onCreateCollection:()=>router.push('/(tabs)/create')};
+   html=render(PersonalProfile,props);
+   assert.ok(html.includes('Creator Studio')&&!html.includes('Discover creators fixture'));
+   const toggle=actions.find(action=>action.accessibilityLabel==='Show creator suggestions');
+   assert.ok(toggle);assert.equal(toggle.accessibilityState.expanded,false);
+   const toggleStyle=web.StyleSheet.flatten(toggle.style({pressed:false}));
+   assert.equal(toggleStyle.width,44);assert.equal(toggleStyle.height,44);
+   assert.ok(actions.some(action=>action.accessibilityLabel==='Edit profile'));
+   assert.ok(actions.some(action=>action.accessibilityLabel==='Share profile'));
+   assert.equal(actions.find(action=>action.accessibilityLabel==='Collections').accessibilityState.selected,true);
+   assert.equal(actions.find(action=>action.accessibilityLabel==='Saved').accessibilityState.selected,false);
+   actions.find(action=>action.accessibilityLabel==='Creator Studio').onPress();assert.deepEqual(navigation.at(-1),['push','/(tabs)/create']);
+   reset();overrideStates=['collections',true];html=render(PersonalProfile,props);
+   assert.ok(html.includes('Discover creators fixture'));
+   assert.equal(actions.find(action=>action.accessibilityLabel==='Hide creator suggestions').accessibilityState.expanded,true);
+   reset();overrideStates=['saved',true];html=render(PersonalProfile,props);
+   assert.ok(html.includes('Discover creators fixture'));
+   assert.equal(actions.find(action=>action.accessibilityLabel==='Saved').accessibilityState.selected,true);
+   checks+=10;
+  }
  }
  reset();tokens=getThemeTokens('titanium');overrideStates=['https://fixture.invalid/broken.jpg'];render(FindImage,{url:'https://fixture.invalid/broken.jpg',cacheKey:'broken',style:{width:80,height:80}});assert.equal(images.length,0);checks++;
+ for(const theme of ['titanium','nebula'])for(const os of ['android','ios'])for(const width of [320,360,414])for(const scale of [1,1.7]){
+  tokens=getThemeTokens(theme);platform=os;native.Platform.OS=os;dimensions={width,height:844,fontScale:scale,scale:1};
+  reset();let html=render(PrivacyScreen);assert.ok(html.includes('draft placeholder')&&html.includes('not the Mystash Privacy Policy'));
+  reset();let searchTab=null;html=render(SearchResultsTabs,{selected:'collection',onSelect:value=>{searchTab=value;}});
+  assert.ok(['Collections','Creators','Products'].every(label=>html.includes(label)));
+  assert.equal(actions.filter(action=>action.accessibilityRole==='tab').length,3);
+  assert.ok(actions.every(action=>web.StyleSheet.flatten(action.style).minHeight>=48));
+  actions.find(action=>action.accessibilityLabel==='Products').onPress();assert.equal(searchTab,'product');
+  reset();html=render(CreatorAnalyticsScreen);assert.ok(html.includes('Loading creator analytics'));
+  const presets=[7,30,90].map(n=>actions.find(action=>action.accessibilityLabel===`Last ${n} days`));
+  assert.ok(presets.every(Boolean));assert.ok(presets.every(action=>web.StyleSheet.flatten(typeof action.style==='function'?action.style({pressed:false}):action.style).minHeight>=44));
+  assert.equal(actions.find(action=>action.accessibilityLabel==='Custom date range').accessibilityState.selected,false);
+  reset();overrideStates=[7,null,true,0,'collection_opens',null,null];html=render(CreatorAnalyticsScreen);
+  assert.ok(html.includes('Choose dates'));assert.ok(actions.some(action=>action.accessibilityLabel==='Previous month'));
+  assert.ok(actions.some(action=>action.accessibilityLabel==='Cancel'));
+  checks+=10;
+ }
  for(const width of [320,360,414])for(const scale of [1,1.7]){
   dimensions={width,height:844,fontScale:scale,scale:1};tokens=getThemeTokens('titanium');reset();params={sourceId:'fixture-import'};
   const products=Array.from({length:4},(_,i)=>({kind:'product',result:{id:`source-product-${i}`,identityKey:`c:catalog-${i}`,title:`Source product ${i}`,imageUrl:null,catalogProductId:`catalog-${i}`,discoveredProductId:null,matchKind:'exact',saved:true,removed:false}}));
@@ -214,7 +257,14 @@ async function main(){
   assert.ok(productAction);productAction.onPress();assert.ok(navigation.at(-1)[1].includes('/product/catalog-0'));
   assert.ok(actions.some(action=>action.accessibilityLabel==='Search on Google, Source place 0'));
   assert.equal(actions.filter(action=>action.accessibilityLabel?.startsWith('Remove ')).length,7);
-  const loaded=overrideStates[0];actions.find(action=>action.accessibilityLabel==='Back').onPress();assert.deepEqual(navigation.at(-1),['replace','/(tabs)/stash']);
+  const loaded=overrideStates[0];
+  assert.ok(!actions.some(action=>action.accessibilityLabel==='Back'), 'source page uses the navigator back button only');
+  assert.match(fs.readFileSync(path.join(root,'app/_layout.tsx'),'utf8'), /name="stash\/source\/\[sourceId\]" options=\{\{ title: 'Saved from Find' \}\}/);
+  const removeAction=actions.find(action=>action.accessibilityLabel==='Remove Source product 0 from My Stash');
+  assert.equal(removeAction.hitSlop,8);
+  const removeStyle=removeAction.style({pressed:false});
+  assert.equal(removeStyle.width,32);assert.equal(removeStyle.height,32);
+  assert.equal(removeStyle.right,6+tokens.space.xs);
   reset();params={sourceId:'fixture-import'};overrideStates=[{...loaded,refreshing:true,error:true},null,null];const cached=render(SourceScreen);
   assert.ok(cached.includes('Couldn’t refresh')&&cached.includes('Source product 0'));assert.equal(lists[0].refreshing,true);
   reset();params={sourceId:'fixture-import'};overrideStates=[{...loaded,items:[],cursor:null,source:{...loaded.source,outcome:{...loaded.source.outcome,savedProducts:0,savedPlaces:0}}},null,null];

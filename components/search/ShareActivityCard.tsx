@@ -308,7 +308,6 @@ export function ShareActivityCard({
 const styles = StyleSheet.create({
   wrap: {
     borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
   },
   card: {
     flexDirection: 'row',

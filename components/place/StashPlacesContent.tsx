@@ -10,7 +10,6 @@ import { normalizedPlaceCategory } from '@/src/ui/placeCategories';
 import { StashCategoryCard } from '@/components/commerce/StashCategoryCard';
 import { StashSourceRail } from '@/components/commerce/StashSourceRail';
 import { Text } from '@/components/ui/Text';
-import { SkeletonBlock } from '@/components/status/SkeletonBlock';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { outlineCardChrome } from '@/src/theme/tokens';
 import { typeStyle } from '@/src/theme/typography';
@@ -98,18 +97,18 @@ export function StashPlacesContent({ owner,onOpenFindSource,items, status, refre
       <ActionButton label={STASH_PLACES_COPY.retry} onPress={onRetry} variant="secondary" pending={refreshing} />
     </View>
   );
-  const header = <View style={{ paddingBottom: tokens.space.sm, gap: tokens.space.xs }}>
-    {category ? <Pressable accessibilityRole="button" accessibilityLabel="Back to all places"
+  const header = category ? <View style={{ paddingBottom: tokens.space.sm, gap: tokens.space.xs }}>
+    <Pressable accessibilityRole="button" accessibilityLabel="Back to all places"
       onPress={() => setSelectedCategory(null)} style={{ minHeight: FEED_MIN_HIT_TARGET, flexDirection: 'row', alignItems: 'center', gap: tokens.space.xs }}>
       <Ionicons name="chevron-back-outline" size={16} color={tokens.color.primary} />
       <Text style={typeStyle(tokens, 'link')}>All places</Text>
-    </Pressable> : null}
+    </Pressable>
     <View style={styles.titleRow}>
-      <Text accessibilityRole="header" style={typeStyle(tokens, 'sectionTitle')}>{category?.title ?? STASH_PLACES_COPY.title}</Text>
-      {initialLoading ? <SkeletonBlock width={52} height={14} /> : home.count ? <Text style={typeStyle(tokens, 'tileMeta')}>{countLabel}</Text> : null}
+      <Text accessibilityRole="header" style={typeStyle(tokens, 'sectionTitle')}>{category.title}</Text>
+      <Text style={typeStyle(tokens, 'tileMeta')}>{countLabel}</Text>
     </View>
     {failed && home.count > 0 ? notice(true) : null}
-  </View>;
+  </View> : failed && home.count > 0 ? notice(true) : null;
   const empty = initialLoading ? <View accessible accessibilityLabel="Loading places" accessibilityRole="progressbar"
     accessibilityState={{ busy: true }} style={{ flexDirection: 'row', gap: tokens.space.sm }}>
     {Array.from({ length: columns }, (_, index) => <View key={index} style={styles.cell}><PlaceCardSkeleton /></View>)}
@@ -129,7 +128,10 @@ export function StashPlacesContent({ owner,onOpenFindSource,items, status, refre
       data={rows}
       keyExtractor={row => row.key}
       renderItem={({ item: row }) => row.kind === 'heading'
-        ? <Text accessibilityRole="header" style={[typeStyle(tokens, 'sectionTitle'), { marginTop: tokens.space.xs }]}>{row.title}</Text>
+        ? <View style={[styles.titleRow, { marginTop: tokens.space.xs, gap: tokens.space.sm }]}>
+          <Text accessibilityRole="header" style={[typeStyle(tokens, 'sectionTitle'), { flexShrink: 1 }]}>{row.title}</Text>
+          <Text style={[typeStyle(tokens, 'tileMeta'), { flexShrink: 0 }]}>{countLabel}</Text>
+        </View>
         : row.kind === 'filters'
           ? <StashFilterBar options={filters} selected={activeFilter} onSelect={setRecentFilter} accessibilityLabel={STASH_FILTER_COPY.places} />
         : row.kind === 'sources' ? <StashSourceRail owner={owner} kind="place" revision={items.map(item=>item.saveId??item.id).join('|')} onOpen={onOpenFindSource}

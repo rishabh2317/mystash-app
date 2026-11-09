@@ -8,14 +8,14 @@ export type MetricValues = Record<CreatorMetric, number | null>;
 export type RankedCollection = {id:string;title:string|null;thumbnail_url:string|null;opens:number|null;saves:number|null;requests:number|null};
 export type RankedProduct = {id:string;namespace:'catalog'|'discovered';title:string;thumbnail_url:string|null;impressions:number|null;requests:number|null};
 export type RawCreatorReport = {
-  days:CreatorRange;end_day:string;generated_at:string;refreshed_at:string|null;
+  days:number;end_day:string;generated_at:string;refreshed_at:string|null;
   daily:{day:string;metric:CreatorMetric;value:number}[];
   coverage:{day:string;windows:number}[];
   top_collections:RankedCollection[];top_products:RankedProduct[];
 };
 export type CreatorPeriod = {start:string;end:string;coveredDays:number;values:MetricValues};
 export type CreatorReport = {
-  days:CreatorRange;generatedAt:string;refreshedAt:string|null;stale:boolean;provisional:boolean;
+  days:number;generatedAt:string;refreshedAt:string|null;stale:boolean;provisional:boolean;
   current:CreatorPeriod;previous:CreatorPeriod;changes:MetricValues;
   series:{day:string;covered:boolean;values:MetricValues}[];
   topCollections:RankedCollection[];topProducts:RankedProduct[];
@@ -27,7 +27,7 @@ export function creatorRange(input:unknown):CreatorRange|null {
 }
 /** UTC dates are half-open calendar intervals, unaffected by device/server daylight saving. */
 export function buildCreatorReport(raw:RawCreatorReport):CreatorReport {
-  if(![7,30,90].includes(raw.days)||!/^\d{4}-\d{2}-\d{2}$/.test(raw.end_day))throw new Error('Invalid report');
+  if(!Number.isSafeInteger(raw.days)||raw.days<1||raw.days>90||!/^\d{4}-\d{2}-\d{2}$/.test(raw.end_day))throw new Error('Invalid report');
   const end=Date.parse(`${raw.end_day}T00:00:00Z`);
   if(!Number.isFinite(end)||new Date(end).toISOString().slice(0,10)!==raw.end_day)throw new Error('Invalid report');
   const generated=Date.parse(raw.generated_at),refreshed=raw.refreshed_at?Date.parse(raw.refreshed_at):NaN;

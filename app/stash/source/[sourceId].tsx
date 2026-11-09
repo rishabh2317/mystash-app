@@ -1,9 +1,8 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Linking, Pressable, View, useWindowDimensions } from 'react-native';
+import { Alert, FlatList, Linking, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TopBar } from '@/components/chrome/TopBar';
 import { ProductCard } from '@/components/commerce/ProductCard';
 import { FeedProductSheet } from '@/components/feed/FeedProductSheet';
 import { PlaceCard } from '@/components/place/PlaceCard';
@@ -18,7 +17,9 @@ import type { FindItem, FindSourceResult } from '@/src/services/findClient';
 import { fetchAllPlaces } from '@/src/services/placesApi';
 import { findDetailPath, findSourceLabel, safeFindUrl } from '@/src/ui/find';
 import { productPagePath } from '@/src/ui/productPage';
+import { PRODUCT_CARD_LAYOUT } from '@/src/ui/productCardLayout';
 import { placesColumnCount } from '@/src/ui/stashPlaces';
+import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { groupSourceRows, mergeSourceResults, sourcePlaceModel, sourceProductId, sourceProductModel, sourceResultKey,
   type SourceProduct } from '@/src/ui/stashSourceResults';
 import { typeStyle } from '@/src/theme/typography';
@@ -35,7 +36,11 @@ export default function StashSourceScreen() {
   const id = typeof params.sourceId === 'string' ? params.sourceId : '';
   const { user } = useAuth(), owner = user?.id ?? null, { tokens } = useThemeMode();
   const insets = useSafeAreaInsets(), dimensions = useWindowDimensions(), cart = useCartOptional();
-  const columns = placesColumnCount(dimensions.width - insets.left - insets.right - 2 * tokens.space.md, dimensions.fontScale);
+  const contentWidth = Math.min(dimensions.width - insets.left - insets.right, 680);
+  const gridWidth = contentWidth - 2 * tokens.space.md;
+  const columns = placesColumnCount(gridWidth, dimensions.fontScale);
+  const cardWidth = (gridWidth - (columns - 1) * tokens.space.sm) / columns;
+  const mediaSize = cardWidth - 2 * PRODUCT_CARD_LAYOUT.relatedInset;
   const [state, setState] = useState<SourceState>(() => empty(null, ''));
   const [shopping, setShopping] = useState<Product | null>(null);
   const [selectedSources, setSelectedSources] = useState<PlaceSourceVideo[] | null>(null);
@@ -106,20 +111,20 @@ export default function StashSourceScreen() {
     router.push((productId ? productPagePath(productId, { contentSourceId: visible.source?.contentSourceId, userImportId: id }) : findDetailPath(id)) as Href);
   };
   const onPlaceSearch = (url: string) => { const safe = safeFindUrl(url); if (safe) void Linking.openURL(safe).catch(() => Alert.alert('Place unavailable', 'Couldn’t open this place right now.')); };
-  const sourceTitle = visible.source?.title?.trim() || (visible.source ? findSourceLabel(visible.source.sourceType) : 'Saved from this Find');
+  const candidateTitle = visible.source?.title?.trim();
+  const sourceTitle = candidateTitle && !/^stash\/source\/|^\[sourceId\]$/i.test(candidateTitle)
+    ? candidateTitle : visible.source ? findSourceLabel(visible.source.sourceType) : 'Saved from this Find';
   const sourceUrl = safeFindUrl(visible.source?.sourceUrl);
   return <View style={{ flex: 1, backgroundColor: tokens.color.canvasSoft, paddingLeft: insets.left, paddingRight: insets.right }}>
-    <TopBar mode='page' title='Saved from this Find' showBack showBag={false}
-      onBack={() => router.canGoBack() ? router.back() : router.replace('/(tabs)/stash' as Href)} />
     {!owner ? <View style={{ padding: tokens.space.lg }}><Text style={typeStyle(tokens, 'body')}>Sign in to view your saved items.</Text></View> :
     <FlatList data={rows} keyExtractor={row => row.key}
-      contentContainerStyle={{ padding: tokens.space.md, paddingBottom: insets.bottom + tokens.space.xl, gap: tokens.space.sm }}
+      contentContainerStyle={{ padding: tokens.space.md, paddingBottom: insets.bottom + tokens.space.xl,
+        gap: tokens.space.sm, width: '100%', maxWidth: 680, alignSelf: 'center' }}
       onRefresh={() => void load()} refreshing={visible.refreshing}
       onEndReached={() => { if (visible.cursor && !visible.more && !visible.moreError) void load(true); }} onEndReachedThreshold={0.35}
-      ListHeaderComponent={<View style={{ gap: tokens.space.xs, paddingBottom: tokens.space.sm }}>
+      ListHeaderComponent={<View style={{ gap: tokens.space.xs, paddingBottom: tokens.space.xs }}>
         <Text accessibilityRole='header' numberOfLines={2} style={typeStyle(tokens, 'sectionTitle')}>{sourceTitle}</Text>
         {sourceUrl ? <Text selectable numberOfLines={2} style={typeStyle(tokens, 'tileMeta')}>{sourceUrl}</Text> : null}
-        <Text style={typeStyle(tokens, 'bodyMuted')}>Products and places saved from this capture.</Text>
         {visible.error && visible.items.length ? <View accessibilityRole='alert' style={{ gap: tokens.space.xs }}><Text style={typeStyle(tokens, 'bodyMuted')}>Couldn’t refresh. Your saved results are still here.</Text><ActionButton label='Try refreshing' variant='quiet' onPress={() => void load()} /></View> : null}
       </View>}
       ListEmptyComponent={visible.loading && !visible.loaded ? <Text style={typeStyle(tokens, 'bodyMuted')}>Loading saved items…</Text>
@@ -139,9 +144,14 @@ export default function StashSourceScreen() {
             </> : <PlaceCard item={sourcePlaceModel(item, id, visible.places)} onSearch={onPlaceSearch}
               onOpenSource={(source, sources) => setSelectedSources(sources?.length ? sources : [source])} />}
             <Pressable accessibilityRole='button' accessibilityLabel={`Remove ${'title' in item.result ? item.result.title : item.result.name} from My Stash`}
-              onPress={() => remove(item)} style={{ position: 'absolute', top: tokens.space.xs, right: tokens.space.xs,
-                width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: tokens.radius.pill,
-                backgroundColor: tokens.immersive.controlStrong }}><Ionicons name='trash-outline' size={18} color={tokens.immersive.icon} /></Pressable>
+              onPress={() => remove(item)} hitSlop={8} style={({ pressed }) => ({ position: 'absolute',
+                top: PRODUCT_CARD_LAYOUT.relatedInset + mediaSize - tokens.space.xs - 32,
+                right: PRODUCT_CARD_LAYOUT.relatedInset + tokens.space.xs,
+                width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: tokens.radius.pill,
+                borderWidth: StyleSheet.hairlineWidth, borderColor: tokens.immersive.border,
+                backgroundColor: tokens.immersive.controlStrong, zIndex: 2,
+                opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
+              })}><Ionicons name='trash-outline' size={15} color={tokens.immersive.icon} /></Pressable>
           </View>)}
           {row.items.length < columns ? <View style={{ flex: 1 }} /> : null}
         </View>} />}

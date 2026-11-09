@@ -7,9 +7,10 @@ import { useThemeMode } from '@/contexts/ThemeContext';
 import { useCart } from '@/contexts/CartContext';
 import { Text } from '@/components/ui/Text';
 import { ActionButton } from '@/components/ui/ActionButton';
+import { TactileFilterChip } from '@/components/ui/TactileFilterChip';
 import { PlaceSourceVideoModal } from '@/components/place/PlaceSourceVideoModal';
 import { typeStyle } from '@/src/theme/typography';
-import { outlineCardChrome, stashFilterChipChrome } from '@/src/theme/tokens';
+import { outlineCardChrome } from '@/src/theme/tokens';
 import { FEED_MIN_HIT_TARGET } from '@/src/ui/feedA11y';
 import { fetchShareIntent, updateShareIntent, fetchShareReview, decideShareSuggestion, type ShareIntentValue, type ReviewProduct } from '@/src/services/shareReviewApi';
 export function ShareImportDetails({importId,sourceUrl,placeCount=0,productCount=0,presentation='default'}:{importId:string;sourceUrl:string;placeCount?:number;productCount?:number;presentation?:'default'|'finds'}) {
@@ -41,11 +42,16 @@ export function ShareImportDetails({importId,sourceUrl,placeCount=0,productCount
     {error?<Text accessibilityLiveRegion="polite" style={typeStyle(tokens,'caption')}>{error}</Text>:null}
     {intentEnabled && intent ? <View style={[{gap:tokens.space.sm},refined&&{...outlineCardChrome(tokens),borderWidth:tokens.stroke.thin,borderRadius:tokens.radius.md,padding:tokens.space.sm}]}>
       <Text style={refined?typeStyle(tokens,'tileTitle'):typeStyle(tokens,'body')}>What interested you?</Text>
-      <View style={{flexDirection:'row',...(refined?{flexWrap:'wrap' as const}:{}),gap:refined?tokens.space.xs:tokens.space.sm}}>{(['product','place','both'] as const).map(kind=><Pressable key={kind} disabled={busy}
-        accessibilityRole="button" accessibilityState={{selected:intent.kind===kind}}
-        onPress={()=>setIntent({...intent,kind:intent.kind===kind?null:kind})}
-        style={[{minHeight:FEED_MIN_HIT_TARGET,paddingHorizontal:tokens.space.sm,justifyContent:'center',borderRadius:tokens.radius.pill,borderWidth:tokens.stroke.thin,borderColor:tokens.color.border,backgroundColor:intent.kind===kind?tokens.color.primarySurface:tokens.color.surface},refined&&stashFilterChipChrome(tokens,intent.kind===kind)]}>
-        <Text style={[typeStyle(tokens,'caption'),refined&&{color:tokens.color.text,fontFamily:intent.kind===kind?tokens.fontFamily.medium:tokens.fontFamily.regular}]}>{kind[0].toUpperCase()+kind.slice(1)}</Text></Pressable>)}</View>
+      <View style={{flexDirection:'row',...(refined?{flexWrap:'wrap' as const}:{}),gap:refined?tokens.space.xs:tokens.space.sm}}>{(['product','place','both'] as const).map(kind=>{
+        const label=kind[0].toUpperCase()+kind.slice(1);
+        const press=()=>setIntent({...intent,kind:intent.kind===kind?null:kind});
+        const text=<Text style={[typeStyle(tokens,'caption'),refined&&{color:tokens.color.text,fontFamily:intent.kind===kind?tokens.fontFamily.medium:tokens.fontFamily.regular}]}>{label}</Text>;
+        return refined?<TactileFilterChip key={kind} selected={intent.kind===kind} disabled={busy}
+          accessibilityRole="button" onPress={press}
+          contentStyle={{minHeight:FEED_MIN_HIT_TARGET,paddingHorizontal:tokens.space.sm,justifyContent:'center'}}>{text}</TactileFilterChip>
+          :<Pressable key={kind} disabled={busy} accessibilityRole="button" accessibilityState={{selected:intent.kind===kind}}
+            onPress={press} style={{minHeight:FEED_MIN_HIT_TARGET,paddingHorizontal:tokens.space.sm,justifyContent:'center',borderRadius:tokens.radius.pill,borderWidth:tokens.stroke.thin,borderColor:tokens.color.border,backgroundColor:intent.kind===kind?tokens.color.primarySurface:tokens.color.surface}}>{text}</Pressable>;
+      })}</View>
       <TextInput accessibilityLabel="Interest note" placeholder="Optional note" placeholderTextColor={tokens.color.textMuted} value={intent.note??''}
         editable={!busy} maxLength={280} multiline onChangeText={note=>setIntent({...intent,note:note||null})}
         style={{...typeStyle(tokens,'body'),padding:tokens.space.sm,borderWidth:tokens.stroke.thin,borderColor:tokens.color.border,borderRadius:tokens.radius.md}}/>

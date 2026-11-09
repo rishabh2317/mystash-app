@@ -330,7 +330,7 @@ const OUTLINE_BORDER: Record<ThemeModeName, Record<OutlineBorderVariant, string>
    MYSTASH LIGHT THEME EXPERIMENT
    Edit only these values to test alternate palettes.
    Do not scatter experiment colors through the token file.
-   Consumed when CARD_SURFACE_VARIANT === 'raised' (TITANIUM_RAISED).
+   Card shadows also apply to Titanium's outline-card variant.
    ========================================================= */
 export const TITANIUM_EXPERIMENT = {
   canvas: '#FFFFFF',
@@ -348,8 +348,16 @@ export const TITANIUM_EXPERIMENT = {
 
   /** Matches Titanium crisp hairline — edit here without changing Nebula. */
   cardBorder: 'rgba(0,0,0,0.08)',
-  /** ~1px vertical, short soft blur; not a floating modal. */
+  /** Soft information-card lift on Titanium, independent of card fill. */
   cardShadow: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+  /** Keep filled-button chrome on its previous path and values. */
+  buttonShadow: {
     shadowColor: '#000000',
     shadowOffset: { width: 1, height: 1 },
     shadowOpacity: 0.04,
@@ -497,7 +505,7 @@ export function getThemeTokens(mode: ThemeModeName): ThemeTokens {
 
 /**
  * Information / multi-data card chrome — `outlineCard` fill + quiet outline
- * border. Titanium raised adds experiment micro-elevation only.
+ * border. Titanium cards receive a soft shared shadow.
  * Use for creator suggestion, category, merchant/info, profile info cards.
  * Do not use on media-first cards.
  */
@@ -516,11 +524,16 @@ export function outlineCardChrome(tokens: ThemeTokens): {
       tokens.mode === 'titanium' && CARD_SURFACE_VARIANT === 'raised'
         ? TITANIUM_EXPERIMENT.cardBorder
         : tokens.semantic.border.subtle,
-    ...titaniumRaisedShadow(tokens),
+    ...informationCardShadow(tokens),
   };
 }
 
-/** Titanium raised micro-elevation only. Empty on Nebula and outline mode. */
+/** Card-only shadow for outer wrappers when a card clips its contents. */
+export function informationCardShadow(tokens: ThemeTokens) {
+  return tokens.mode === 'titanium' ? TITANIUM_EXPERIMENT.cardShadow : {};
+}
+
+/** Filled-button shadow in the raised variant; empty on Nebula and outline mode. */
 export function titaniumRaisedShadow(tokens: ThemeTokens): {
   shadowColor?: string;
   shadowOffset?: { width: number; height: number };
@@ -537,7 +550,7 @@ export function titaniumRaisedShadow(tokens: ThemeTokens): {
       elevation: 0,
     };
   }
-  return TITANIUM_EXPERIMENT.cardShadow;
+  return TITANIUM_EXPERIMENT.buttonShadow;
 }
 
 /** Scrim ramp for text/controls resting on media (LinearGradient bottom-up). */
@@ -555,17 +568,36 @@ export function pageCanvasGradient(tokens: ThemeTokens): readonly [string, strin
 export function softCanvasGradient(tokens: ThemeTokens): readonly [string, string] {
   return [tokens.color.canvasSoft, tokens.color.canvasSoftEnd];
 }
-/** Capsule filters are raised controls, independent of the outline-only card treatment. */
+/** Filter controls have their own depth, separate from information cards. */
+export const FILTER_CHIP_DEPTH = {
+  titanium: {
+    raised: '#FFFFFF', pressed: '#ECECEC',
+    raisedEdge: 'rgba(0,0,0,0.09)', pressedEdge: 'rgba(0,0,0,0.14)',
+    upperLight: 'rgba(255,255,255,0.96)', innerShade: 'rgba(0,0,0,0.10)',
+    lowerLight: 'rgba(255,255,255,0.78)', shadowOpacity: 0.14,
+  },
+  nebula: {
+    raised: '#1C1C1E', pressed: '#2A2A2D',
+    raisedEdge: 'rgba(255,255,255,0.17)', pressedEdge: 'rgba(255,255,255,0.10)',
+    upperLight: 'rgba(255,255,255,0.20)', innerShade: 'rgba(0,0,0,0.30)',
+    lowerLight: 'rgba(255,255,255,0.10)', shadowOpacity: 0.36,
+  },
+} as const;
+
+/** Native shadow for the raised state; selected controls have an inset edge instead. */
 export function stashFilterChipChrome(tokens: ThemeTokens, selected: boolean) {
+  const depth = FILTER_CHIP_DEPTH[tokens.mode];
   return {
-    backgroundColor: selected ? tokens.color.overlayPressed : tokens.color.surface,
-    borderColor: selected ? tokens.color.border : tokens.semantic.border.subtle,
+    backgroundColor: selected ? depth.pressed : depth.raised,
+    borderColor: selected ? depth.pressedEdge : depth.raisedEdge,
+    borderTopColor: selected ? depth.pressedEdge : depth.upperLight,
+    borderBottomColor: selected ? depth.lowerLight : depth.raisedEdge,
     borderWidth: tokens.stroke.thin,
     borderRadius: tokens.radius.pill,
-    shadowColor: tokens.color.text,
-    shadowOffset: { width: tokens.elevation.none, height: tokens.stroke.thin },
-    shadowOpacity: tokens.mode === 'nebula' ? 0 : selected ? 0.04 : 0.08,
-    shadowRadius: tokens.space.xxs / 2,
-    elevation: tokens.stroke.thin,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: selected ? 0 : depth.shadowOpacity,
+    shadowRadius: 5,
+    elevation: selected ? 0 : 3,
   };
 }

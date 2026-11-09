@@ -15,6 +15,16 @@ describe('creator reporting periods and truthful denominators',()=>{
   assert.equal(r.current.start,r.previous.end);assert.equal(Date.parse(r.current.end)-Date.parse(r.current.start),days*dayMs);
   assert.equal(r.current.coveredDays,days);assert.equal(r.previous.coveredDays,days);
  });
+ it('builds an arbitrary historical range with equal previous days and no fabricated current-day activity',()=>{
+  const raw=complete({...fixture(),days:8,end_day:'2026-02-21'});
+  raw.daily=[{day:'2026-02-20',metric:'collection_opens',value:2}];
+  const report=buildCreatorReport(raw);
+  assert.equal(report.current.start,'2026-02-13');
+  assert.equal(report.current.end,'2026-02-21');
+  assert.equal(report.previous.end,'2026-02-13');
+  assert.equal(report.current.values.collection_opens,2);
+  assert.equal(report.provisional,false);
+ });
  it('never fills unavailable historical observations with zeros',()=>{
   const r=buildCreatorReport(fixture());
   assert.equal(r.current.values.collection_opens,null);assert.equal(r.series[0].values.collection_opens,null);

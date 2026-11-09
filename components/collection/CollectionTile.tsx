@@ -198,7 +198,6 @@ export function CollectionTile({
             borderRadius: tokens.radius.lg,
             ...outlineCardChrome(tokens),
             borderWidth: StyleSheet.hairlineWidth,
-            overflow: 'hidden',
           },
         ]}
       >
@@ -207,6 +206,8 @@ export function CollectionTile({
             styles.personalThumb,
             {
               backgroundColor: tokens.color.surfaceSubtle,
+              borderTopLeftRadius: tokens.radius.lg,
+              borderTopRightRadius: tokens.radius.lg,
             },
           ]}
         >
@@ -459,13 +460,14 @@ const styles = StyleSheet.create({
   tile: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
     flex: 1,
   },
   thumb: {
     width: '100%',
     aspectRatio: 9 / 12,
     backgroundColor: '#111',
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
   },
   legacyBadge: {
     position: 'absolute',

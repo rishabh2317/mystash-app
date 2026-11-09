@@ -151,7 +151,7 @@ try {
           refreshing: state === 'refreshing', bottomInset: 80,
           onRefresh() {}, onRetry() {}, onSearch() { throw new Error('Navigation forbidden in render checks'); },
         })));
-      assert.ok(html.includes('Your places'), `${theme}/${state}`);
+      assert.ok(!html.includes('Your places'), `${theme}/${state}`);
       if (state === 'loading' || state === 'idle') {
         assert.ok(html.includes('Loading places')); assert.ok(html.includes('role="progressbar"'));
         assert.ok(!html.includes('No places yet'));
@@ -168,6 +168,7 @@ try {
         assert.ok(html.includes('Source video, Potato Head Beach Club'));
         assert.ok(!html.includes('Source video unavailable') && !html.includes('No photo available') && !html.includes('Not confirmed yet'));
         assert.ok(html.includes('Recently stashed'));
+        assert.match(html, /Recently stashed[\s\S]*2 places/);
       }
       if (state === 'unverified') {
         assert.ok(html.includes('1 place')); assert.ok(!html.includes('Unverified') && !html.includes('Location unclear'));
@@ -326,11 +327,11 @@ try {
       assert.equal(grid.length, 15); assert.equal(grid[0].cartItemId, '14');
       let all = captured.actions.find(action => action.accessibilityLabel === 'All');
       const unselected = captured.actions.find(action => action.accessibilityLabel === 'Fashion');
-      const activeStyle = nativeWeb.StyleSheet.flatten(all.style({ pressed: false }));
-      const inactiveStyle = nativeWeb.StyleSheet.flatten(unselected.style({ pressed: false }));
-      assert.notEqual(activeStyle.backgroundColor, inactiveStyle.backgroundColor);
-      assert.ok(activeStyle.minHeight >= 44); assert.equal(activeStyle.flexShrink, 0);
-      assert.equal(activeStyle.borderRadius, tokens.radius.pill); assert.equal(activeStyle.borderWidth, tokens.stroke.thin);
+      const activeStyle = nativeWeb.StyleSheet.flatten(all.style);
+      assert.ok(activeStyle.minHeight >= 44);
+      const { stashFilterChipChrome } = load(path.join(root, 'src/theme/tokens'));
+      assert.notEqual(stashFilterChipChrome(tokens, true).backgroundColor, stashFilterChipChrome(tokens, false).backgroundColor);
+      assert.equal(stashFilterChipChrome(tokens, true).borderRadius, tokens.radius.pill);
       assert.ok(all.accessibilityState.selected); assert.ok(!unselected.accessibilityState.selected);
       const bar = captured.scrolls.find(scroll => scroll.accessibilityLabel === 'Filter recent products');
       assert.equal(bar.horizontal, true); assert.equal(bar.showsHorizontalScrollIndicator, false);

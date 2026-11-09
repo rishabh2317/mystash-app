@@ -1,9 +1,9 @@
 import React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/Text';
+import { TactileFilterChip } from '@/components/ui/TactileFilterChip';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { stashFilterChipChrome } from '@/src/theme/tokens';
 import { typeStyle } from '@/src/theme/typography';
 import { FEED_MIN_HIT_TARGET } from '@/src/ui/feedA11y';
 import type { FindViewFilter } from '@/src/ui/find';
@@ -16,15 +16,17 @@ export function FindFilterBar({ filters, selected, onSelect }: { filters: FindFi
   return <View accessibilityLabel="Filter Finds" style={{ flexDirection: 'row', alignItems: 'stretch', gap: tokens.space.xs, paddingVertical: tokens.space.xs }}>
     {filters.map(filter => {
       const active = selected === filter.id;
-      return <Pressable key={filter.id} onPress={() => onSelect(filter.id)}
+      return <TactileFilterChip key={filter.id} selected={active} onPress={() => onSelect(filter.id)}
         accessibilityRole="button" accessibilityLabel={`${filter.label}, ${filter.count === null ? 'loading' : `${filter.count} finds`}`} accessibilityState={{ selected: active }}
-        style={({ pressed }) => [{ flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', minHeight: FEED_MIN_HIT_TARGET,
-          paddingHorizontal: tokens.space.xxs, paddingVertical: tokens.space.xxs,
-          opacity: pressed ? tokens.motion.pressOpacity : 1 }, stashFilterChipChrome(tokens, active)]}>
+        containerStyle={{ flex: 1, minWidth: 0 }}
+        contentStyle={{ minHeight: FEED_MIN_HIT_TARGET, alignItems: 'center', justifyContent: 'center',
+          paddingHorizontal: tokens.space.xxs, paddingVertical: tokens.space.xxs }}>
         <Text numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}
           style={[typeStyle(tokens, 'caption'), { color: tokens.color.text, fontFamily: active ? tokens.fontFamily.medium : tokens.fontFamily.regular, textAlign: 'center' }]}>{filter.label}</Text>
-        <Text numberOfLines={1} style={[typeStyle(tokens, 'caption'), { color: tokens.color.text, fontFamily: active ? tokens.fontFamily.medium : tokens.fontFamily.regular }]}>{filter.count ?? '—'}</Text>
-      </Pressable>;
+        <Text numberOfLines={1} style={[typeStyle(tokens, 'caption'), { color: tokens.color.textMuted,
+          fontSize: tokens.fontSize.micro, lineHeight: tokens.lineHeight.micro,
+          fontFamily: tokens.fontFamily.medium }]}>{filter.count ?? '—'}</Text>
+      </TactileFilterChip>;
     })}
   </View>;
 }

@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 
 import { Text } from '@/components/ui/Text';
+import { TactileFilterChip } from '@/components/ui/TactileFilterChip';
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
-import { stashFilterChipChrome } from '@/src/theme/tokens';
 import { typeStyle } from '@/src/theme/typography';
 import { FEED_MIN_HIT_TARGET } from '@/src/ui/feedA11y';
 import type { StashFilterOption } from '@/src/ui/stashFilters';
@@ -36,22 +36,21 @@ export function StashFilterBar({ options, selected, onSelect, accessibilityLabel
       paddingHorizontal: tokens.space.xxs }}>
     {options.map(option => {
       const active = selected === option.key;
-      return <Pressable key={option.key === null ? 'all' : `category:${option.key}`} accessibilityRole="button"
+      return <TactileFilterChip key={option.key === null ? 'all' : `category:${option.key}`} selected={active} accessibilityRole="button"
         accessibilityLabel={option.label} accessibilityState={{ selected: active }}
         onLayout={event => { positions.current.set(option.key, event.nativeEvent.layout.x); }}
         onPress={() => onSelect(option.key)}
-        style={({ pressed }) => [styles.chip, stashFilterChipChrome(tokens, active), {
+        containerStyle={styles.chip} contentStyle={{ flexDirection: 'row', alignItems: 'center',
           minHeight: FEED_MIN_HIT_TARGET, gap: tokens.space.xs,
           paddingHorizontal: tokens.space.sm, paddingVertical: tokens.space.xs,
-          opacity: pressed ? tokens.motion.pressOpacity : 1,
-        }]}>
+        }}>
         <Ionicons accessible={false} name={option.icon} size={tokens.fontSize.body} color={active ? tokens.color.text : tokens.color.textMuted} />
         <Text numberOfLines={1} style={[typeStyle(tokens, 'caption'), { color: tokens.color.text,
           fontFamily: active ? tokens.fontFamily.medium : tokens.fontFamily.regular }]}>{option.label}</Text>
-      </Pressable>;
+      </TactileFilterChip>;
     })}
   </ScrollView>;
 }
 const styles = StyleSheet.create({
-  scroll: { flexGrow: 0 }, chip: { flexShrink: 0, flexDirection: 'row', alignItems: 'center' },
+  scroll: { flexGrow: 0 }, chip: { flexShrink: 0 },
 });

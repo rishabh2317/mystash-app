@@ -4,7 +4,7 @@ import { activeStashFilter, filterRecentStash, stashFilterOptions } from './stas
 import { bagCategoryKey, buildStashHome, type BagItemView } from './bag';
 import { buildPlacesHome, hydratePlaceStashItem, placeCategoryText } from './stashPlaces';
 import { normalizedPlaceCategory } from './placeCategories';
-import { getThemeTokens, stashFilterChipChrome } from '../theme/tokens';
+import { FILTER_CHIP_DEPTH, getThemeTokens, stashFilterChipChrome } from '../theme/tokens';
 
 it('All is distinct from real categories and only represented categories become options', () => {
   const filters = stashFilterOptions([{ key: 'Cafe', title: 'Cafés' }, { key: 'All', title: 'All things' }, { key: 'Cafe', title: 'Cafés' }]);
@@ -59,12 +59,15 @@ it('category text uses only supplied types, deduplicates labels, and never inven
   assert.equal(placeCategoryText({ category: 'Unknown', extractedCategory: 'N/A' }), null);
 });
 
-it('chips use centralized neutral surfaces and a distinct soft selected state in both themes', () => {
+it('chips have a raised edge and a shadow-free pressed state in both themes', () => {
   for (const theme of ['titanium', 'nebula'] as const) {
     const tokens = getThemeTokens(theme);
     const off = stashFilterChipChrome(tokens, false), on = stashFilterChipChrome(tokens, true);
     assert.equal(on.borderRadius, tokens.radius.pill); assert.equal(off.borderWidth, tokens.stroke.thin);
-    assert.equal(off.backgroundColor, tokens.color.surface); assert.equal(on.backgroundColor, tokens.color.overlayPressed);
-    assert.notEqual(off.backgroundColor, on.backgroundColor); assert.ok(off.elevation > 0);
+    assert.equal(off.backgroundColor, FILTER_CHIP_DEPTH[theme].raised);
+    assert.equal(on.backgroundColor, FILTER_CHIP_DEPTH[theme].pressed);
+    assert.notEqual(off.borderTopColor, on.borderTopColor);
+    assert.ok(off.elevation > 0); assert.equal(on.elevation, 0);
+    assert.ok(off.shadowOpacity > 0); assert.equal(on.shadowOpacity, 0);
   }
 });

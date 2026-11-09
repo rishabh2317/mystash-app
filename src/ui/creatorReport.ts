@@ -1,6 +1,6 @@
 export const METRIC_LABELS = {
   collection_opens:'Collection opens',collection_impressions:'Collection impressions',product_impressions:'Product impressions',
-  merchant_requests:'Merchant requests',profile_opens:'Profile opens',saves_added:'Saves added',saves_removed:'Saves removed',
+  merchant_requests:'Shopping link requests',profile_opens:'Profile opens',saves_added:'New saves',saves_removed:'Saves removed',
   followers_added:'Followers gained',followers_removed:'Followers lost',collection_shares:'Collection shares',
   likes_added:'Likes added',likes_removed:'Likes removed',
 } as const;

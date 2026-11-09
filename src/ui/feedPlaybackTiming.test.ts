@@ -34,8 +34,8 @@ describe('feed playback timing', () => {
     assert.equal(shouldRevealFeedFrame('firstFrame'), true);
   });
 
-  it('lifts the YouTube poster on playback rather than iframe load', () => {
-    assert.equal(shouldRevealYoutubePoster('iframeLoaded'), false);
+  it('lifts the YouTube poster on iframe load even if playback events are unavailable', () => {
+    assert.equal(shouldRevealYoutubePoster('iframeLoaded'), true);
     assert.equal(shouldRevealYoutubePoster('firstFrame'), true);
     assert.equal(shouldRevealYoutubePoster('loadEnd'), false);
     assert.equal(shouldRevealYoutubePoster('playerVisible'), false);

@@ -14,7 +14,7 @@ export function FindCard({ item, featured = false, onPress }: { item: FindItem; 
   const { tokens } = useThemeMode(), status = findStatus(item);
   const icon = item.sourceType === 'image'?'image-outline':item.sourceType === 'youtube' ? 'logo-youtube' : item.sourceType === 'instagram' ? 'film-outline' : 'link-outline';
   return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${item.title || findSourceLabel(item.sourceType)}. ${status.label}. ${findResultLabel(item)}`}
-    style={({ pressed }) => [{ ...outlineCardChrome(tokens), borderWidth: tokens.stroke.thin, borderRadius: tokens.radius.lg, overflow: 'hidden', opacity: pressed ? tokens.motion.pressOpacity : 1 }, featured ? { flexGrow: 1 } : [styles.row,{padding:tokens.space.xs}]]}>
+    style={({ pressed }) => [{ ...outlineCardChrome(tokens), borderWidth: tokens.stroke.thin, borderRadius: tokens.radius.lg, opacity: pressed ? tokens.motion.pressOpacity : 1 }, featured ? { flexGrow: 1 } : [styles.row,{padding:tokens.space.xs}]]}>
     <View style={[{ backgroundColor: tokens.color.surfaceSubtle, alignItems: 'center', justifyContent: 'center',overflow:'hidden',borderRadius:tokens.radius.sm }, featured ? styles.hero : styles.thumb]}>
       {item.sourceType==='image'?<PrivateFindImage id={item.id} style={StyleSheet.absoluteFill}/>:<FindImage url={item.thumbnailUrl} cacheKey={item.id} placeholder={icon} style={StyleSheet.absoluteFill} />}
       {featured ? <View style={[styles.source, { left: tokens.space.xs, top: tokens.space.xs, padding: tokens.space.xxs, backgroundColor: tokens.color.canvasSoft, borderRadius: tokens.radius.sm }]}><Ionicons name={icon} size={tokens.fontSize.section} color={tokens.color.text} /></View> : null}

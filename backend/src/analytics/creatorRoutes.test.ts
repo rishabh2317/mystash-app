@@ -29,4 +29,20 @@ describe('creator reporting endpoint security',()=>{
   assert.equal((await harness('self',{code:'42501'}).request()).status,403);
   assert.deepEqual((await harness('self',{code:'private_database_detail'}).request()).body,{error:'Creator reporting unavailable'});
  });
+ it('accepts bounded custom UTC dates without changing preset calls or actor scope',async t=>{
+  const old=process.env.ANALYTICS_CREATOR_REPORTING_ENABLED;process.env.ANALYTICS_CREATOR_REPORTING_ENABLED='true';
+  t.after(()=>{if(old===undefined)delete process.env.ANALYTICS_CREATOR_REPORTING_ENABLED;else process.env.ANALYTICS_CREATOR_REPORTING_ENABLED=old;});
+  const h=harness();
+  for(const query of [
+    {start:'2026-02-30',end:'2026-03-02'},
+    {start:'2026-03-02',end:'2026-03-02'},
+    {start:'2026-03-02',end:'2026-06-02'},
+    {start:'2026-03-02',end:'2026-03-10',days:'7'},
+    {start:'2026-03-02',end:'2026-03-10',creator_id:'other'},
+  ])assert.equal((await h.request(query)).status,400);
+  assert.equal(h.calls.length,0);
+  const ok=await h.request({start:'2026-03-02',end:'2026-03-10'});
+  assert.equal(ok.status,200);
+  assert.deepEqual(h.calls,[['analytics_creator_report_range',{p_creator_id:'verified-self',p_start:'2026-03-02',p_end:'2026-03-10'}]]);
+ });
 });

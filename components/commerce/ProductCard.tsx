@@ -652,7 +652,6 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
     borderRadius: 14,
-    overflow: 'hidden',
     padding: 10,
     gap: 10,
     position: 'relative',

@@ -57,9 +57,9 @@ export function shouldRevealFeedFrame(message: string): boolean {
   return message === 'firstFrame';
 }
 
-/** YouTube Watch lifts the poster on playback; iframe load only starts a bounded fallback. */
+/** The iframe load signal reveals the player even when its playback event is unavailable. */
 export function shouldRevealYoutubePoster(message: string): boolean {
-  return message === 'firstFrame';
+  return message === 'iframeLoaded' || message === 'firstFrame';
 }
 
 let mountedPlayers = 0;

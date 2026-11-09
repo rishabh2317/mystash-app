@@ -81,7 +81,7 @@ export function PlaceCard({ item, onSearch, onOpenSource }: Props) {
 }
 
 const styles = StyleSheet.create({
-  card: { width: '100%', borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  card: { width: '100%', borderWidth: StyleSheet.hairlineWidth },
   media: { width: '100%', aspectRatio: PRODUCT_CARD_LAYOUT.relatedMediaAspect, overflow: 'hidden' },
   fallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   source: { position: 'absolute', maxWidth: '100%', minHeight: FEED_MIN_HIT_TARGET, minWidth: FEED_MIN_HIT_TARGET,

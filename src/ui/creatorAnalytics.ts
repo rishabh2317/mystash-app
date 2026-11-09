@@ -3,18 +3,18 @@ import type { CreatorAnalyticsSummary } from '@/src/services/engagementApi';
 export const ANALYTICS_COPY = {
   title: 'Analytics',
   emptyTitle: 'Nothing to report yet',
-  emptyBody: 'Your analytics will appear here once people start discovering your collections.',
+  emptyBody: 'Activity will appear here when people start opening your collections.',
   signIn: 'Sign in to view analytics.',
   notCreator: 'Analytics are available after you start creating.',
   unavailable: 'Analytics unavailable right now.',
-  headlineViews: 'Recorded collection views',
+  headlineViews: 'Collection and feed views',
   followers: 'Current followers',
   saves: 'Current saves',
   shares: 'Shares',
-  productClicks: 'Outbound clicks',
+  productClicks: 'Shopping link requests',
   topCollections: 'Top collections',
   lifetime: 'Current collections',
-  definitionHint: 'Views include feed activations and collection opens. Clicks record merchant destination requests, not purchases.',
+  definitionHint: 'Views include feed activations and collection opens. Shopping link requests are attempts to open merchant pages, not purchases.',
 } as const;
 
 export function analyticsTotalsAreEmpty(totals: CreatorAnalyticsSummary['totals']): boolean {

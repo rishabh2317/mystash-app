@@ -56,6 +56,8 @@ export function ActionChoiceRow({
         styles.row,
         {
           ...chrome,
+          shadowOpacity: 0,
+          elevation: 0,
           borderWidth: StyleSheet.hairlineWidth,
           borderRadius: tokens.radius.md,
           borderColor: selected ? tokens.color.primary : chrome.borderColor,

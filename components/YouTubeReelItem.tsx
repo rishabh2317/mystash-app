@@ -55,7 +55,6 @@ export default function YouTubeReelItem({
   const internalWebViewRef = useRef<WebView>(null);
   const webViewRef = externalWebViewRef || internalWebViewRef;
   const traceRef = useRef<PlaybackTrace | null>(null);
-  const posterFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stageHeightRef = useRef(0);
 
   const parentOrigin = useMemo(() => resolveYoutubeParentOrigin(), []);
@@ -85,7 +84,6 @@ export default function YouTubeReelItem({
     const mounted = notePlayerMounted();
     logPlayback(trace, 'mount', mounted);
     return () => {
-      if (posterFallback.current) clearTimeout(posterFallback.current);
       recordPlaybackMark(trace, 'release');
       logPlayback(trace, 'release', notePlayerReleased());
       if (traceRef.current === trace) traceRef.current = null;
@@ -160,14 +158,10 @@ export default function YouTubeReelItem({
                   logPlayback(trace, 'iframeLoaded', playbackPlayerCount());
                   applyCrop();
                   webViewRef.current?.injectJavaScript(`window.__mystashSetMuted?.(${isMuted}); true;`);
-                  // Some embeds never emit onStateChange. Keep the poster until
-                  // playback is confirmed, then use a bounded iframe fallback.
-                  if (posterFallback.current) clearTimeout(posterFallback.current);
-                  posterFallback.current = setTimeout(() => setRevealedId(videoId), 4500);
                 }
                 if (shouldRevealYoutubePoster(message)) {
-                  if (posterFallback.current) clearTimeout(posterFallback.current);
                   setRevealedId(videoId);
+                  onReady?.();
                 }
                 if (shouldRevealFeedFrame(message)) {
                   onReady?.();
@@ -176,27 +170,25 @@ export default function YouTubeReelItem({
                 }
               }}
               onError={(error) => {
-                if (posterFallback.current) clearTimeout(posterFallback.current);
                 setRevealedId(null);
                 onLoadError?.();
                 if (__DEV__) console.warn('YouTube WebView:', error.nativeEvent);
               }}
-              onHttpError={onLoadError ? () => { if (posterFallback.current) clearTimeout(posterFallback.current); setRevealedId(null); onLoadError(); } : undefined}
+              onHttpError={onLoadError ? () => { setRevealedId(null); onLoadError(); } : undefined}
             />
           </View>
         ) : null}
-        <View
-          pointerEvents="none"
-          style={[styles.thumbnailContainer, { opacity: revealed ? 0 : 1 }]}
-        >
-          <Image
-            source={{ uri: video.thumbnail }}
-            style={styles.thumbnail}
-            contentFit="cover"
-            priority="high"
-            cachePolicy="memory-disk"
-          />
-        </View>
+        {!revealed ? (
+          <View pointerEvents="none" style={styles.thumbnailContainer}>
+            <Image
+              source={{ uri: video.thumbnail }}
+              style={styles.thumbnail}
+              contentFit="cover"
+              priority="high"
+              cachePolicy="memory-disk"
+            />
+          </View>
+        ) : null}
       </View>
     </View>
   );

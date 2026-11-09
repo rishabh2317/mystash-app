@@ -31,10 +31,10 @@ describe('youtube feed embed', () => {
     assert.equal(extractId('https://www.youtube.com/embed/abcdefghijk'), 'abcdefghijk');
   });
 
-  it('keeps the poster until playback with a bounded fallback, and enables single-video looping', () => {
+  it('reveals the player on iframe load and enables single-video looping', () => {
     assert.match(reelItem, /\{ loop: true \}/);
     assert.match(src, /q\.set\('playlist', videoId\)/);
-    assert.match(reelItem, /posterFallback\.current = setTimeout/);
+    assert.match(reelItem, /if \(shouldRevealYoutubePoster\(message\)\) \{\s*setRevealedId\(videoId\);\s*onReady\?\.\(\);/);
     const revealAt = reelItem.indexOf('shouldRevealYoutubePoster(message)');
     const frameAt = reelItem.indexOf('shouldRevealFeedFrame(message)');
     assert.ok(revealAt > 0);

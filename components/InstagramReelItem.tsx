@@ -47,7 +47,6 @@ export default function InstagramReelItem({
   const internalWebViewRef = useRef<WebView>(null);
   const webViewRef = externalWebViewRef || internalWebViewRef;
   const traceRef = useRef<PlaybackTrace | null>(null);
-  const posterFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   const embedUrl = video.embed_url?.trim() || '';
   const mountPlayer = Boolean(isActive && embedUrl);
   const revealed = mountPlayer && revealedUrl === embedUrl;
@@ -60,7 +59,6 @@ export default function InstagramReelItem({
     traceRef.current = trace;
     logPlayback(trace, 'mount', notePlayerMounted());
     return () => {
-      if (posterFallback.current) clearTimeout(posterFallback.current);
       recordPlaybackMark(trace, 'release');
       logPlayback(trace, 'release', notePlayerReleased());
       if (traceRef.current === trace) traceRef.current = null;
@@ -117,11 +115,10 @@ export default function InstagramReelItem({
                 if (message === 'playerVisible') {
                   webViewRef.current?.injectJavaScript(`window.__mystashSetMuted?.(${isMuted}); true;`);
                   logPlayback(trace, 'playerVisible', playbackPlayerCount());
-                  if (posterFallback.current) clearTimeout(posterFallback.current);
-                  posterFallback.current = setTimeout(() => { setRevealedUrl(embedUrl); onReady?.(); }, 4500);
+                  setRevealedUrl(embedUrl);
+                  onReady?.();
                 }
                 if (shouldRevealFeedFrame(message)) {
-                  if (posterFallback.current) clearTimeout(posterFallback.current);
                   onReady?.();
                   recordPlaybackMark(trace, 'firstFrame');
                   logPlayback(trace, 'firstFrame', playbackPlayerCount());
@@ -129,27 +126,25 @@ export default function InstagramReelItem({
                 }
               }}
               onError={(error) => {
-                if (posterFallback.current) clearTimeout(posterFallback.current);
                 setRevealedUrl(null);
                 onLoadError?.();
                 if (__DEV__) console.warn('Instagram WebView:', error.nativeEvent);
               }}
-              onHttpError={onLoadError ? () => { if (posterFallback.current) clearTimeout(posterFallback.current); setRevealedUrl(null); onLoadError(); } : undefined}
+              onHttpError={onLoadError ? () => { setRevealedUrl(null); onLoadError(); } : undefined}
             />
           </View>
         ) : null}
-        <View
-          pointerEvents="none"
-          style={[styles.thumbnailContainer, { opacity: revealed ? 0 : 1 }]}
-        >
-          <Image
-            source={{ uri: video.thumbnail }}
-            style={styles.thumbnail}
-            contentFit="cover"
-            priority="high"
-            cachePolicy="memory-disk"
-          />
-        </View>
+        {!revealed ? (
+          <View pointerEvents="none" style={styles.thumbnailContainer}>
+            <Image
+              source={{ uri: video.thumbnail }}
+              style={styles.thumbnail}
+              contentFit="cover"
+              priority="high"
+              cachePolicy="memory-disk"
+            />
+          </View>
+        ) : null}
       </View>
     </View>
   );

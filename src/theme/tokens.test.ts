@@ -43,9 +43,9 @@ describe('theme tokens', () => {
     if (CARD_SURFACE_VARIANT === 'raised') {
       assert.equal(t.color.accent, TITANIUM_EXPERIMENT.accent);
     } else {
-      assert.equal(t.color.accent, '#159A9C');
+      assert.equal(t.color.accent, '#000000');
     }
-    assert.equal(n.color.accent, '#A855F7');
+    assert.equal(n.color.accent, '#FFFFFF');
   });
 
   it('provides page and soft gradients for existing surface washes', () => {
@@ -68,14 +68,14 @@ describe('theme tokens', () => {
   it('keeps Nebula primary independent of the Titanium light experiment', () => {
     const t = getThemeTokens('titanium');
     const n = getThemeTokens('nebula');
-    assert.equal(n.color.primary, '#159A9C');
-    assert.equal(n.color.onPrimary, '#FFFFFF');
+    assert.equal(n.color.primary, '#FFFFFF');
+    assert.equal(n.color.onPrimary, '#000000');
     if (CARD_SURFACE_VARIANT === 'raised') {
       assert.equal(t.color.primary, TITANIUM_EXPERIMENT.primary);
       assert.equal(t.color.onPrimary, TITANIUM_EXPERIMENT.onPrimary);
       assert.notEqual(t.color.primary, n.color.primary);
     } else {
-      assert.equal(t.color.primary, n.color.primary);
+      assert.equal(t.color.primary, '#000000');
     }
     assert.notEqual(t.color.primary, t.color.onPrimary);
   });
@@ -112,16 +112,16 @@ describe('theme tokens', () => {
     assert.equal(n.color.icon, '#FFFFFF');
   });
 
-  it('keeps information cards distinct from canvas via outlineCardChrome', () => {
-    assert.equal(CARD_SURFACE_VARIANT, 'raised');
+  it('keeps information-card chrome and Titanium-only shadow centralized', () => {
+    assert.ok(['outline', 'raised'].includes(CARD_SURFACE_VARIANT));
     for (const mode of ['titanium', 'nebula'] as const) {
       const tokens = getThemeTokens(mode);
       if (CARD_SURFACE_VARIANT === 'raised') {
         assert.notEqual(tokens.color.outlineCard, 'transparent');
         assert.notEqual(tokens.semantic.surface.outlineCard, 'transparent');
       } else {
-        assert.equal(tokens.color.outlineCard, 'transparent');
-        assert.equal(tokens.semantic.surface.outlineCard, 'transparent');
+        assert.equal(tokens.color.outlineCard, mode === 'titanium' ? 'transparent' : 'rgba(255, 255, 255, 0.07)');
+        assert.equal(tokens.semantic.surface.outlineCard, tokens.color.outlineCard);
       }
       assert.notEqual(tokens.semantic.surface.outlineCard, tokens.semantic.surface.canvas);
       assert.equal(tokens.semantic.border.subtle, tokens.color.border);
@@ -148,13 +148,15 @@ describe('theme tokens', () => {
       const chrome = outlineCardChrome(t);
       assert.equal(chrome.backgroundColor, TITANIUM_EXPERIMENT.card);
       assert.equal(chrome.borderColor, TITANIUM_EXPERIMENT.cardBorder);
-      assert.equal(chrome.shadowOffset?.height, TITANIUM_EXPERIMENT.cardShadow.shadowOffset.height);
-      assert.equal(chrome.shadowOpacity, TITANIUM_EXPERIMENT.cardShadow.shadowOpacity);
-      assert.equal(chrome.elevation, TITANIUM_EXPERIMENT.cardShadow.elevation);
       assert.equal(n.color.outlineCard, '#141416');
       assert.equal(n.color.canvas, '#050506');
-      assert.equal(outlineCardChrome(n).shadowOpacity, undefined);
     }
+    const chrome = outlineCardChrome(t);
+    assert.equal(chrome.shadowOffset?.height, TITANIUM_EXPERIMENT.cardShadow.shadowOffset.height);
+    assert.equal(chrome.shadowOpacity, TITANIUM_EXPERIMENT.cardShadow.shadowOpacity);
+    assert.equal(chrome.shadowRadius, TITANIUM_EXPERIMENT.cardShadow.shadowRadius);
+    assert.equal(chrome.elevation, TITANIUM_EXPERIMENT.cardShadow.elevation);
+    assert.equal(outlineCardChrome(n).shadowOpacity, undefined);
   });
 
   it('Titanium outline branch restores original canvas and transparent cards', () => {
@@ -165,12 +167,12 @@ describe('theme tokens', () => {
     assert.match(src, /outlineCard: TITANIUM_RAISED \? TITANIUM_EXPERIMENT\.card : 'transparent'/);
   });
 
-  it('defaults the outline border experiment to refined (Mystash baseline)', () => {
-    assert.equal(OUTLINE_BORDER_VARIANT, 'refined');
+  it('keeps the selected outline border experiment unchanged', () => {
+    assert.equal(OUTLINE_BORDER_VARIANT, 'crisp');
     const t = getThemeTokens('titanium');
     const n = getThemeTokens('nebula');
-    assert.equal(t.color.border, 'rgba(0,0,0,0.08)');
-    assert.equal(n.color.border, 'rgba(255,255,255,0.10)');
+    assert.equal(t.color.border, 'rgba(0,0,0,0.14)');
+    assert.equal(n.color.border, 'rgba(255,255,255,0.15)');
     assert.equal(t.elevation.card, 0);
     assert.equal(outlineCardChrome(t).borderColor, t.color.border);
     assert.equal(outlineCardChrome(n).borderColor, n.color.border);

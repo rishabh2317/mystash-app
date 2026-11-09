@@ -1,6 +1,6 @@
 import { ActionChoiceRow } from '@/components/ui/ActionChoiceRow';
 import React, { useState } from 'react';
-import { FlatList, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { FlatList, LayoutAnimation, Platform, StyleSheet, Text, UIManager, useWindowDimensions, View } from 'react-native';
 
 import { CollectionTileSkeleton } from '@/components/collection/CollectionTileSkeleton';
 import { PublicCollectionTile } from '@/components/collection/PublicCollectionTile';
@@ -9,6 +9,7 @@ import { DiscoverCreatorsSection } from '@/components/profile/DiscoverCreatorsSe
 import { ProfileContentTabs } from '@/components/profile/ProfileContentTabs';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { useDiscoverCreators } from '@/src/hooks/useDiscoverCreators';
+import { usePrefersReducedMotion } from '@/src/ui/usePrefersReducedMotion';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CreatorViewModel } from '@/src/types/creator';
 import { resolveListLoadState } from '@/src/ui/contentLoadState';
@@ -26,6 +27,10 @@ import {
 
 import { PersonalCreateCollectionCard } from './PersonalCreateCollectionCard';
 import { PersonalProfileHeader } from './PersonalProfileHeader';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 type Props = {
   creator: CreatorViewModel;
@@ -55,6 +60,8 @@ export function PersonalProfile({
   const { tokens } = useThemeMode();
   const { width: screenWidth } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<PersonalProfileTab>('collections');
+  const [discoverExpanded, setDiscoverExpanded] = useState(false);
+  const reduceMotion = usePrefersReducedMotion();
   const discover = useDiscoverCreators({
     excludeUserId: creator.userId,
     excludeUsername: creator.username,
@@ -66,6 +73,15 @@ export function PersonalProfile({
     PROFILE_VIDEO_GRID_GAP,
     PROFILE_VIDEO_GRID_COLUMNS,
   );
+  const toggleDiscover = () => {
+    if (!reduceMotion) LayoutAnimation.configureNext({
+      duration: 220,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
+    setDiscoverExpanded(value => !value);
+  };
 
   const header = (
     <View
@@ -79,10 +95,12 @@ export function PersonalProfile({
         creator={creator}
         onEditPress={onEditPress}
         onSharePress={onSharePress}
+        discoverExpanded={discoverExpanded}
+        onToggleDiscover={toggleDiscover}
         onPressStat={onPressStat}
       />
       <ActionChoiceRow title="Creator Studio" body="Create, edit and publish your collections." icon="sparkles-outline" onPress={onCreateCollection} />
-      <DiscoverCreatorsSection items={discover.items} loading={discover.loading} />
+      {discoverExpanded ? <DiscoverCreatorsSection items={discover.items} loading={discover.loading} /> : null}
       <ProfileContentTabs tabs={PERSONAL_PROFILE_TABS} active={activeTab} onChange={setActiveTab} />
     </View>
   );

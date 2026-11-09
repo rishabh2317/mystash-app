@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { ProfileIdentityHeader } from '@/components/profile/ProfileIdentityHeader';
 import { ProfileStatsStrip } from '@/components/profile/ProfileStatsStrip';
@@ -13,6 +14,8 @@ type Props = {
   creator: CreatorViewModel;
   onEditPress: () => void;
   onSharePress: () => void;
+  discoverExpanded: boolean;
+  onToggleDiscover: () => void;
   onPressStat?: (id: 'collections' | 'following' | 'followers') => void;
 };
 
@@ -24,6 +27,8 @@ export function PersonalProfileHeader({
   creator,
   onEditPress,
   onSharePress,
+  discoverExpanded,
+  onToggleDiscover,
   onPressStat,
 }: Props) {
   const { tokens } = useThemeMode();
@@ -64,6 +69,8 @@ export function PersonalProfileHeader({
               label={PERSONAL_PROFILE_COPY.editProfile}
               onPress={onEditPress}
               accessibilityLabel={PERSONAL_PROFILE_COPY.editProfile}
+              minTouchHeight={44}
+              wrapLabel
             />
           </View>
           <View style={styles.btn}>
@@ -74,8 +81,24 @@ export function PersonalProfileHeader({
               label="Share"
               onPress={onSharePress}
               accessibilityLabel="Share profile"
+              minTouchHeight={44}
+              wrapLabel
             />
           </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={discoverExpanded ? 'Hide creator suggestions' : 'Show creator suggestions'}
+            accessibilityState={{ expanded: discoverExpanded }}
+            onPress={onToggleDiscover}
+            style={({ pressed }) => [styles.discoverToggle, {
+              borderRadius: tokens.radius.md,
+              borderColor: tokens.color.border,
+              backgroundColor: tokens.color.surfaceSubtle,
+              opacity: pressed ? tokens.motion.pressOpacity : 1,
+            }]}
+          >
+            <Ionicons name={discoverExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={tokens.color.text} />
+          </Pressable>
         </View>
       }
     />
@@ -90,5 +113,14 @@ const styles = StyleSheet.create({
   },
   btn: {
     flex: 1,
+    minWidth: 0,
+  },
+  discoverToggle: {
+    width: 44,
+    height: 44,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
 });

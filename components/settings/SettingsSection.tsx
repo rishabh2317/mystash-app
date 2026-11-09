@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { outlineCardChrome } from '@/src/theme/tokens';
+import { informationCardShadow, outlineCardChrome } from '@/src/theme/tokens';
 
 type Props = {
   title?: string;
@@ -31,26 +31,30 @@ export function SettingsSection({ title, children }: Props) {
           {title}
         </Text>
       ) : null}
-      <View
-        style={[
-          styles.group,
-          {
-            ...outlineCardChrome(tokens),
-            borderRadius: tokens.radius.xl,
-          },
-        ]}
-      >
-        {items.map((child, index) => (
-          <View
-            key={index}
-            style={{
-              borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth,
-              borderTopColor: tokens.color.divider,
-            }}
-          >
-            {child}
-          </View>
-        ))}
+      <View style={{ ...informationCardShadow(tokens), borderRadius: tokens.radius.xl }}>
+        <View
+          style={[
+            styles.group,
+            {
+              ...outlineCardChrome(tokens),
+              borderRadius: tokens.radius.xl,
+              shadowOpacity: 0,
+              elevation: 0,
+            },
+          ]}
+        >
+          {items.map((child, index) => (
+            <View
+              key={index}
+              style={{
+                borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth,
+                borderTopColor: tokens.color.divider,
+              }}
+            >
+              {child}
+            </View>
+          ))}
+        </View>
       </View>
     </View>
   );

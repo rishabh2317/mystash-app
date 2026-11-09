@@ -1,5 +1,5 @@
 import { AnalyticsPrivacyControls } from '@/src/analytics/PrivacyControls';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
@@ -295,6 +295,12 @@ export default function SettingsScreen() {
             <Text style={typeStyle(tokens, 'link')}>{SETTINGS_COPY.goToProfile}</Text>
           </Pressable>
           <AnalyticsPrivacyControls />
+          <View style={{ alignSelf: 'stretch', marginTop: tokens.space.lg }}>
+            <SettingsSection title={SETTINGS_COPY.account}>
+              <SettingsRow variant="navigation" icon="shield-checkmark-outline" title={SETTINGS_COPY.privacy}
+                subtitle={SETTINGS_COPY.privacyHint} onPress={() => router.push('/settings/privacy' as Href)} />
+            </SettingsSection>
+          </View>
         </View>
       </View>
     );
@@ -459,6 +465,8 @@ export default function SettingsScreen() {
 
         <AnalyticsPrivacyControls />
         <SettingsSection title={SETTINGS_COPY.account}>
+          <SettingsRow variant="navigation" icon="shield-checkmark-outline" title={SETTINGS_COPY.privacy}
+            subtitle={SETTINGS_COPY.privacyHint} onPress={() => router.push('/settings/privacy' as Href)} />
           <SettingsRow
             variant="destructive"
             icon="log-out-outline"
