@@ -1,3 +1,4 @@
+import {resolveCountryCode} from '../../merchant-pricing/country';
 import { SupabaseImportProgressRepository } from '../../user-import/ImportProgressRepository';
 import { createReviewAssessment } from '../../user-import/share/assessment';
 import type { SearchCandidate } from '../../product-intelligence/domain/types';
@@ -47,7 +48,7 @@ export function createResolvingContentSourceProcessor(
         {
           async getCommerceCountry(userId) {
             const user = await users.getById(userId);
-            return user?.country ?? null;
+            return resolveCountryCode({profile:user?.country,deviceLocale:typeof user?.extensions?.shoppingLocale==='string'?user.extensions.shoppingLocale:user?.language});
           },
         },
         reviewEnabled ? createReviewAssessment(admin, observed) : undefined,

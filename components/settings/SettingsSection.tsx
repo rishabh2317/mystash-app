@@ -1,8 +1,10 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/components/ui/Text';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { informationCardShadow, outlineCardChrome } from '@/src/theme/tokens';
+import { typeStyle } from '@/src/theme/typography';
 
 type Props = {
   title?: string;
@@ -18,15 +20,12 @@ export function SettingsSection({ title, children }: Props) {
     <View style={{ gap: tokens.space.xs }}>
       {title ? (
         <Text
-          style={{
-            color: tokens.color.textMuted,
-            fontSize: tokens.fontSize.caption,
-            lineHeight: tokens.lineHeight.caption,
-            fontWeight: tokens.fontWeight.bold,
+          style={[typeStyle(tokens, 'caption'), {
+            fontFamily: tokens.fontFamily.semibold,
             letterSpacing: 0.4,
             textTransform: 'uppercase',
             paddingHorizontal: tokens.space.xxs,
-          }}
+          }]}
         >
           {title}
         </Text>

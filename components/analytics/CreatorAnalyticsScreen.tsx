@@ -1,3 +1,4 @@
+import { FailureState } from '@/components/status/FailureState';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -9,7 +10,6 @@ import type { CreatorMetric, CreatorRange, CreatorReport } from '@/backend/src/a
 import { TopBar } from '@/components/chrome/TopBar';
 import { CreatorDateRangePicker } from '@/components/analytics/CreatorDateRangePicker';
 import { SkeletonBlock } from '@/components/status/SkeletonBlock';
-import { ActionButton } from '@/components/ui/ActionButton';
 import { Text } from '@/components/ui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
@@ -114,12 +114,8 @@ export default function CreatorAnalyticsScreen() {
           : pending ? <View accessibilityLabel="Loading creator analytics" accessibilityState={{ busy: true }} style={{ gap: tokens.space.md }}>
             <SkeletonBlock width="65%" height={20} /><SkeletonBlock height={150} /><SkeletonBlock height={220} />
           </View>
-            : result?.error ? <View style={card} accessibilityLiveRegion="polite">
-              <Text style={typeStyle(tokens, 'sectionTitle')}>{result.forbidden ? 'Creator access required' : 'Insights unavailable'}</Text>
-              <Text style={typeStyle(tokens, 'bodyMuted')}>{result.error}</Text>
-              {!result.forbidden && <ActionButton label="Try again" onPress={refreshReport} variant="secondary" />}
-            </View>
-              : report ? <>
+            : result?.error ? <FailureState error={result.error} title={result.forbidden ? 'Creator access required' : undefined} variant="inline" onRetry={result.forbidden ? undefined : refreshReport} />
+            : report ? <>
                 <View style={{ gap: tokens.space.xs }}>
                   <Text style={typeStyle(tokens, 'tileTitle')}>{utcDateLabel(report.current.start)} – {utcDateLabel(rangeEnd)}</Text>
                   <Text style={typeStyle(tokens, 'tileMeta')}>{report.refreshedAt ? `Updated ${new Date(report.refreshedAt).toLocaleString()}` : 'New activity will appear here'}</Text>
@@ -170,7 +166,7 @@ export default function CreatorAnalyticsScreen() {
                   <Text style={typeStyle(tokens, 'sectionTitle')}>Top collections</Text>
                   <Text style={typeStyle(tokens, 'tileMeta')}>Ranked by collection opens, then shopping link requests and saves.</Text>
                   {report.topCollections.length ? report.topCollections.map(c => <Pressable key={c.id} accessibilityRole="button"
-                    onPress={() => router.push(collectionTilePressPath(c.id))} style={[...card, styles.contentRow]}>
+                    onPress={() => router.push(collectionTilePressPath(c.id,{collections:report.topCollections.map(item=>({collectionId:item.id,heroThumbnailUrl:item.thumbnail_url}))}))} style={[...card, styles.contentRow]}>
                     {c.thumbnail_url ? <Image source={{ uri: c.thumbnail_url }} style={styles.thumb} contentFit="cover" /> : <View style={[styles.thumb, { backgroundColor: tokens.color.surfaceSubtle }]} />}
                     <View style={{ flex: 1, gap: tokens.space.xs }}><Text style={typeStyle(tokens, 'tileTitle')} numberOfLines={2}>{c.title?.trim() || 'Collection'}</Text>
                       <Text style={typeStyle(tokens, 'tileMeta')}>{reportCount(c.opens)} opens · {reportCount(c.saves)} saves · {reportCount(c.requests)} shopping link requests</Text></View>

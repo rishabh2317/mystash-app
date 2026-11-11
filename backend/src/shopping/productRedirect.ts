@@ -1,3 +1,4 @@
+import {resolveShoppingRequestCountry} from './requestCountry';
 import { UUID } from '../analytics/contracts';
 import { requestMeasurement } from '../analytics/context';
 import { recordOutboundObservation } from '../analytics/serverEvents';
@@ -10,7 +11,6 @@ import { createCatalogService } from '../catalog/factory';
 import { createDiscoveredProductService } from '../discovered/factory';
 import { createEngagementService } from '../engagement/factory';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
-import { resolveCountryCode } from '../merchant-pricing/country';
 import { resolveMerchantRegion } from '../merchant-pricing/MerchantRegionResolver';
 import { AffiliateService } from './AffiliateService';
 import { getAffiliateConfig } from './affiliateConfig';
@@ -42,13 +42,7 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
   return optionalVerifiedUserId(req);
 }
 
-function resolveRequestCountry(req: Request): string {
-  return resolveCountryCode({
-    explicit: queryString(req.query.country),
-    profile: queryString(req.query.profileCountry),
-    deviceLocale: queryString(req.query.locale) ?? headerString(req.headers['accept-language']),
-  });
-}
+
 
 async function redirectCatalog(
   req: Request,
@@ -58,6 +52,7 @@ async function redirectCatalog(
   product: CatalogProduct,
   destination: ShoppingResolution,
   requestedProductId: string,
+  country: string,
 ): Promise<void> {
   const userId = await authenticatedUserId(req);
   const attribution = await resolveRedirectAttribution(admin, {
@@ -69,7 +64,6 @@ async function redirectCatalog(
 
   const platform =
     queryString(req.query.platform) ?? headerString(req.headers['sec-ch-ua-platform']) ?? null;
-  const country = resolveRequestCountry(req);
   const timestamp = new Date().toISOString();
   const suppliedEventId=queryString(req.query.eventId);
   const eventId=suppliedEventId&&UUID.test(suppliedEventId)?suppliedEventId:randomUUID();
@@ -162,7 +156,7 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
   return async (req: Request, res: Response): Promise<void> => {
     const productId = req.params.id;
     const offerId = queryString(req.query.offerId);
-    const country = resolveRequestCountry(req);
+    const country = await resolveShoppingRequestCountry(admin,req);
     const product = await catalog.resolveActiveProduct(productId);
     if (product && product.status !== 'HIDDEN') {
       const destination = resolver.resolve(product, { offerId, country });
@@ -170,7 +164,7 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
         res.status(404).json({ error: 'No shopping destination is available for this product' });
         return;
       }
-      await redirectCatalog(req, res, admin, engagement, product, destination, productId);
+      await redirectCatalog(req, res, admin, engagement, product, destination, productId,country);
       return;
     }
 
@@ -182,7 +176,7 @@ export function createProductRedirectHandler(admin: SupabaseClient) {
     const source = discoveredShoppingSource(imported);
     const dest = offerId
       ? findStoredShoppingDestination(source, offerId)
-      : listStoredShoppingDestinations(source)[0] ?? null;
+      : listStoredShoppingDestinations(source,country)[0] ?? null;
     const baseUrl = dest?.url ?? imported.merchantUrl;
     const regional = dest
       ? resolveMerchantRegion({ url: dest.url, regionalUrls: dest.regionalUrls }, country)

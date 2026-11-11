@@ -93,6 +93,7 @@ export function mapGooglePlacesTextSearchBody(body: unknown): PlaceSearchCandida
     candidates.push({
       providerPlaceId,
       name,
+      types: Array.isArray(row.types) ? row.types.filter((v):v is string=>typeof v==='string') : [],
       locality: componentText(components, 'neighborhood', 'sublocality', 'sublocality_level_1'),
       city: componentText(components, 'locality', 'postal_town'),
       region: componentText(components, 'administrative_area_level_1'),

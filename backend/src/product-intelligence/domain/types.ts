@@ -110,6 +110,9 @@ export type SearchCandidate = {
   /** Optional enrichment (e.g. MerchantEnrichmentService / Tavily) — ignored by discovery-only providers. */
   brand?: string | null;
   model?: string | null;
+  variantContext?: string | null;
+  gtin?: string | null;
+  mpn?: string | null;
   category?: string | null;
   description?: string | null;
   price?: string | null;
@@ -123,6 +126,8 @@ export type SearchCandidate = {
 export type SearchSucceeded = {
   kind: 'Succeeded';
   candidates: SearchCandidate[];
+  /** Merchant-only evidence; never an image/metadata merge input. */
+  merchantEvidence?: import('../verification/merchantEvidence').MerchantEvidenceInput[];
   provider: string;
 };
 

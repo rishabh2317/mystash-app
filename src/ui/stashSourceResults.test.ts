@@ -48,7 +48,14 @@ test('place cards use Stash metadata when available and extracted data when enri
   const fallback = sourcePlaceModel(row, 'import-1', []);
   assert.equal(fallback.name, 'Place 1');
   assert.equal(fallback.destination.kind, 'google_search');
+  assert.equal(fallback.kind,'resolved');assert.equal(fallback.id,'canonical-place-1','photo identity must not depend on optional Stash enrichment');
   const saved = { ...fallback, id: 'canonical-place-1', name: 'Enriched place',
     sources: [{ contentSourceId: 'content', userImportId: 'import-1', contentSourcePlaceId: 'source-place-1', addedAt: 'now' }] } as PlaceStashItem;
   assert.equal(sourcePlaceModel(row, 'import-1', [saved]).name, 'Enriched place');
+});
+
+test('an unresolved source never acquires another canonical photo through a stale place ID',()=>{
+  const row=place(1);if(row.kind!=='place')throw Error('Fixture');row.result.resolution='unresolved';
+  const unrelated={kind:'resolved',id:'canonical-place-1',name:'Other place',category:null,localityLabel:null,formattedAddress:null,image:null,destination:{kind:'google_search',query:'other',url:'https://example.invalid'}} as PlaceStashItem;
+  assert.equal(sourcePlaceModel(row,'import-1',[unrelated]).kind,'unresolved');
 });

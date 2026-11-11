@@ -1,3 +1,4 @@
+import { isGeographyOnly } from './placeClassification';
 import { placeNameIsSpecific, placeNameStem } from './placeNameIsSpecific';
 
 /**
@@ -15,6 +16,7 @@ export const NON_DISTINCTIVE_PLACE_NAMES = new Set([
 
 export type PlaceMentionFields = {
   name: string;
+  evidence?: Record<string,unknown>;
   locality?: string | null;
   city?: string | null;
   region?: string | null;
@@ -45,7 +47,7 @@ function nonChainStem(name: string): string[] {
  * A generic place type is not searched, even when a locality field is set.
  */
 export function placeMaySearch(input: PlaceMentionFields): boolean {
-  if (!placeNameIsSpecific(input.name)) return false;
+  if (!placeNameIsSpecific(input.name) || isGeographyOnly(input)) return false;
   if (statedPlaceLocation(input)) return true;
   return nonChainStem(input.name).length >= 2;
 }
@@ -57,7 +59,8 @@ export function placeMaySearch(input: PlaceMentionFields): boolean {
 export function placeSearchQuery(input: PlaceMentionFields): string | null {
   if (!placeMaySearch(input)) return null;
   const name = clean(input.name);
-  const location = statedPlaceLocation(input);
+  const address=clean(input.mentionedAddress);
+  const location = /\d/.test(address)?address:statedPlaceLocation(input);
   if (!location) return name;
   if (name.toLowerCase().includes(location.toLowerCase())) return name;
   return `${name} ${location}`;

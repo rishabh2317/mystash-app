@@ -16,6 +16,11 @@ export type DetectedObject = {
   bbox?: BBox;
   frameIndex: number;
   timestampMs: number;
+  attributes?: {
+    colour?: string; material?: string; fit?: string; style?: string;
+    brandText?: string; visibleIdentifier?: string;
+    uncertainty?: string[];
+  };
 };
 
 export type DetectedLogo = {
@@ -90,6 +95,11 @@ export type MultimodalContext = {
 };
 
 export type ProductEvidence = {
+  uncertainty?: string[];
+  attributes?: { attribute: string; value: string; origin: 'observed' | 'source_text'; frameIndex?: number; timestampMs?: number }[];
+  stages?: string[];
+  identification?: { version: 1; kind: 'possible'; reason: string };
+  rejectedHypotheses?: { reason: string; stage: string }[];
   summary: string;
   frames: Array<{
     frameIndex: number;
@@ -143,6 +153,7 @@ export type TokenUsage = {
 
 export type ProviderCallMeta = {
   provider: string;
+  model?: string;
   durationMs: number;
   tokenUsage?: TokenUsage;
   costUsd?: number;

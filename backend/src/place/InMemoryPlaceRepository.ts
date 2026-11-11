@@ -1,3 +1,4 @@
+import { isGeographyOnly } from './placeClassification';
 import { assertImportWorkActive } from '../user-import/workContext';
 import { randomUUID } from 'node:crypto';
 import { placeHypothesisKey } from './domain/hypothesisKey';
@@ -59,6 +60,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
   }
 
   async insertPlace(row: InsertPlaceRow): Promise<PlaceRecord> {
+    if (isGeographyOnly(row)) throw new PlaceRepositoryError('Administrative geography is not a place card', 'invalid');
     const provider = requireText(row.provider, 'provider');
     const providerPlaceId = requireText(row.providerPlaceId, 'providerPlaceId');
     const name = requireText(row.name, 'name');
@@ -102,6 +104,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
   }
 
   async insertHypothesis(row: InsertUnresolvedHypothesisRow): Promise<ContentSourcePlaceRecord> {
+    if (isGeographyOnly(row)) throw new PlaceRepositoryError('Administrative geography is not a place card', 'invalid');
     const key = this.keyFor(row);
     if (await this.findHypothesis(row.contentSourceId, key)) {
       throw new PlaceRepositoryError('place hypothesis already exists', 'duplicate');
@@ -134,6 +137,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
   }
 
   async upsertHypothesis(row: InsertUnresolvedHypothesisRow): Promise<ContentSourcePlaceRecord> {
+    if (isGeographyOnly(row)) throw new PlaceRepositoryError('Administrative geography is not a place card', 'invalid');
     const key = this.keyFor(row);
     const existing = await this.findHypothesis(row.contentSourceId, key);
     if (!existing) return this.writeHypothesis(row, key, null);

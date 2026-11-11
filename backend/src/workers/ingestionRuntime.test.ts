@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { runClaimedIngest } from './ingestJobGate';
 import { assertPendingJobsApproved, hasIngestConsumer, ingestionReadiness, pendingIngestionJobs,
   stoppedWorkers, validateIngestionAdmission } from './ingestionRuntime';
@@ -82,7 +83,7 @@ it('runs explicit processing retries with the original identity and preserves fa
 it('all workers in the shared ingestion process use reconnecting connections', () => {
   for (const file of ['workers/ingestPipelineWorker.ts', 'product-intelligence/jobs/productResolveQueue.ts',
     'ai-review/jobs/productAiReviewQueue.ts', 'creator-library/jobs/librarySyncWorker.ts', 'content-source/jobs/contentSourceWorker.ts']) {
-    const text = readFileSync(`backend/src/${file}`, 'utf8');
+    const text = readFileSync(join(__dirname, '..', file), 'utf8');
     assert.match(text, /duplicateBullmqWorkerRedis/);
     assert.doesNotMatch(text.slice(text.indexOf('new Worker')), /connection: getBullmqConnection\(\)(\.duplicate\(\))?/);
   }

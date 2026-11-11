@@ -276,6 +276,7 @@ export class UserService implements UserCreatorPort {
   async updateLocale(
     userId: string,
     patch: {
+      shoppingLocale?: string | null;
       country?: string | null;
       language?: string | null;
       timezone?: string | null;
@@ -284,8 +285,14 @@ export class UserService implements UserCreatorPort {
       countrySource?: 'location' | 'manual' | null;
     },
   ): Promise<User> {
-    await this.requireActiveAccount(userId);
-    return this.repo.updateUser(userId, patch);
+    const user=await this.requireActiveAccount(userId);
+    const {shoppingLocale,...fields}=patch;
+    if(shoppingLocale){
+      let locale:string;
+      try{locale=new Intl.Locale(shoppingLocale).toString();}catch{throw new UserServiceError('Invalid shopping locale',400);}
+      return this.repo.updateUser(userId,{...fields,extensions:{...user.extensions,shoppingLocale:locale}});
+    }
+    return this.repo.updateUser(userId,fields);
   }
 
   /**

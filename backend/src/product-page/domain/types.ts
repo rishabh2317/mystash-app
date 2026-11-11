@@ -83,13 +83,13 @@ export type ProductPageView = {
   reviews: ProductPageReviews | null;
   compareAvailable: boolean;
   /**
-   * True while background merchant enrichment is still filling in details
-   * for a user-imported discovered product. Always false for catalog products.
+   * True while merchant details or country-specific offers are being refreshed.
    */
   detailsUpdating: boolean;
 };
 
 export type ProductPageQuery = {
+  country?: string | null;
   contentSourceId?: string | null;
   userImportId?: string | null;
 };

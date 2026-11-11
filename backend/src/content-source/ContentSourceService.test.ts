@@ -261,7 +261,9 @@ describe('ContentSourceService scope', () => {
     for (const src of sources) {
       assert.doesNotMatch(src, /product-intelligence/);
       assert.doesNotMatch(src, /ProductResolver|resolveIngestDrafts|ShoppingResolver/);
-      assert.doesNotMatch(src, /catalog_products|cart_items|discovered_products/);
+      // Joined image reads are permitted; this layer must never mutate product or Stash rows.
+      assert.doesNotMatch(src, /\.from\(['"](?:catalog_products|cart_items|discovered_products)['"]\)\s*\.(?:insert|update|upsert|delete)\(/);
+      assert.doesNotMatch(src, /\.rpc\(['"](?:cart_|catalog_)/);
       assert.doesNotMatch(src, /openai|OpenAI|gemini|Gemini|tavily|Tavily/);
       assert.doesNotMatch(src, /extractionCache|getVideoExtractionCache|setVideoExtractionCache/);
       assert.doesNotMatch(src, /\bfetch\(/);

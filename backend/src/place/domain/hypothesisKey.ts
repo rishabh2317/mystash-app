@@ -1,3 +1,4 @@
+import { normalizedPlaceAddress } from '../placeMentionDedupe';
 /**
  * Stable identity of an extracted mention on one content source.
  * Location fields count only when present. A provider place id is never part of the key.
@@ -9,6 +10,7 @@ function norm(value: string | null | undefined): string {
 
 export function placeHypothesisKey(input: {
   extractedName: string;
+  evidence?:Record<string,unknown>;
   locality?: string | null;
   city?: string | null;
   region?: string | null;
@@ -21,8 +23,8 @@ export function placeHypothesisKey(input: {
     input.city,
     input.region,
     input.country,
-    input.mentionedAddress,
+    normalizedPlaceAddress(input.mentionedAddress),
   ]
     .map(norm)
-    .join('\u001f');
+    .join('\u001f') + (typeof input.evidence?.branch==='string' ? `\u001f${norm(input.evidence.branch)}` : '');
 }

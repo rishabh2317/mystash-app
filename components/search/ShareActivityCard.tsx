@@ -1,3 +1,4 @@
+import {useFailureNotice} from '@/src/ui/useFailureNotice';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, type Href } from 'expo-router';
@@ -76,6 +77,7 @@ export function ShareActivityCard({
   onDelete,
 }: Props) {
   const { tokens, isLight } = useThemeMode();
+  const {showFailure,notice:failureNotice}=useFailureNotice(item.importId);
   const refined = presentation === 'finds';
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
@@ -98,7 +100,7 @@ export function ShareActivityCard({
           if (!onDelete) return;
           setBusy(true);
           void Promise.resolve(onDelete(item.importId)).catch(() => {
-            Alert.alert('Couldn’t delete share', 'Please try again.');
+            showFailure('Couldn’t delete this share. Please try again.');
           }).finally(() => setBusy(false));
         },
       },
@@ -115,6 +117,7 @@ export function ShareActivityCard({
         },
       ]}
     >
+      {failureNotice}
       <Pressable
         onPress={() => {
           if (expandable) setExpanded((v) => !v);
@@ -247,7 +250,7 @@ export function ShareActivityCard({
                   if (!onRetry || busy) return;
                   setBusy(true);
                   void Promise.resolve(onRetry(item.importId)).catch(() => {
-                    Alert.alert('Couldn’t retry', 'Please try again. Your saved results are unchanged.');
+                    showFailure('Couldn’t retry. Your saved results are unchanged. Please try again.');
                   }).finally(() => setBusy(false));
                 }}
                 disabled={busy || !onRetry}

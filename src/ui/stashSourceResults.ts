@@ -65,11 +65,14 @@ export function sourceProductModel(row: SourceProduct, cartItems: CartLine[]): C
 /** Use the saved-place projection where available, including its image and destination. */
 export function sourcePlaceModel(row: SourcePlace, importId: string, places: PlaceStashItem[]): PlaceStashItem {
   const result = row.result;
+  const canonicalId = result.resolution === 'resolved' ? result.placeId : null;
   const saved = places.find(place => place.sources?.some(source => source.userImportId === importId && source.contentSourcePlaceId === result.id))
-    ?? places.find(place => place.id === (result.placeId ?? result.id));
+    ?? places.find(place => place.id === (canonicalId ?? result.id));
   if (saved) return saved;
   const location = [result.locality, result.city].filter(Boolean).join(', ');
   const query = [result.name, location].filter(Boolean).join(', ');
+  if (canonicalId) return { kind:'resolved',id:canonicalId,name:result.name,category:null,localityLabel:location||null,formattedAddress:null,image:null,
+    destination:{kind:'google_search',query,url:`https://www.google.com/search?q=${encodeURIComponent(query)}`} };
   return { kind: 'unresolved', id: result.id, name: result.name, category: null,
     locationContext: location || null, uncertainty: 'unconfirmed', image: null,
     destination: { kind: 'google_search', query, url: `https://www.google.com/search?q=${encodeURIComponent(query)}` } };

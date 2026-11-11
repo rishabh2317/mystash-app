@@ -30,6 +30,7 @@ type Props = {
   pending?: boolean;
   disabled?: boolean;
   accessibilityLabel?: string;
+  hitSlop?: React.ComponentProps<typeof Pressable>['hitSlop'];
 };
 
 const ICON_SIZE = 16;
@@ -50,6 +51,7 @@ export function ActionButton({
   pending = false,
   disabled = false,
   accessibilityLabel,
+  hitSlop,
 }: Props) {
   const { tokens } = useThemeMode();
   const [pressed, setPressed] = useState(false);
@@ -74,6 +76,7 @@ export function ActionButton({
   return (
     <Pressable
       onPress={onPress}
+      hitSlop={hitSlop}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       disabled={disabled || pending}

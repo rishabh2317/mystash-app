@@ -1,9 +1,9 @@
+import { useFailureNotice } from '@/src/ui/useFailureNotice';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,7 +19,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import {
   pickAndNormalizeAvatar,
-  ProfilePhotoError,
   uploadNormalizedAvatar,
 } from '@/src/services/profilePhotoUpload';
 import { ensureMe, updateMyProfile, type UserSettingsViewModel } from '@/src/services/userApi';
@@ -31,6 +30,7 @@ export default function EditProfileScreen() {
   const router = useRouter();
   const { tokens } = useThemeMode();
   const { user } = useAuth();
+  const {showFailure,notice:failureNotice}=useFailureNotice(user?.id);
   const field = createFieldColors(tokens);
   const [me, setMe] = useState<UserSettingsViewModel | null>(null);
   const [displayName, setDisplayName] = useState('');
@@ -52,7 +52,7 @@ export default function EditProfileScreen() {
       })
       .catch((e) => {
         if (!cancelled) {
-          Alert.alert('Could not load profile', e instanceof Error ? e.message : 'Try again.');
+          showFailure(e);
         }
       })
       .finally(() => {
@@ -61,7 +61,7 @@ export default function EditProfileScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [showFailure]);
 
   const onChangePhoto = async () => {
     if (!me) return;
@@ -84,10 +84,7 @@ export default function EditProfileScreen() {
         name: e instanceof Error ? e.name : typeof e,
         message: e instanceof Error ? e.message : String(e),
       });
-      Alert.alert(
-        'Could not update photo',
-        e instanceof ProfilePhotoError || e instanceof Error ? e.message : 'Try again.',
-      );
+      showFailure(e);
     } finally {
       setPhotoBusy(false);
     }
@@ -102,7 +99,7 @@ export default function EditProfileScreen() {
       });
       router.back();
     } catch (e) {
-      Alert.alert('Couldn’t save profile', e instanceof Error ? e.message : 'Try again.');
+      showFailure(e);
     } finally {
       setSaving(false);
     }
@@ -132,6 +129,7 @@ export default function EditProfileScreen() {
         }}
         keyboardShouldPersistTaps="handled"
       >
+        {failureNotice}
         <Pressable
           onPress={() => void onChangePhoto()}
           disabled={photoBusy}

@@ -2,9 +2,9 @@ import { supabase } from './supabase';
 import { withRequestTimeout } from './requestTimeout';
 import { hydrateImportShares, type ImportShare } from './importShareMap';
 export type ShareIntentValue = { kind: 'product' | 'place' | 'both' | null; note: string | null; revision: number };
-export type SimilarSuggestionView = { key: string; title: string; image: string | null; score: number };
+export type SimilarSuggestionView = { key: string; title: string; image: string | null; score: number; kind?: 'possible' | 'similar_styles' };
 export type ReviewProduct = { sourceProductId: string; title: string;
-  assessment: { kind: 'exact' | 'similar' | 'unable_to_identify'; suggestions: SimilarSuggestionView[] } | null;
+  assessment: { kind: 'exact' | 'possible' | 'similar' | 'unable_to_identify'; suggestions: SimilarSuggestionView[] } | null;
   reviews: { candidate_key: string; state: string; product_id: string | null }[] };
 export async function shareRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const base = process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL?.replace(/\/$/, '');

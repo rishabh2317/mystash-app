@@ -1,3 +1,4 @@
+import { ingestMerchantCountry } from '../merchantCountry';
 import { Queue, Worker } from 'bullmq';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '../../logger';
@@ -152,10 +153,11 @@ export function startProductResolveWorker(admin: SupabaseClient): Worker<Product
       if (!pi) return;
       const { data: ingest } = await admin
         .from('ingest_requests')
-        .select('video_title')
+        .select('video_title, user_id')
         .eq('id', ingestId)
         .maybeSingle();
 
+      const commerceCountry = await ingestMerchantCountry(admin, ingest?.user_id);
       const results = await pdpSearchHintsAls.run(
         {
           brand: (draft.brand as string) ?? null,
@@ -166,6 +168,7 @@ export function startProductResolveWorker(admin: SupabaseClient): Worker<Product
         () =>
           pi.resolver.resolveIngest([
             {
+              commerceCountry,
               draftId: String(draft.id),
               externalId: String(draft.external_id),
               name: String(draft.name),

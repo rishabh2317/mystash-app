@@ -1,3 +1,5 @@
+import { isGeographyOnly } from './placeClassification';
+import { dedupePlaceMentions } from './placeMentionDedupe';
 import type { ProductCandidate } from '../domain/types';
 
 export type ExtractedPlaceMention = {
@@ -59,7 +61,7 @@ export function parsePlaceMentions(payload: Record<string, unknown> | null): Ext
     if (!name) continue;
     const confidence =
       typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : null;
-    out.push({
+    const mention: ExtractedPlaceMention = {
       name,
       category: textOrNull(row.category),
       locality: textOrNull(row.locality),
@@ -68,11 +70,17 @@ export function parsePlaceMentions(payload: Record<string, unknown> | null): Ext
       country: textOrNull(row.country),
       mentionedAddress: textOrNull(row.mentionedAddress),
       confidence,
-      evidence: evidenceOf(row.evidence),
+      evidence: { ...evidenceOf(row.evidence),
+        ...(typeof row.branch==='string'?{branch:row.branch.trim().slice(0,200)}:{}),
+        ...(row.locationAliases && typeof row.locationAliases==='object'&&!Array.isArray(row.locationAliases)?{locationAliases:row.locationAliases}:{}),
+        ...(['administrative_geography','venue','natural_destination'].includes(String(row.entityKind))?{entityKind:row.entityKind}:{}),
+        ...(Array.isArray(row.aliases)?{aliases:row.aliases.filter((v):v is string=>typeof v==='string').slice(0,10)}:{}),
+      },
       sources: sourcesOf(row.sources),
-    });
+    };
+    if (!isGeographyOnly(mention)) out.push(mention);
   }
-  return out;
+  return dedupePlaceMentions(out);
 }
 
 /**

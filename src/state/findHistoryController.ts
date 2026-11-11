@@ -52,7 +52,11 @@ export function createFindHistoryController(api: Api, timers: { schedule(fn: () 
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     configure(owner: string | null, filter: FindViewFilter, source: FindSourceFilter = 'all') {
       if (state.owner === owner && state.filter === filter && state.source === source) return;
-      epoch++; revision++; clear(); busy = false; pageBusy = false; expanded = false; state = empty(owner, filter, source); publish({});
+      // Counts cover every status for one owner/source, so a status switch does
+      // not invalidate them. Never carry them across accounts or source scopes.
+      const counts = owner && state.owner === owner && state.source === source ? state.counts : null;
+      epoch++; revision++; clear(); busy = false; pageBusy = false; expanded = false;
+      state = { ...empty(owner, filter, source), counts }; publish({});
       if (active) void refresh();
     },
     setActive(value: boolean) {

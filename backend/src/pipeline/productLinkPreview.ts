@@ -1,3 +1,4 @@
+import { readMerchantPageEvidence, type MerchantPageEvidence } from './merchantPageEvidence';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getEnv } from '../env';
 import { tavilyExtractCanonicalUrl } from '../services/tavily';
@@ -233,6 +234,8 @@ export type ProductLinkPreview = {
    * not, by itself, become a User product.
    */
   identitySource?: 'merchant_html' | 'tavily_gpt' | 'canonical_cache';
+  pageEvidence?: MerchantPageEvidence;
+  pageRead?: 'READ' | 'UNAVAILABLE' | 'NOT_ATTEMPTED';
 };
 
 export type ProductLinkPreviewContext = {
@@ -372,6 +375,7 @@ async function loadFreshCanonical(
     merchantUrl: canonicalUrl,
     merchant: merchantFromUrl(canonicalUrl),
     identitySource: row.extraction_source === 'ai_currency_v2' ? 'tavily_gpt' : 'merchant_html',
+    pageRead: 'NOT_ATTEMPTED',
   };
 }
 
@@ -415,6 +419,7 @@ async function manualScrapeProductPage(merchantUrl: string): Promise<{
   html: string;
   parsed: URL;
   fetchOk: boolean;
+  pageEvidence?: MerchantPageEvidence;
   status?: number;
   parsedAmount?: number | null;
   detectedCurrencySource?: CurrencyEvidenceSource;
@@ -462,7 +467,8 @@ async function manualScrapeProductPage(merchantUrl: string): Promise<{
   if (!price) price = '—';
   const priceEvidence = inspectPriceEvidence(price === '—' ? null : price);
 
-  let name = extractTitle(html);
+  const pageEvidence = readMerchantPageEvidence(html, merchantUrl);
+  let name = pageEvidence.name ?? extractTitle(html);
   if (!name || name.length < 2) {
     name = parsed.hostname.replace(/^www\./, '');
   }
@@ -472,6 +478,7 @@ async function manualScrapeProductPage(merchantUrl: string): Promise<{
 
   return {
     fetchOk: true,
+    pageEvidence,
     html,
     name,
     price,
@@ -601,6 +608,8 @@ function toPreview(
     specifications?: Record<string, string>;
     priceSource?: ProductLinkPreview['priceSource'];
     identitySource?: ProductLinkPreview['identitySource'];
+    pageEvidence?: MerchantPageEvidence;
+    pageRead?: ProductLinkPreview['pageRead'];
   },
 ): ProductLinkPreview {
   return {
@@ -616,6 +625,8 @@ function toPreview(
     description: extras?.description,
     specifications: extras?.specifications,
     identitySource: extras?.identitySource,
+    pageEvidence: extras?.pageEvidence,
+    pageRead: extras?.pageRead,
   };
 }
 
@@ -670,12 +681,16 @@ async function runTavilyCommerceFallback(
     typeof ai?.name === 'string' && ai.name.trim().length >= 2 ? ai.name.trim() : productNameHint;
   const aiCurrency = priceEvidence.parsedCurrency;
 
-  if (!aiPrice || !aiImage) {
-    return null;
-  }
+  // Missing price/image must not erase independently recovered Product facts.
+  // GPT guesses alone remain insufficient, and another URL's evidence is rejected.
+  const recoveredEvidence = readMerchantPageEvidence(page.rawContent, canonicalUrl);
+  let samePage = false;
+  try { samePage = canonicalizeProductUrl(page.url) === canonicalUrl; } catch { /* No URL identity. */ }
+  const independentProduct = samePage && recoveredEvidence.hasProductJsonLd && Boolean(recoveredEvidence.name);
+  if ((!aiPrice || !aiImage) && !independentProduct) return null;
 
   ingestLog('info', 'product_link_preview.tavily_fallback_ok', { ...ctx });
-  await upsertCanonicalProduct(admin, {
+  if (aiPrice && aiImage) await upsertCanonicalProduct(admin, {
     canonicalUrl,
     name: aiName,
     price: aiPrice,
@@ -697,12 +712,14 @@ async function runTavilyCommerceFallback(
             .map(([k, v]) => [String(k).slice(0, 64), String(v).trim().slice(0, 120)]),
         )
       : undefined;
-  return toPreview(canonicalUrl, aiName, aiPrice, aiCurrency ?? undefined, aiImage, {
-    brand: aiBrand,
+  return toPreview(canonicalUrl, independentProduct ? recoveredEvidence.name! : aiName, aiPrice ?? '—', aiCurrency ?? undefined, aiImage ?? undefined, {
+    brand: independentProduct ? recoveredEvidence.brand : aiBrand,
+    pageEvidence: independentProduct ? recoveredEvidence : undefined,
     description: aiDesc,
     specifications: aiSpecs,
-    priceSource: 'ai',
+    priceSource: aiPrice ? 'ai' : undefined,
     identitySource: 'tavily_gpt',
+    pageRead: independentProduct ? 'READ' : 'UNAVAILABLE',
   });
 }
 
@@ -764,6 +781,9 @@ export async function previewProductLink(
   ingestLog('info', 'offer.extraction.raw', {
     ...ctx,
     extractionSource: 'merchant_html',
+    httpStatus: scrape.status ?? 200,
+    hasProductSchema: scrape.pageEvidence?.hasProductJsonLd ?? false,
+    hasBuyingControl: scrape.pageEvidence?.hasAddToCart ?? false,
     rawPriceText: scrape.price === '—' ? null : scrape.price,
     parsedAmount: scrape.parsedAmount ?? null,
     parsedCurrency: scrape.currency ?? null,
@@ -785,9 +805,12 @@ export async function previewProductLink(
     return rememberAndReturn(
       canonicalUrl,
       toPreview(canonicalUrl, scrape.name, scrape.price, scrape.currency, scrape.image, {
+        brand: scrape.pageEvidence?.brand,
         description: metaDescription(scrape.html),
         priceSource: 'scrape',
         identitySource: 'merchant_html',
+        pageRead: scrape.fetchOk ? 'READ' : 'UNAVAILABLE',
+        pageEvidence: scrape.pageEvidence,
       }),
     );
   }
@@ -812,9 +835,12 @@ export async function previewProductLink(
       scrape.currency,
       scrape.image,
       {
+        brand: scrape.pageEvidence?.brand,
         description: metaDescription(scrape.html),
         priceSource: scrape.price === '—' ? undefined : 'scrape',
         identitySource: 'merchant_html',
+        pageRead: scrape.fetchOk ? 'READ' : 'UNAVAILABLE',
+        pageEvidence: scrape.pageEvidence,
       },
     ),
   );

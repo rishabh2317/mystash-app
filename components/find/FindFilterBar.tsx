@@ -21,8 +21,8 @@ export function FindFilterBar({ filters, selected, onSelect }: { filters: FindFi
         containerStyle={{ flex: 1, minWidth: 0 }}
         contentStyle={{ minHeight: FEED_MIN_HIT_TARGET, alignItems: 'center', justifyContent: 'center',
           paddingHorizontal: tokens.space.xxs, paddingVertical: tokens.space.xxs }}>
-        <Text numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}
-          style={[typeStyle(tokens, 'caption'), { color: tokens.color.text, fontFamily: active ? tokens.fontFamily.medium : tokens.fontFamily.regular, textAlign: 'center' }]}>{filter.label}</Text>
+        <Text style={[typeStyle(tokens, 'caption'), { maxWidth: '100%', color: tokens.color.text,
+          fontFamily: active ? tokens.fontFamily.medium : tokens.fontFamily.regular, textAlign: 'center' }]}>{filter.label}</Text>
         <Text numberOfLines={1} style={[typeStyle(tokens, 'caption'), { color: tokens.color.textMuted,
           fontSize: tokens.fontSize.micro, lineHeight: tokens.lineHeight.micro,
           fontFamily: tokens.fontFamily.medium }]}>{filter.count ?? '—'}</Text>

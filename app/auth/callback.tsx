@@ -1,3 +1,4 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
 import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
@@ -66,7 +67,7 @@ export default function AuthCallbackScreen() {
         goToProfile();
       } catch (error) {
         if (active) {
-          setCallbackError(error instanceof Error ? error.message : AUTH_COPY.invalidLink);
+          setCallbackError(apiFailureMessage(error));
         }
       }
     };

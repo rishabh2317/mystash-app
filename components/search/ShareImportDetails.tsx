@@ -1,3 +1,4 @@
+import { FailureState } from '@/components/status/FailureState';
 import React, { useEffect, useState } from 'react';
 import { Image } from 'expo-image';
 import { Pressable, TextInput, View } from 'react-native';
@@ -39,7 +40,7 @@ export function ShareImportDetails({importId,sourceUrl,placeCount=0,productCount
   return <View style={{gap:tokens.space.sm}}>
     {refined?<View style={{alignSelf:'flex-start'}}>{sourceAction}</View>:sourceAction}
     {video?<PlaceSourceVideoModal key={sourceUrl} source={{url:sourceUrl,thumbnailUrl:null}} onClose={()=>setVideo(false)}/>:null}
-    {error?<Text accessibilityLiveRegion="polite" style={typeStyle(tokens,'caption')}>{error}</Text>:null}
+    {error?<FailureState error={error} variant="inline"/>:null}
     {intentEnabled && intent ? <View style={[{gap:tokens.space.sm},refined&&{...outlineCardChrome(tokens),borderWidth:tokens.stroke.thin,borderRadius:tokens.radius.md,padding:tokens.space.sm}]}>
       <Text style={refined?typeStyle(tokens,'tileTitle'):typeStyle(tokens,'body')}>What interested you?</Text>
       <View style={{flexDirection:'row',...(refined?{flexWrap:'wrap' as const}:{}),gap:refined?tokens.space.xs:tokens.space.sm}}>{(['product','place','both'] as const).map(kind=>{

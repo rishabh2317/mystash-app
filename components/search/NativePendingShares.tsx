@@ -1,3 +1,4 @@
+import { FailureState } from '@/components/status/FailureState';
 import React, { useCallback, useRef, useState } from 'react';
 import { Alert, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
@@ -25,7 +26,7 @@ export function NativePendingShares() {
   if (!rows.length && !error) return null;
   return <View style={{ padding:tokens.space.md,gap:tokens.space.sm }}>
     <Text style={typeStyle(tokens,'sectionTitle')}>On this device</Text>
-    {error ? <Text accessibilityLiveRegion="polite" style={typeStyle(tokens,'bodyMuted')}>{error}</Text>:null}
+    {error ? <FailureState error={error} variant="inline"/>:null}
     {rows.slice(0,limit).map(row=><View key={row.id} style={{gap:tokens.space.xs,padding:tokens.space.sm,borderWidth:tokens.stroke.thin,borderColor:tokens.color.border,borderRadius:tokens.radius.md}}>
       <Text numberOfLines={1} style={typeStyle(tokens,'body')}>{row.url}</Text>
       {row.intent?.note?<Text style={typeStyle(tokens,'caption')}>{row.intent.note}</Text>:null}

@@ -33,6 +33,7 @@ export function useFindHistory(filter: FindViewFilter, options: { supplemental?:
     if (membership.current !== signature) { membership.current = signature; void cart?.refresh(); }
   },[cart,owner,state.owner,state.loaded,state.counts,state.items,supplemental]);
   const visible = state.owner === owner && state.filter === filter && state.source === source;
-  return { ...state, filter, source, items: visible ? state.items : [], counts: visible ? state.counts : null, loaded: visible && state.loaded, cursor: visible ? state.cursor : null, error: visible ? state.error : null, moreError: visible ? state.moreError : null,
+  const countsVisible = state.owner === owner && state.source === source;
+  return { ...state, filter, source, items: visible ? state.items : [], counts: countsVisible ? state.counts : null, loaded: visible && state.loaded, cursor: visible ? state.cursor : null, error: visible ? state.error : null, moreError: visible ? state.moreError : null,
     refresh: () => controller.refresh(), loadMore: () => controller.loadMore() };
 }

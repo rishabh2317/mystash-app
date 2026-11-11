@@ -119,6 +119,7 @@ export function registerUserRoutes(app: Express): void {
       const svc = createUserService(createSupabaseAdmin());
       await svc.ensureFromAuth(user);
       const body = req.body as {
+        shoppingLocale?: string | null;
         country?: string | null;
         language?: string | null;
         timezone?: string | null;
@@ -127,6 +128,7 @@ export function registerUserRoutes(app: Express): void {
         countrySource?: 'location' | 'manual' | null;
       };
       const updated = await svc.updateLocale(user.id, {
+        shoppingLocale:body.shoppingLocale,
         country: body.country,
         language: body.language,
         timezone: body.timezone,

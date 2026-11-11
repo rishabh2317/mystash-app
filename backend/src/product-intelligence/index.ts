@@ -1,10 +1,11 @@
+import { pdpSearchHintsAls } from './search/pdpSearchHints';
+import { ingestDraftNeedsProductResolve } from './ingestDraftResolveGate';
+import { ingestMerchantCountry } from './merchantCountry';
 export { createProductIntelligence } from './factory';
 export type { ProductIntelligenceBundle } from './factory';
 export { enqueueProductResolve, startProductResolveWorker } from './jobs/productResolveQueue';
 export { ProductNormalizer } from './normalizer/ProductNormalizer';
 export type { AiDraftInput, ResolveDraftResult } from './domain/types';
-import { pdpSearchHintsAls } from './search/pdpSearchHints';
-import { ingestDraftNeedsProductResolve } from './ingestDraftResolveGate';
 
 export { ingestDraftNeedsProductResolve } from './ingestDraftResolveGate';
 
@@ -47,7 +48,7 @@ export async function resolveIngestDrafts(
 
   const { data: ingest } = await admin
     .from('ingest_requests')
-    .select('video_title')
+    .select('video_title, user_id')
     .eq('id', ingestId)
     .maybeSingle();
   const { data: rows } = await admin
@@ -68,6 +69,7 @@ export async function resolveIngestDrafts(
       ? new Set(opts.creatorSuppliedUrlForExternalIds.map(String))
       : null;
 
+  const commerceCountry = await ingestMerchantCountry(admin, ingest?.user_id);
   for (const d of rows) {
     const externalId = String(d.external_id);
     if (onlyExternal && !onlyExternal.has(externalId)) continue;
@@ -81,6 +83,7 @@ export async function resolveIngestDrafts(
       continue;
     }
     const draft = {
+      commerceCountry,
       draftId: String(d.id),
       externalId,
       name: String(d.name),

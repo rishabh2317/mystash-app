@@ -1,3 +1,4 @@
+import {resolveCountryCode} from '../../merchant-pricing/country';
 import { ImportWorkBusyError } from '../../user-import/workContext';
 import { startShareRecovery } from '../../user-import/share/recovery';
 import { DelayedError, Worker, type Job } from 'bullmq';
@@ -41,7 +42,7 @@ function createEnrichmentService(admin: SupabaseClient): ContentSourceResolution
     {
       async getCommerceCountry(userId) {
         const user = await users.getById(userId);
-        return user?.country ?? null;
+        return resolveCountryCode({profile:user?.country,deviceLocale:typeof user?.extensions?.shoppingLocale==='string'?user.extensions.shoppingLocale:user?.language});
       },
     },
   );

@@ -31,6 +31,7 @@ function addIdentityTokens(
 export function buildProductSearchQuery(
   draft: AiDraftInput,
   product: NormalizedProduct,
+  options?: { merchantOnly?: boolean },
 ): ProductSearchQuery {
   const terms: string[] = [];
   const reasons: string[] = [];
@@ -65,6 +66,16 @@ export function buildProductSearchQuery(
     addTokens(terms, product.category);
     reasons.push('category');
   }
-  const bounded = terms.slice(0, 6);
+  // Image discovery retains its original query. Shopping reserves the complete
+  // explicit model before spending the remaining budget on descriptive words.
+  const reserved: string[] = [];
+  if (options?.merchantOnly) {
+    addIdentityTokens(reserved, product.brand);
+    addIdentityTokens(reserved, product.model);
+  }
+  const bounded = options?.merchantOnly
+    ? [...reserved, ...terms.filter(t => !reserved.some(r => r.toLowerCase() === t.toLowerCase()))]
+      .slice(0, Math.max(6, reserved.length))
+    : terms.slice(0, 6);
   return { query: bounded.join(' '), terms: bounded, reasons };
 }

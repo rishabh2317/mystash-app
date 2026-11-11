@@ -75,7 +75,7 @@ describe('product reasoner text payload', () => {
   });
 
   it('creator and user-import Stage 1 both use the shared reasoner payload helper', () => {
-    const root = join(process.cwd(), 'src');
+    const root = join(__dirname, '..');
     const provider = readFileSync(join(root, 'providers/reasoner/OpenAiReasonerProvider.ts'), 'utf8');
     const orchestrator = readFileSync(join(root, 'stages/orchestrator.ts'), 'utf8');
     const progressive = readFileSync(join(root, 'stages/progressiveExtract.ts'), 'utf8');
@@ -83,7 +83,7 @@ describe('product reasoner text payload', () => {
     assert.match(provider, /USER_IMPORT_REASONER_SYSTEM/);
     assert.doesNotMatch(orchestrator, /USER_IMPORT_REASONER_SYSTEM/);
     assert.match(orchestrator, /reasonValidateRank\([\s\S]*'s1'\)/);
-    assert.match(progressive, /reasonValidateRank\([\s\S]*'s1', includePlaces\)/);
+    assert.match(progressive, /reasonValidateRank\([\s\S]*'s1', includePlaces, runtime\.reasoner\)/);
     assert.match(progressive, /USER_IMPORT_EXTRACTION_CACHE_SCOPE/);
     const prompt = readFileSync(join(root, 'prompts/productReasoner.ts'), 'utf8');
     assert.match(prompt, /Named hotels, restaurants, cafes, attractions/);

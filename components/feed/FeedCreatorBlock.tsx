@@ -204,7 +204,7 @@ export function FeedCreatorBlock({
           immersive
           label={moreFromCreator.title}
           onPress={() =>
-            router.push(collectionTilePressPath(moreFromCreator.collectionId) as Href)
+            router.push(collectionTilePressPath(moreFromCreator.collectionId, {collections:moreFromCreator.collections??[moreFromCreator],...(moreFromCreator.creatorId?{source:{kind:'creator' as const,creatorId:moreFromCreator.creatorId},nextCursor:moreFromCreator.nextCursor===undefined?'':moreFromCreator.nextCursor}:{})}) as Href)
           }
         />
       ) : null}

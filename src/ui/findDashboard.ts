@@ -10,10 +10,10 @@ export function selectFindActivity(activeItems:FindItem[],historyItems:FindItem[
   return completed ?? attention ?? null;
 }
 export function findActivityExpanded(item:FindItem,choice:{id:string;expanded:boolean}|null):boolean {
-  return choice?.id===item.id?choice.expanded:item.outcome.extractionActive||item.outcome.stashSync==='pending'||item.outcome.category==='attention';
+  return choice?.id===item.id?choice.expanded:item.outcome.extractionActive||item.outcome.stashSync==='pending';
 }
 
-export type FindActivityPreview = { key:string; kind:'product'|'place'; title:string; imageUrl:string|null; note:string };
+export type FindActivityPreview = { key:string; kind:'product'|'place'; title:string; imageUrl:string|null; note:string; placeId?:string|null; importId?:string };
 /** Detail is owner-authorized by the API. Show distinct identified results, never guessed identities. */
 export function findActivityPreviews(detail:FindScreenDetail):FindActivityPreview[] {
   const products:FindActivityPreview[]=[], places:FindActivityPreview[]=[], identities=new Set<string>();
@@ -36,7 +36,7 @@ export function findActivityPreviews(detail:FindScreenDetail):FindActivityPrevie
     const key=row.placeId??row.id;
     if(placeKeys.has(key))continue;
     placeKeys.add(key);
-    places.push({key:`place:${row.id}`,kind:'place',title:row.name,imageUrl:null,
+    places.push({key:`place:${row.id}`,kind:'place',title:row.name,imageUrl:null,placeId:row.resolution==='resolved'?row.placeId:null,importId:detail.id,
       note:row.saved?'In My Stash':row.removed?'Removed from My Stash':row.resolution==='resolved'?'Place found':'Place to explore'});
     if(places.length>=3)break;
   }

@@ -19,11 +19,12 @@ type Props = {
   visible: boolean;
   creator: CreatorViewModel;
   pending?: boolean;
+  feedback?: React.ReactNode;
   onClose: () => void;
   onSave: (patch: { displayName: string; bio: string }) => void;
 };
 
-export function EditProfileSheet({ visible, creator, pending, onClose, onSave }: Props) {
+export function EditProfileSheet({ visible, creator, pending, feedback, onClose, onSave }: Props) {
   const { tokens } = useThemeMode();
   const [displayName, setDisplayName] = useState(creator.displayName ?? '');
   const [bio, setBio] = useState(creator.bio ?? '');
@@ -101,6 +102,7 @@ export function EditProfileSheet({ visible, creator, pending, onClose, onSave }:
               },
             ]}
           />
+          {feedback}
           <ActionButton
             variant="filled"
             label="Save"

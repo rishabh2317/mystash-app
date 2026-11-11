@@ -5,6 +5,9 @@ export type ProductIdentityExpectation = {
   name?: string | null;
   model?: string | null;
   category?: string | null;
+  variantContext?: string | null;
+  gtin?: string | null;
+  mpn?: string | null;
 };
 
 export type ProductIdentityCandidate = {
@@ -13,6 +16,10 @@ export type ProductIdentityCandidate = {
   model?: string | null;
   merchantUrl?: string | null;
   category?: string | null;
+  /** Product-scoped facts read from merchant HTML, never discovery snippets. */
+  variantContext?: string | null;
+  gtin?: string | null;
+  mpn?: string | null;
 };
 
 export type ProductIdentityCompatibility = {
@@ -24,7 +31,10 @@ export type ProductIdentityCompatibility = {
     | 'model_missing'
     | 'model_conflict'
     | 'color_conflict'
-    | 'type_conflict';
+    | 'type_conflict'
+    | 'variant_missing'
+    | 'variant_conflict'
+    | 'identifier_mismatch';
 };
 
 /**
@@ -82,6 +92,9 @@ const PRODUCT_TYPES: Record<string, string> = {
   smartphone: 'phone',
   iphone: 'phone',
   laptop: 'laptop',
+  laptops: 'laptop',
+  notebook: 'laptop',
+  notebooks: 'laptop',
   macbook: 'laptop',
   tablet: 'tablet',
   watch: 'watch',
@@ -128,7 +141,7 @@ const COMPANY_SUFFIX = new Set([
  */
 const PATH_SECTION = new Set([
   'newsroom', 'news', 'press', 'releases', 'release', 'blog', 'blogs',
-  'stories', 'story', 'media', 'about',
+  'stories', 'story', 'media', 'about', 'pdp',
 ]);
 
 function brandSupportedByText(text: string | null | undefined, brandTokens: string[]): boolean {
@@ -302,6 +315,8 @@ export type ProductIdentityGateOptions = {
    * actually supports the requested brand.
    */
   requireBrandSupport?: boolean;
+  /** Discovery may omit variants; final merchant admission must establish them. */
+  requireVariantSupport?: boolean;
 };
 
 export function assessProductIdentityCompatibility(
@@ -338,7 +353,19 @@ export function assessProductIdentityCompatibility(
       brandSupportedByText(title, requestedBrand) ||
       brandSupportedByText(candidate.brand, requestedBrand) ||
       hostSupportsBrand(candidate.merchantUrl, requestedBrand);
-    if (candidate.brand?.trim() && !brandSupportedByText(candidate.brand, requestedBrand)) {
+    // Official manufacturers may label a requested product line as its brand
+    // (Lenovo's live Product schema says ThinkPad). This exception needs both
+    // the exact parent .com domain and a distinctive requested line token.
+    let requestedLineBrand = false;
+    try {
+      const host = new URL(candidate.merchantUrl ?? '').hostname.replace(/^www\./i, '').toLowerCase();
+      const parent = requestedBrand.join('') + '.com';
+      const line = new Set(tokensOf([expected.name, expected.model].filter(Boolean).join(' ')));
+      const subBrand = brandTokensOf(candidate.brand);
+      requestedLineBrand = (host === parent || host.endsWith('.' + parent)) && subBrand.length > 0
+        && subBrand.some(token => !isIdentityFillerToken(token)) && subBrand.every(token => line.has(token));
+    } catch { /* Missing/invalid URLs do not establish a parent brand. */ }
+    if (candidate.brand?.trim() && !brandSupportedByText(candidate.brand, requestedBrand) && !requestedLineBrand) {
       return fail('brand_conflict');
     }
     if (!supported && options?.requireBrandSupport !== false) return fail('brand_unsupported');
@@ -389,7 +416,33 @@ export function assessProductIdentityCompatibility(
   ]);
   if (setsConflict(expectedTypes, candidateTypes)) return fail('type_conflict');
 
+  for (const key of ['gtin', 'mpn'] as const) {
+    if (expected[key]?.trim() && (candidate[key] || options?.requireVariantSupport !== false) && expected[key]!.replace(/[^a-z0-9]/gi, '').toLowerCase() !== candidate[key]?.replace(/[^a-z0-9]/gi, '').toLowerCase()) return fail('identifier_mismatch');
+  }
+  const requestedText = [expected.name, expected.model, expected.variantContext].filter(Boolean).join(' ');
+  if (/\b(laptop|notebook|macbook|thinkpad|omnibook|ideapad|zenbook|vivobook|chromebook)\b/i.test(requestedText + ' ' + (expected.category ?? ''))) {
+    const requested = laptopConstraints(requestedText);
+    const actual = laptopConstraints([candidate.title, candidate.model, candidate.variantContext, ...urlPathTokens(candidate.merchantUrl)].filter(Boolean).join(' '));
+    for (const [kind, values] of requested) {
+      const available = actual.get(kind);
+      if (!available?.size) { if (options?.requireVariantSupport === false) continue; return fail('variant_missing'); }
+      if ([...values].some(value => !available.has(value)) || [...available].some(value => !values.has(value))) return fail('variant_conflict');
+    }
+  }
   return pass();
+}
+
+/** Explicit laptop constraints are hard evidence, not a relevance bonus. Never
+ * infer a generation from a year/CPU, or a CPU from a general product-line name. */
+function laptopConstraints(value: string): Map<string, Set<string>> {
+  const text = value.toLowerCase().replace(/[®™]/g, ' ');
+  const result = new Map<string, Set<string>>();
+  const add = (kind: string, value: string) => { const set = result.get(kind) ?? new Set<string>(); set.add(value.replace(/[^a-z0-9]/g, '')); result.set(kind, set); };
+  for (const match of text.matchAll(/\bgen(?:eration)?[ -]*(\d+)\b|\b(\d+)(?:st|nd|rd|th)?[ -]*gen(?:eration)?\b/g)) add('generation', match[1] ?? match[2]!);
+  for (const match of text.matchAll(/\b20[12]\d\b/g)) add('year', match[0]);
+  for (const match of text.matchAll(/\bsnapdragon[ -]+x[ -]+(?:elite|plus)\b|\b(?:intel[ -]+)?(?:core[ -]+)?i[3579][ -]*\d{4,5}[a-z]*\b|\b(?:intel[ -]+)?core[ -]+ultra[ -]+\d\b|\bryzen[ -]+[3579][ -]+\d{4}[a-z]*\b|\b(?:apple[ -]+)?m[1-9](?:[ -]+(?:pro|max|ultra))?\b/g)) add('processor', match[0].replace(/^(intel|apple)[ -]+/, '').replace(/^core[ -]+(?=i)/, ''));
+  for (const match of text.matchAll(/\b(\d+)\s*(gb|tb)[ -]*(ram|memory|ssd|storage|hdd)\b/g)) add(/ram|memory/.test(match[3]!) ? 'memory' : 'storage', match[1]! + match[2]!);
+  return result;
 }
 
 export function isProductIdentityCompatible(

@@ -1,3 +1,5 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
 import React, { useCallback, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -42,7 +44,7 @@ export function CreateStudioLibraryPicker({ selectedUrl, onSelect, appearance = 
         setSnapshot(next);
         setError(next.sync?.error ?? null);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : CREATE_COPY.libraryUnavailable));
+      .catch((e: unknown) => setError(apiFailureMessage(e)));
   }, []);
 
   useFocusEffect(
@@ -55,11 +57,7 @@ export function CreateStudioLibraryPicker({ selectedUrl, onSelect, appearance = 
 
   return (
     <View style={{ gap: tokens.space.xs }}>
-      {error ? (
-        <Text style={[typeStyle(tokens, 'bodyMuted'), { color: tokens.color.danger, fontSize: tokens.fontSize.caption }]}>
-          {error}
-        </Text>
-      ) : null}
+      {error ? <FailureState error={error} variant="inline" onRetry={()=>void load()} /> : null}
       {items.length === 0 ? (
         <Text style={typeStyle(tokens, 'caption')}>
           {CREATE_COPY.libraryEmpty}

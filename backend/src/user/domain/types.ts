@@ -111,6 +111,7 @@ export type PublicUserProfile = {
 };
 
 export type UserSettings = PublicUserProfile & {
+  shoppingLocale?: string | null;
   emailMirrored: string | null;
   accountStatus: AccountStatus;
   country: string | null;
@@ -157,6 +158,7 @@ export function toPublicProfile(user: User): PublicUserProfile {
 export function toSettings(user: User): UserSettings {
   return {
     ...toPublicProfile(user),
+    shoppingLocale:typeof user.extensions.shoppingLocale==='string'?user.extensions.shoppingLocale:null,
     emailMirrored: user.emailMirrored,
     accountStatus: user.accountStatus,
     country: user.country,

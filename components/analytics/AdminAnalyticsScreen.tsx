@@ -1,3 +1,5 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
@@ -6,7 +8,6 @@ import type { AdminMetric, AdminReport } from '@/backend/src/analytics/adminRepo
 import type { CreatorRange } from '@/backend/src/analytics/creatorReport';
 import { TopBar } from '@/components/chrome/TopBar';
 import { SkeletonBlock } from '@/components/status/SkeletonBlock';
-import { ActionButton } from '@/components/ui/ActionButton';
 import { Text } from '@/components/ui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
@@ -44,7 +45,7 @@ export default function AdminAnalyticsScreen() {
     let cancelled = false;
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20000);
     getAdminReport(days, controller.signal, user.id).then(next => { if (!cancelled) setLoaded({ key, report: next }); })
-      .catch((error: unknown) => { if (!cancelled) setLoaded({ key, denied: error instanceof EngagementApiError && [401, 403].includes(error.statusCode), error: error instanceof EngagementApiError ? error.message : 'Unable to load admin analytics. Please retry.' }); })
+      .catch((error: unknown) => { if (!cancelled) setLoaded({ key, denied: error instanceof EngagementApiError && [401, 403].includes(error.statusCode), error: apiFailureMessage(error) }); })
       .finally(() => clearTimeout(timer));
     return () => { cancelled = true; controller.abort(); clearTimeout(timer); };
   }, [key, user, loading, days]);
@@ -62,7 +63,7 @@ export default function AdminAnalyticsScreen() {
         <Text style={[typeStyle(tokens, 'tileTitle'), { color: days === n ? tokens.color.onPrimarySurface : tokens.color.textMuted }]}>{n} days</Text></Pressable>)}</View>
       {!user && !loading ? <View style={card}><Text style={typeStyle(tokens, 'bodyMuted')}>Sign in with an authorized admin account.</Text></View>
         : pending ? <View accessibilityLabel="Loading admin report" accessibilityState={{ busy: true }} style={{ gap: tokens.space.md }}><SkeletonBlock height={140} /><SkeletonBlock height={200} /></View>
-          : result?.error ? <View style={card} accessibilityLiveRegion="polite"><Text style={typeStyle(tokens, 'sectionTitle')}>{result.denied ? 'Admin access required' : 'Report unavailable'}</Text><Text style={typeStyle(tokens, 'bodyMuted')}>{result.error}</Text>{!result.denied && <ActionButton label="Try again" onPress={retry} variant="secondary" />}</View>
+          : result?.error ? <FailureState error={result.error} title={result.denied ? 'Admin access required' : undefined} variant="inline" onRetry={result.denied ? undefined : retry} />
             : report ? <>
               <View style={card}><Text style={typeStyle(tokens, 'tileTitle')}>{utcDateLabel(report.current.start)} – {endLabel} · UTC</Text>
                 <Text style={typeStyle(tokens, 'bodyMuted')}>{report.stale ? 'Aggregation updates are delayed.' : 'Recorded measurement'} · {report.current.coveredDays}/{days} days with continuous worker coverage.</Text>

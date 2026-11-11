@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, test } from 'node:test';
 import type { DraftProduct, IngestDraftPayload } from '@/src/types/curation';
 import {
   ingestDraftNeedsHydration,
@@ -127,4 +127,13 @@ describe('reviewResolution', () => {
     assert.equal(selectedProductsCanPublish(listed, {}), false);
     assert.equal(isPublishableReviewProduct(unverified), true);
   });
+});
+
+test('shopping-link copy distinguishes identity, pending resolution, and verified destinations without requiring price', async () => {
+  const { reviewShoppingLinkStatus } = await import('./reviewResolution');
+  assert.equal(reviewShoppingLinkStatus({ resolutionStatus: 'VERIFIED', merchantUrl: 'https://shop.example/product/item' }), 'Shopping link verified');
+  assert.equal(reviewShoppingLinkStatus({ resolutionStatus: 'UNVERIFIED', merchantUrl: undefined }), 'Product identified · Shopping link unavailable');
+  assert.equal(reviewShoppingLinkStatus({ resolutionStatus: undefined, merchantUrl: undefined }), 'Checking shopping link…');
+  assert.equal(reviewShoppingLinkStatus({ resolutionStatus: 'UNRESOLVED', merchantUrl: undefined }), 'Shopping link could not be verified');
+  assert.notEqual(reviewShoppingLinkStatus({ resolutionStatus: 'VERIFIED', merchantUrl: 'javascript:bad' }), 'Shopping link verified');
 });

@@ -30,6 +30,9 @@ export function identityExpectationForSearch(
   const category = filled(expectation?.category);
   const populated = Boolean(brand || name || model || category);
   return {
+    ...(filled(expectation?.variantContext) ? { variantContext: filled(expectation?.variantContext) } : {}),
+    ...(filled(expectation?.gtin) ? { gtin: filled(expectation?.gtin) } : {}),
+    ...(filled(expectation?.mpn) ? { mpn: filled(expectation?.mpn) } : {}),
     brand,
     name: name ?? (populated ? null : filled(query)),
     model,
@@ -47,6 +50,9 @@ const userIdentityNormalizer = new ProductNormalizer();
 export function userIdentityExpectation(draft: AiDraftInput): PdpRankHints {
   const norm = userIdentityNormalizer.normalize(draft);
   return {
+    variantContext: draft.videoTitle ?? null,
+    gtin: typeof draft.evidence?.gtin === 'string' ? draft.evidence.gtin : null,
+    mpn: typeof draft.evidence?.mpn === 'string' ? draft.evidence.mpn : null,
     brand: norm.brand,
     name: norm.name,
     model: norm.model,

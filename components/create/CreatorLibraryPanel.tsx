@@ -1,3 +1,5 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
 import React, { useCallback, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -40,7 +42,7 @@ export function CreatorLibraryPanel(props: { connectedAccountId: string }) {
         setSnapshot(next);
         setError(next.sync?.error ?? null);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Could not load library'));
+      .catch((e: unknown) => setError(apiFailureMessage(e)));
   }, []);
 
   useFocusEffect(
@@ -60,7 +62,7 @@ export function CreatorLibraryPanel(props: { connectedAccountId: string }) {
     setProductId('');
     if (next) {
       loadProducts(next).catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : 'Could not load products'),
+        setError(apiFailureMessage(e)),
       );
       listEditableCollections()
         .then((body) => setCollections(body.collections))
@@ -84,7 +86,7 @@ export function CreatorLibraryPanel(props: { connectedAccountId: string }) {
       const fresh = await listEditableCollections();
       setCollections(fresh.collections);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not add to Collection');
+      setError(apiFailureMessage(e));
     } finally {
       setBusy(false);
     }
@@ -97,7 +99,7 @@ export function CreatorLibraryPanel(props: { connectedAccountId: string }) {
     try {
       await publishCollection(collectionId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not publish');
+      setError(apiFailureMessage(e));
     } finally {
       setBusy(false);
     }
@@ -117,7 +119,7 @@ export function CreatorLibraryPanel(props: { connectedAccountId: string }) {
       setProductId('');
       await loadProducts(openId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not attach product');
+      setError(apiFailureMessage(e));
     } finally {
       setBusy(false);
     }
@@ -130,7 +132,7 @@ export function CreatorLibraryPanel(props: { connectedAccountId: string }) {
       await removeLibraryItemProduct(openId, id);
       await loadProducts(openId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not remove product');
+      setError(apiFailureMessage(e));
     } finally {
       setBusy(false);
     }
@@ -143,7 +145,7 @@ export function CreatorLibraryPanel(props: { connectedAccountId: string }) {
       await requestCreatorLibrarySync(props.connectedAccountId);
       setTimeout(load, 4000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Sync failed');
+      setError(apiFailureMessage(e));
     } finally {
       setBusy(false);
     }
@@ -173,9 +175,7 @@ export function CreatorLibraryPanel(props: { connectedAccountId: string }) {
           </Text>
         </Pressable>
       </View>
-      {error ? (
-        <Text style={{ color: tokens.color.danger, fontSize: tokens.fontSize.caption }}>{error}</Text>
-      ) : null}
+      {error ? <FailureState error={error} variant="inline" onRetry={()=>void load()} /> : null}
       {items.length === 0 ? (
         <Text style={{ color: tokens.color.textMuted, fontSize: tokens.fontSize.caption, lineHeight: 18 }}>
           {CREATE_COPY.libraryEmpty}
@@ -234,7 +234,7 @@ export function CreatorLibraryPanel(props: { connectedAccountId: string }) {
                       void attachCampaignProduct(openId, offering.campaignProductId)
                         .then(() => loadProducts(openId))
                         .catch((e: unknown) =>
-                          setError(e instanceof Error ? e.message : 'Could not attach campaign product'),
+                          setError(apiFailureMessage(e)),
                         )
                         .finally(() => setBusy(false));
                     }}

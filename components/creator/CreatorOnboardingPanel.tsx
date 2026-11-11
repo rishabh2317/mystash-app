@@ -1,3 +1,4 @@
+import { FailureState } from '@/components/status/FailureState';
 import { Image } from 'expo-image';
 import React from 'react';
 import {
@@ -254,9 +255,7 @@ export function CreatorOnboardingPanel({
             )}
 
             {error ? (
-              <Text style={{ color: tokens.color.danger, fontSize: tokens.fontSize.caption }}>
-                {error}
-              </Text>
+              <FailureState error={error} variant="inline"/>
             ) : null}
 
             {step === 'profile' ? (

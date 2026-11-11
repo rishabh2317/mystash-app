@@ -1,11 +1,12 @@
+import { FailureState } from '@/components/status/FailureState';
 import React from 'react';
 import {
   FlatList,
-  Pressable,
   StyleSheet,
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useProductBuyHandler } from '@/src/services/productActionOrchestration';
 import type { AddToCartOutcome } from '@/src/services/productActionOrchestration';
 import type { CreatorViewModel } from '@/src/types/creator';
 import type { CollectionViewModel } from '@/src/types/collection';
@@ -85,9 +86,8 @@ export function CreatorProfile({
   onRetry,
 }: Props) {
   const { tokens } = useThemeMode();
+  const onBuy = useProductBuyHandler();
   const { width: screenWidth } = useWindowDimensions();
-  const muted = tokens.color.textMuted;
-  const text = tokens.color.text;
   const gutter = tokens.space.md;
   const gap = tokens.space.sm;
   const videoCellWidth = profileGridCellWidth(
@@ -138,12 +138,6 @@ export function CreatorProfile({
     </Text>
   );
 
-  const retry = (
-    <Pressable onPress={onRetry} style={styles.retry}>
-      <Text style={[typeStyle(tokens, 'tileTitle'), { color: text }]}>Retry</Text>
-    </Pressable>
-  );
-
   const collectionLoad = resolveListLoadState({
     itemCount: collections.length,
     fetching: Boolean(collectionsLoading),
@@ -177,10 +171,7 @@ export function CreatorProfile({
       return (
         <View style={styles.centered}>
           {header}
-          <Text style={[styles.message, { color: muted, paddingHorizontal: gutter }]}>
-            {collectionsError}
-          </Text>
-          {onRetry ? retry : null}
+          <FailureState error={collectionsError} onRetry={onRetry} />
         </View>
       );
     }
@@ -192,7 +183,7 @@ export function CreatorProfile({
         numColumns={PROFILE_VIDEO_GRID_COLUMNS}
         columnWrapperStyle={videoRowStyle}
         contentContainerStyle={collectionContentStyle}
-        ListHeaderComponent={header}
+        ListHeaderComponent={<>{header}{collectionsError ? <FailureState error={collectionsError} variant="inline" onRetry={onRetry} /> : null}</>}
         ListEmptyComponent={
           <View style={{ paddingHorizontal: gutter }}>{empty('No collections yet')}</View>
         }
@@ -242,8 +233,7 @@ export function CreatorProfile({
     return (
       <View style={[styles.centered, { paddingHorizontal: gutter }]}>
         {header}
-        <Text style={[styles.message, { color: muted }]}>{productsError}</Text>
-        {onRetry ? retry : null}
+        <FailureState error={productsError} onRetry={onRetry} />
       </View>
     );
   }
@@ -256,7 +246,7 @@ export function CreatorProfile({
       numColumns={2}
       columnWrapperStyle={productRowStyle}
       contentContainerStyle={productContentStyle}
-      ListHeaderComponent={header}
+      ListHeaderComponent={<>{header}{productsError ? <FailureState error={productsError} variant="inline" onRetry={onRetry} /> : null}</>}
       ListEmptyComponent={empty('No products yet')}
       ListFooterComponent={
         productLoad === 'contentPaginating' ? (
@@ -273,6 +263,7 @@ export function CreatorProfile({
           <ProductCard
             product={item}
             variant="related"
+            onBuy={item.catalogProductId ? onBuy : undefined}
             onPress={onPressProduct}
             onAddToCart={item.catalogProductId ? onAddToCart : undefined}
           />

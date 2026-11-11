@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   assessProductIdentityCompatibility,
+  isProductIdentityCompatible,
   merchantBrandAfterHint,
 } from './productIdentityCompatibility';
 import { identityExpectationForSearch } from './pdpSearchHints';
@@ -213,4 +214,53 @@ describe('recorded Creator compound-model regression', () => {
     assert.equal(assessProductIdentityCompatibility({ ...expected, name: 'Kungfu Pandya Dress', category: 'fashion' },
       { ...candidate, title: 'SG Kung Fu Pandya Shoe', merchantUrl: null }).reason, 'type_conflict');
   });
+});
+
+describe('explicit laptop variants remain hard identity gates', () => {
+  const expected = { brand: 'Lenovo', name: 'ThinkPad X1 Carbon Gen 12 16GB RAM 1TB SSD', model: 'X1 Carbon', category: 'laptops' };
+  it('accepts the requested generation and configuration and rejects older or ambiguous variants', () => {
+    for (const name of ['Lenovo ThinkPad X1 Carbon Gen 11 16GB RAM 1TB SSD', 'Lenovo ThinkPad X1 Carbon Gen 12 8GB RAM 1TB SSD', 'Lenovo ThinkPad X1 Carbon Gen 12 16GB RAM 512GB SSD', 'Lenovo ThinkPad X1 Carbon']) {
+      assert.equal(isProductIdentityCompatible(expected, { title: name }), false, name);
+    }
+    assert.equal(isProductIdentityCompatible(expected, { title: 'Lenovo ThinkPad X1 Carbon 12th Gen 16 GB RAM 1 TB SSD' }), true);
+  });
+  it('carries explicit processor/year from source context and does not infer unsupported generations', () => {
+    assert.equal(isProductIdentityCompatible({ brand: 'HP', name: 'OmniBook X', category: 'laptop', variantContext: 'HP OmniBook X Snapdragon X Elite' }, { title: 'HP OmniBook X Snapdragon X Plus' }), false);
+    assert.equal(isProductIdentityCompatible({ brand: 'HP', name: 'OmniBook X', category: 'laptop', variantContext: 'HP OmniBook X Snapdragon X Elite' }, { title: 'HP OmniBook X Intel Core Ultra 7' }), false);
+    assert.equal(isProductIdentityCompatible({ brand: 'HP', name: 'OmniBook X', category: 'laptop', variantContext: 'HP OmniBook X Snapdragon X Elite' }, { title: 'HP OmniBook X Snapdragon X Elite' }), true);
+    assert.equal(isProductIdentityCompatible({ brand: 'Lenovo', name: 'ThinkPad X1 Carbon', category: 'laptop', variantContext: '2026 Lenovo ThinkPad X1 Carbon' }, { title: 'Lenovo ThinkPad X1 Carbon Intel i7-1365U' }), false);
+  });
+  it('requires provided manufacturer identifiers and lets discovery defer missing details, never conflicts', () => {
+    assert.equal(isProductIdentityCompatible({ brand: 'HP', name: 'OmniBook X', mpn: '14-fe0001', gtin: '1234567890123' }, { title: 'HP OmniBook X', mpn: '14-fe0002', gtin: '1234567890123' }), false);
+    assert.equal(isProductIdentityCompatible({ brand: 'HP', name: 'OmniBook X', mpn: '14-fe0001', gtin: '1234567890123' }, { title: 'HP OmniBook X', mpn: '14-fe0001', gtin: '1234567890123' }), true);
+    assert.equal(isProductIdentityCompatible(expected, { title: 'Lenovo ThinkPad X1 Carbon' }, { requireVariantSupport: false }), true);
+    assert.equal(isProductIdentityCompatible(expected, { title: 'Lenovo ThinkPad X1 Carbon Gen 11' }, { requireVariantSupport: false }), false);
+  });
+});
+
+describe('recorded Nov 9/10 official merchant routing regression', () => {
+  it('does not read HP pdp or Lenovo laptops routing segments as a competing brand', () => {
+    for (const row of [
+      { brand: 'HP', name: 'Omnibook X', model: 'OmniBook X', title: 'HP OmniBook X | HP Official Store', url: 'https://www.hp.com/us-en/shop/pdp/hp-omnibook-x-laptop-ai-pc-14-fe000-14-9j1h6av-1' },
+      { brand: 'Lenovo', name: 'Thinkpad X1 Carbon', model: 'X1 Carbon', title: 'ThinkPad X1 Carbon Gen 14 Aura Edition - Lenovo', url: 'https://www.lenovo.com/us/en/p/laptops/thinkpad/thinkpadx1/lenovo-thinkpad-x1-carbon-gen-14-aura-edition-14-inch-intel/len101t0159' },
+    ]) {
+      assert.equal(isProductIdentityCompatible(row, { title: row.title, merchantUrl: row.url }, { requireBrandSupport: false, requireVariantSupport: false }), true);
+      assert.equal(isProductIdentityCompatible(row, { title: 'NEUDIS unrelated product', merchantUrl: row.url }), false);
+    }
+  });
+});
+
+it('accepts the recorded ThinkPad sub-brand only on Lenovo itself and for the requested line', () => {
+  const expected = { brand: 'Lenovo', name: 'ThinkPad X1 Carbon', model: 'X1 Carbon', category: 'laptops' };
+  const candidate = { title: 'ThinkPad X1 Carbon Gen 14 Aura Edition', brand: 'ThinkPad', merchantUrl: 'https://www.lenovo.com/us/en/p/laptops/thinkpad/thinkpadx1/product' };
+  assert.equal(isProductIdentityCompatible(expected, candidate), true);
+  for (const url of ['https://lenovo.evil.com/product/a','https://notlenovo.com/product/a','https://marketplace.example/product/a']) assert.equal(isProductIdentityCompatible(expected, { ...candidate, merchantUrl: url }), false);
+  assert.equal(isProductIdentityCompatible(expected, { ...candidate, brand: 'Dell' }), false);
+  assert.equal(isProductIdentityCompatible(expected, { ...candidate, brand: 'IdeaPad' }), false);
+});
+
+it('can establish a processor from product-scoped merchant facts without requiring it in the page title', () => {
+  const expected = { brand: 'HP', name: 'OmniBook X', model: 'OmniBook X', category: 'laptops', variantContext: 'HP OmniBook X Snapdragon X Elite Laptop' };
+  assert.equal(isProductIdentityCompatible(expected, { title: 'HP OmniBook X', merchantUrl: 'https://www.hp.com/shop/pdp/omnibook-x', variantContext: 'Powered by Qualcomm Snapdragon® X Elite.' }), true);
+  assert.equal(isProductIdentityCompatible(expected, { title: 'HP OmniBook X', merchantUrl: 'https://www.hp.com/shop/pdp/omnibook-x', variantContext: 'Powered by Snapdragon X Plus.' }), false);
 });

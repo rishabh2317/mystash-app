@@ -4,9 +4,10 @@ const {Buffer}=require('node:buffer');
 global.__DEV__=false;
 const React=require('react'),{renderToStaticMarkup}=require('react-dom/server'),web=require('react-native-web'),ts=require('typescript');
 const root=path.dirname(require.resolve('../package.json')),cache=new Map(),output=process.env.FIND_RENDER_DIR;
-let tokens,platform='ios',dimensions={width:390,height:844,fontScale:1,scale:1},actions=[],images=[],lists=[],navigation=[],apiCalls=[],keyboardAvoiders=[],overrideStates=null,stateIndex=0,clipboardReads=0,clipboardSupported=true;
+let tokens,platform='ios',dimensions={width:390,height:844,fontScale:1,scale:1},actions=[],images=[],lists=[],navigation=[],apiCalls=[],keyboardAvoiders=[],overrideStates=null,stateIndex=0,stateWrites=[],clipboardReads=0,clipboardSupported=true;
+let stashCart={items:[],itemCount:0,status:'ready',refresh:async()=>{},removeItem:async()=>{}};
 let signedIn=true,authLoading=false,history,detail,capture,params={},imageSupported=true,imageResult=null;
-const adapter={...React,useState(initial){const pair=React.useState(initial),index=stateIndex++;return overrideStates&&index<overrideStates.length?[overrideStates[index],()=>{}]:pair;}};
+const adapter={...React,useState(initial){const pair=React.useState(initial),index=stateIndex++;return overrideStates&&index<overrideStates.length?[overrideStates[index],value=>stateWrites.push({index,value})]:pair;}};
 const native={...web,useWindowDimensions:()=>dimensions,Platform:{...web.Platform,OS:platform,select:choices=>choices[platform]??choices.default},
  Pressable:props=>{actions.push(props);return React.createElement(web.Pressable,props);},
  FlatList:props=>{lists.push(props);return React.createElement(web.FlatList,props);},
@@ -22,18 +23,25 @@ function load(file){
  if(cache.has(filename))return cache.get(filename).exports;
  const mod=new Module(filename,module);mod.filename=filename;cache.set(filename,mod);
  mod.require=id=>{
+  if(id.endsWith('.png'))return{uri:'file:///official-branding-fixture.png'};
   if(id==='react')return adapter;
   if(id==='react-native')return native;
   if(id==='@/contexts/ThemeContext'||id==='@/src/theme/useThemeTokens')return{useThemeMode:()=>({tokens}),useThemeTokens:()=>tokens};
   if(id==='@/contexts/AuthContext')return{useAuth:()=>({user:signedIn?{id:'owner',email:'fixture@example.invalid'}:null,session:signedIn?{user:{id:'owner'},access_token:'FIXTURE_PRIVATE_TOKEN'}:null,loading:authLoading})};
-  if(id==='@/contexts/CartContext')return{useCartOptional:()=>({itemCount:7,refresh:async()=>{}})};
+  if(id==='@/contexts/CartContext')return{useCartOptional:()=>({itemCount:7,refresh:async()=>{}}),useCart:()=>stashCart};
+  if(id==='@react-navigation/native')return{useFocusEffect(){},useIsFocused:()=>true};
+  if(id==='@react-navigation/bottom-tabs')return{useBottomTabBarHeight:()=>80};
+  if(id==='@/src/hooks/useImportSharesPoll')return{useImportSharesPoll:()=>({shares:[],loaded:true,refresh:async()=>{}})};
+  if(id==='@/components/commerce/StashSignedOutState')return{StashSignedOutState:()=>null};
   if(id==='@/contexts/NotificationsContext')return{useNotificationsContext:()=>({enabled:true,unread:{unread:2,capped:false}})};
   if(id==='@/src/hooks/useFindHistory')return{useFindHistory:(filter,options)=>({...history,items:options?.supplemental?history.items.filter(item=>item.outcome.category===filter):history.items,refresh:async()=>{apiCalls.push(['refresh']);},loadMore:async()=>{apiCalls.push(['loadMore']);}})};
+  if(id==='@/src/hooks/useFindActivity')return{useFindActivity:()=>({item:history.items.find(item=>item.outcome.extractionActive||item.outcome.stashSync==='pending')??history.items[0]??null,refresh:async()=>{apiCalls.push(['refreshActivity']);}})};
   if(id==='@/src/hooks/useFindDetail')return{useFindDetail:()=>({...detail,refresh:async()=>{apiCalls.push(['refreshDetail']);},run:async(_key,fn)=>{await fn();return true;}})};
   if(id==='@/src/hooks/useFindCapture')return{useFindCapture:()=>({...capture,setInput:value=>apiCalls.push(['input',value]),submit:async()=>{apiCalls.push(['submit']);},clearAck:()=>{}})};
   if(id==='@/src/hooks/useFindImageCapture')return{useFindImageCapture:()=>({supported:imageSupported,busy:false,result:imageResult,capture:async origin=>apiCalls.push(['imageCapture',origin]),openSettings:async()=>apiCalls.push(['settings'])})};
   if(id==='@/src/services/captureRuntime')return{imageOutbox:{list:async()=>[],remove:async()=>{}},retryImageCaptures:async()=>{}};
   if(id==='@/src/services/nativeShare')return{subscribePendingShares:()=>()=>{},notifyPendingShares(){}};
+  if(id==='@/src/services/placeImages')return{placeImages:{acquire(){throw Error('Photo requests forbidden in SSR');}}};
   if(id==='@/src/services/findApi')return{findApi:api};
   if(id==='@/src/services/creatorReportApi')return{getCreatorReport:async()=>{throw Error('Network forbidden');}};
   if(id==='@/src/services/engagementApi')return{EngagementApiError:class EngagementApiError extends Error{},getMyCreatorAnalytics:async()=>null};
@@ -44,8 +52,8 @@ function load(file){
   if(id==='@/src/services/supabase'||id==='./supabase')return{supabase:{auth:{getSession:async()=>({data:{session:{user:{id:transportOwner},access_token:'dummy'}}})}}};
   if(id==='@/components/search/NativePendingShares')return{NativePendingShares:()=>null};
   if(id==='@/components/feed/FeedProductSheet')return{FeedProductSheet:()=>null};
-  if(id==='@/components/place/PlaceSourceVideoModal')return{PlaceSourceVideoModal:()=>null};
-  if(id==='expo-linear-gradient')return{LinearGradient:props=>React.createElement(web.View,{style:props.style},props.children)};
+  if(id==='@/components/place/PlaceSourceVideoModal'||id==='./PlaceSourceVideoModal')return{PlaceSourceVideoModal:()=>null};
+  if(id==='expo-linear-gradient')return{LinearGradient:props=>React.createElement(web.View,{pointerEvents:props.pointerEvents,style:[props.style,{backgroundImage:`linear-gradient(180deg, ${props.colors.map((color,i)=>`${color} ${(props.locations?.[i]??i/(props.colors.length-1))*100}%`).join(', ')})`}]},props.children)};
   if(id==='expo-haptics')return{impactAsync:async()=>{},notificationAsync:async()=>{},selectionAsync:async()=>{},ImpactFeedbackStyle:{Light:'light'},NotificationFeedbackType:{Success:'success'}};
   if(id==='@/src/services/placesApi')return{fetchAllPlaces:async()=>({items:[]})};
   if(id==='@/src/hooks/useDiscoverCreators')return{useDiscoverCreators:()=>({items:[],loading:false})};
@@ -57,7 +65,7 @@ function load(file){
   if(id==='react-native-safe-area-context')return{useSafeAreaInsets:()=>({top:platform==='ios'?47:24,bottom:platform==='ios'?34:24,left:0,right:0}),SafeAreaView:native.View};
   if(id==='expo-router')return{useRouter:()=>router,usePathname:()=>'/find',useLocalSearchParams:()=>params,useFocusEffect(){},Tabs,Redirect:props=>React.createElement(web.Text,null,`Redirect ${props.href}`),Stack:Object.assign(props=>React.createElement(web.View,null,props.children),{Screen:()=>null})};
   if(id==='@expo/vector-icons')return{Ionicons:props=>React.createElement('span',{'aria-hidden':true,style:{fontSize:props.size,color:props.color,lineHeight:1}},glyphs[props.name]??'◇')};
-  if(id==='react-native-svg'){const element=name=>props=>React.createElement(name,props,props.children);return{__esModule:true,default:element('svg'),Circle:element('circle'),Defs:element('defs'),RadialGradient:element('radialGradient'),Stop:element('stop')};}
+  if(id==='react-native-svg'){const element=name=>function SvgElement(props){return React.createElement(name,props,props.children);};return{__esModule:true,default:element('svg'),Circle:element('circle'),Defs:element('defs'),RadialGradient:element('radialGradient'),Stop:element('stop')};}
   if(id==='expo-image')return{Image:props=>{images.push(props);const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="500" height="400"><defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="#b7c8bd"/><stop offset="1" stop-color="#6b837c"/></linearGradient></defs><rect width="500" height="400" fill="url(#a)"/><circle cx="410" cy="82" r="45" fill="#f2dcc0"/><path d="M0 360L150 110L250 260L340 170L500 390V400H0" fill="#294840"/><path d="M150 110L183 167L143 152L112 174Z" fill="#eef0e8"/><text x="30" y="370" fill="#edf0e9" font-family="sans-serif" font-size="22">Offline visual fixture</text></svg>`;return React.createElement('img',{src:`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,alt:'',style:{width:'100%',height:'100%',objectFit:'cover',position:'absolute',inset:0}});}};
   if(id==='react-native-reanimated')return{__esModule:true,default:{View:web.View},Easing:{inOut:x=>x,quad:()=>{}},useSharedValue:value=>({value}),useAnimatedStyle:()=>({}),withTiming:x=>x,withRepeat:x=>x};
   if(id==='@/src/ui/usePrefersReducedMotion')return{usePrefersReducedMotion:()=>true};
@@ -68,7 +76,7 @@ function load(file){
  mod._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React,esModuleInterop:true}}).outputText,filename);
  return mod.exports;
 }
-const {getThemeTokens}=load(path.join(root,'src/theme/tokens')),{findFixture,findDetailFixture}=load(path.join(root,'src/ui/findTestFixtures'));
+const {getThemeTokens,FIND_CAPTURE_ACTION_COLORS}=load(path.join(root,'src/theme/tokens')),{findFixture,findDetailFixture}=load(path.join(root,'src/ui/findTestFixtures'));
 const Dashboard=load(path.join(root,'app/(tabs)/find/index')).default,Detail=load(path.join(root,'app/(tabs)/find/[findId]')).default,Capture=load(path.join(root,'app/(tabs)/find/capture')).default;
 const {AppTabBar}=load(path.join(root,'components/chrome/AppTabBar')),{FindImage}=load(path.join(root,'components/find/FindImage'));
 const {PersonalProfile}=load(path.join(root,'components/profile/PersonalProfile'));
@@ -76,15 +84,16 @@ const CreatorAnalyticsScreen=load(path.join(root,'components/analytics/CreatorAn
 const {SearchResultsTabs}=load(path.join(root,'components/search/SearchResultsTabs'));
 const PrivacyScreen=load(path.join(root,'app/settings/privacy')).default;
 const {PendingImageCaptures}=load(path.join(root,'components/find/PendingImageCaptures'));
+const StashScreen=load(path.join(root,'app/(tabs)/stash')).default;
 const SourceScreen=load(path.join(root,'app/stash/source/[sourceId]')).default;
 const {FindPasteSheet}=load(path.join(root,'components/find/FindPasteSheet'));
 const {FindActivity,FindActivityPreviewRows}=load(path.join(root,'components/find/FindActivity'));
 const {findActivityPreviews}=load(path.join(root,'src/ui/findDashboard'));
 const baseHistory=()=>({owner:'owner',filter:'completed',source:'all',items:Array.from({length:8},(_,i)=>({...findFixture(i+1),thumbnailUrl:i<2?'https://fixture.invalid/preview.jpg':null})),counts:{all:1205,processing:10,completed:1190,attention:5,saved:900},loaded:true,refreshing:false,loadingMore:false,cursor:'more',error:null,moreError:null});
-function reset(){actions=[];images=[];lists=[];navigation=[];apiCalls=[];keyboardAvoiders=[];overrideStates=null;stateIndex=0;signedIn=true;authLoading=false;params={};history=baseHistory();detail={data:findDetailFixture(),loaded:true,refreshing:false,pending:null,error:null,actionError:null};capture={owner:'owner',input:'https://example.com/product',busy:false,error:null,ack:null};}
+function reset(){actions=[];images=[];lists=[];navigation=[];apiCalls=[];keyboardAvoiders=[];overrideStates=null;stateIndex=0;stateWrites=[];signedIn=true;authLoading=false;params={};history=baseHistory();detail={data:findDetailFixture(),loaded:true,refreshing:false,pending:null,error:null,actionError:null};capture={owner:'owner',input:'https://example.com/product',busy:false,error:null,ack:null};}
 function render(Component,props={},withTabs=false){stateIndex=0;return renderToStaticMarkup(React.createElement(web.View,{style:{width:dimensions.width,height:dimensions.height,backgroundColor:tokens.color.canvasSoft}},React.createElement(Component,props),withTabs?React.createElement(AppTabBar):null));}
-function save(name,body){if(!output)return;fs.mkdirSync(output,{recursive:true});const sheet=web.StyleSheet.getSheet();let fonts='';for(const [weight,face] of [['400','Regular'],['500','Medium'],['600','SemiBold'],['700','Bold']]){const font=path.join(root,`node_modules/@expo-google-fonts/inter/${weight}${face}/Inter_${weight}${face}.ttf`);if(fs.existsSync(font))fonts+=`@font-face{font-family:Inter_${weight}${face};src:url(file://${font})}`;}
- fs.writeFileSync(path.join(output,`${name}.html`),`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fonts}${sheet.textContent}html,body{margin:0;background:${tokens.color.canvasSoft};width:100%;height:100%}</style></head><body>${body}<script>document.fonts.ready.then(()=>{const w=document.documentElement.clientWidth;const overflow=[];for(const e of document.querySelectorAll('div,span,input')){const r=e.getBoundingClientRect();if(r.width>0&&(r.left< -1||r.right>w+1)&&getComputedStyle(e).position!=='absolute')overflow.push({tag:e.tagName,text:e.textContent.slice(0,32),left:r.left,right:r.right});}document.body.dataset.horizontalOverflow=JSON.stringify(overflow.slice(0,8));});</script></body></html>`);}
+function save(name,body){if(!output)return;fs.mkdirSync(output,{recursive:true});const sheet=web.StyleSheet.getSheet();let fonts='';for(const [weight,face] of [['400','Regular'],['500','Medium'],['600','SemiBold'],['700','Bold']]){const font=path.join(root,`node_modules/@expo-google-fonts/inter/${weight}${face}/Inter_${weight}${face}.ttf`);if(fs.existsSync(font)){fs.copyFileSync(font,path.join(output,path.basename(font)));fonts+=`@font-face{font-family:Inter_${weight}${face};src:url(${path.basename(font)})}`;}}
+ fs.writeFileSync(path.join(output,`${name}.html`),`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fonts}${sheet.textContent}html,body{margin:0;background:${tokens.color.canvasSoft};width:100%;height:100%}</style></head><body>${body}<script>document.fonts.ready.then(()=>{const w=document.documentElement.clientWidth;const overflow=[];for(const e of document.querySelectorAll('div,span,input')){const r=e.getBoundingClientRect();if(r.width>0&&(r.left< -1||r.right>w+1)&&getComputedStyle(e).position!=='absolute')overflow.push({tag:e.tagName,text:e.textContent.slice(0,32),left:r.left,right:r.right});}document.body.dataset.horizontalOverflow=JSON.stringify(overflow.slice(0,8));});</script></body></html>`);}
 let checks=0,transportOwner='owner';
 const oldFetch=global.fetch,oldAbort=global.AbortController;global.AbortController=require('abort-controller').AbortController;global.fetch=async()=>{throw Error('Live network forbidden');};
 async function main(){
@@ -104,6 +113,7 @@ async function main(){
    assert.ok(!html.includes('Ready to review')&&!html.includes('Saved 900'));
    assert.equal(html.includes('Not available yet'),false);assert.ok(lists[0].onEndReached&&lists[0].onRefresh);
    const gallery=actions.find(action=>action.accessibilityLabel==='Choose a screenshot or photo to Find'),camera=actions.find(action=>action.accessibilityLabel==='Take a photo to Find');assert.ok(gallery&&!gallery.disabled&&camera&&!camera.disabled);
+   for(const control of [gallery,camera,actions.find(a=>a.accessibilityLabel==='Paste a URL to Find')]){const style=control.style({pressed:false});assert.equal(style.flex,1);assert.equal(style.minWidth,0);assert.ok(style.minHeight>=44);assert.equal(style.borderColor,FIND_CAPTURE_ACTION_COLORS[tokens.mode].border);}
    gallery.onPress();camera.onPress();assert.deepEqual(apiCalls.slice(-2),[['imageCapture','gallery'],['imageCapture','camera']]);
    const beforeNavigation=navigation.length;actions.find(action=>action.accessibilityLabel==='Paste a URL to Find').onPress();assert.equal(navigation.length,beforeNavigation);
    actions.find(action=>action.accessibilityLabel==='Processing, 10 finds').onPress();assert.deepEqual(navigation.at(-1),['params',{filter:'processing'}]);
@@ -114,22 +124,28 @@ async function main(){
   }
   dimensions={width:390,height:932,fontScale:1,scale:1};
   for(const variant of ['loading','empty','processing','attention','error','signed-out']){
-   reset();if(variant==='loading')history.loaded=false;
+   reset();if(variant==='loading'){history.loaded=false;history.counts=null;}
    if(variant==='empty'){history.items=[];history.counts={all:0,processing:0,completed:0,attention:0,saved:0};}
    if(variant==='processing'){params={filter:'processing'};history.filter='processing';history.items=[findFixture(2,'processing')];}
    if(variant==='attention'){params={filter:'attention'};history.filter='attention';history.items=[findFixture(3,'attention')];}
    if(variant==='error')history.error='Couldn’t refresh your Finds. Check your connection and try again.';
    if(variant==='signed-out')signedIn=false;
    const html=render(Dashboard);
+   if(variant!=='signed-out')assert.equal(actions.filter(a=>/^(Processing|Completed|Needs Attention), /.test(a.accessibilityLabel??'')).length,3,'status controls never disappear during loading or empty states');
    if(variant==='loading')assert.ok(html.includes('Loading your Finds')&&!html.includes('Your next find starts here'));
    if(variant==='empty')assert.ok(html.includes('Your next find starts here'));
-   if(variant==='error')assert.ok(html.includes('Try refreshing')&&html.includes('A weekend'));
-   if(variant==='signed-out')assert.ok(html.includes('Sign in to Find')&&!html.includes('A weekend'));
+   if(variant==='error')assert.ok(html.includes('Try again')&&html.includes('A weekend'));
+   if(variant==='signed-out'){
+    assert.ok(html.includes('Sign in to Find')&&html.includes('Save what inspires you')&&!html.includes('A weekend'));
+    actions.find(a=>a.accessibilityLabel==='Sign in to Find').onPress();assert.deepEqual(navigation.at(-1),['push','/(tabs)/profile']);
+    actions.find(a=>a.accessibilityLabel==='Explore Mystash').onPress();assert.deepEqual(navigation.at(-1),['push','/(tabs)/search']);checks+=2;
+   }
    checks++;
   }
   reset();params={filter:'processing'};history.filter='processing';history.items=[];history.counts.processing=0;save(`dashboard-processing-empty-${theme}-${os}`,render(Dashboard,{},true));
-  reset();const live=findFixture(2,'processing');let activityOpens=0;let activityHtml=render(FindActivity,{item:live,owner:'owner',onOpen(){activityOpens++;},onRetry(){},busy:false,error:null});assert.equal(actions.find(a=>a.accessibilityState?.expanded!==undefined).accessibilityState.expanded,true);assert.ok(activityHtml.includes('Products: 2 found, still looking')&&activityHtml.includes('Places: 1 found')&&activityHtml.includes('View Find'));actions.find(a=>a.accessibilityLabel==='View Find').onPress();assert.equal(activityOpens,1);
+  reset();const live=findFixture(2,'processing');let activityOpens=0;let activityHtml=render(FindActivity,{item:live,owner:'owner',onOpen(){activityOpens++;},onRetry(){},busy:false,error:null});assert.equal(actions.find(a=>a.accessibilityState?.expanded!==undefined).accessibilityState.expanded,true);assert.ok(activityHtml.includes('Products: 2 found, still looking')&&activityHtml.includes('Places: 1 found')&&activityHtml.includes('View Find'));actions.find(a=>a.accessibilityLabel==='View Find').onPress();assert.equal(activityOpens,1);assert.ok(activityHtml.includes('role="progressbar"'));
   reset();const done=findFixture(1);activityHtml=render(FindActivity,{item:done,owner:'owner',onOpen(){},onRetry(){},busy:false,error:null});assert.equal(actions.find(a=>a.accessibilityState?.expanded!==undefined).accessibilityState.expanded,false);assert.ok(activityHtml.includes('View Find'));checks+=4;
+  reset();activityHtml=render(FindActivity,{item:findFixture(3,'attention'),owner:'owner',onOpen(){},onRetry(){},busy:false,error:null});assert.equal(actions.find(a=>a.accessibilityState?.expanded!==undefined).accessibilityState.expanded,false);checks++;
   reset();const previewHtml=render(FindActivityPreviewRows,{rows:findActivityPreviews(findDetailFixture()),onOpen(){}});assert.ok(previewHtml.includes('Everyday camera')&&previewHtml.includes('Linen jacket')&&previewHtml.includes('Corner café'));assert.equal(actions.filter(a=>a.accessibilityLabel?.startsWith('View ')&&a.accessibilityLabel?.endsWith(' in Find')).length,3);checks+=2;
   reset();history.items=[findFixture(2,'processing'),...history.items];save(`dashboard-active-${theme}-${os}`,render(Dashboard,{},true));
   reset();clipboardReads=0;capture.input='';const sheetCapture={...capture,setInput:value=>apiCalls.push(['pasteInput',value]),submit:async()=>{apiCalls.push(['sheetSubmit']);}};
@@ -141,10 +157,13 @@ async function main(){
   if(theme==='titanium'&&os==='android'){clipboardSupported=false;cache.delete(path.join(root,'components/find/FindPasteSheet.tsx'));const LegacySheet=load(path.join(root,'components/find/FindPasteSheet')).FindPasteSheet;reset();sheetCapture.input='';render(LegacySheet,{visible:true,owner:'owner',authLoading:false,capture:sheetCapture,onClose(){},onSignIn(){}});assert.ok(!actions.some(a=>a.accessibilityLabel==='Paste link from clipboard'));clipboardSupported=true;checks++;}
   reset();params={findId:detail.data.id};
   let html=render(Detail,{},true);assert.ok(html.includes('Similar product'));assert.ok(html.includes('Restore to My Stash'));assert.ok(html.includes('Open original link'));assert.ok(actions.some(action=>action.accessibilityLabel==='Buy now, Everyday camera'));assert.ok(actions.some(action=>action.accessibilityLabel==='View product Everyday camera'));assert.ok(actions.some(action=>action.accessibilityLabel==='View Corner café on Google'));
+  assert.ok(!actions.some(action=>/See (similar options|possible matches)|Refresh possible matches/.test(action.accessibilityLabel??'')));checks++;
   actions.find(action=>action.accessibilityLabel==='View product Everyday camera').onPress();const target=navigation.at(-1);assert.equal(target[0],'push');assert.ok(target[1].includes(detail.data.products[0].catalogProductId));
   actions.find(action=>action.accessibilityLabel==='View product Everyday camera image').onPress();assert.deepEqual(navigation.at(-1),target);
   actions.find(action=>action.accessibilityLabel==='Remove Everyday camera from My Stash').onPress();await Promise.resolve();assert.deepEqual(apiCalls.at(-1),['removeResult',detail.data.id,'products',detail.data.products[0].id,detail.data.products[0].identityKey]);
   checks+=4;save(`detail-${theme}-${os}`,html);
+  reset();detail.data.products[0]={...detail.data.products[0],identityKey:null,catalogProductId:null,discoveredProductId:null,matchKind:'possible',saved:false,removed:false};params={findId:detail.data.id};
+  html=render(Detail);assert.ok(html.includes('Possible match'));assert.ok(html.includes('Not automatically saved'));assert.ok(html.includes('possible matches'));assert.ok(!actions.some(a=>a.accessibilityLabel==='Buy now, Everyday camera'));save(`detail-possible-${theme}-${os}`,html);checks++;
   for(const variant of ['processing','delayed','partial','empty','save-pending','save-failure','error','missing']){
   reset();params={findId:detail.data.id};
    if(variant==='processing')detail.data.outcome={...findFixture(2,'processing').outcome};
@@ -161,8 +180,16 @@ async function main(){
    if(variant==='save-failure')assert.ok(html.includes('Retry saving to My Stash'));
    if(variant==='save-pending')assert.ok(!html.includes('Retry saving to My Stash'));
    if(variant==='empty')assert.ok(html.includes('No products or places to show'));
-   if(variant==='error')assert.ok(html.includes('Refresh current status')&&html.includes('Everyday camera'));
+   if(variant==='error')assert.ok(html.includes('Try again')&&html.includes('Everyday camera'));
    if(variant==='missing')assert.ok(!html.includes('Everyday camera'));
+   else {
+    const header=lists[0].ListHeaderComponent.props.children;
+    assert.equal(header[0].props.style.borderWidth,undefined,'source header is editorial, without a card border');
+    assert.equal(header[1].props.style.backgroundColor,undefined,'status uses an outline instead of a tinted fill');
+    assert.equal(header[1].props.style.borderWidth,tokens.stroke.thin);
+    const active=detail.data.outcome.extractionActive||detail.data.outcome.stashSync==='pending'||detail.data.outcome.result==='pending';
+    assert.equal(html.includes('role="progressbar"'),active);
+   }
    checks++;
   }
   for(const variant of ['input','busy','accepted','duplicate','queued','permission','error','signed-out']){
@@ -176,7 +203,7 @@ async function main(){
    if(variant==='duplicate')assert.ok(html.includes('already in your Finds'));
    if(variant==='queued')assert.ok(html.includes('Link securely queued')&&html.includes('View your Finds'));
    if(variant==='permission')assert.ok(html.includes('Open Settings')&&html.includes('Allow camera access'));
-   if(variant==='error')assert.ok(html.includes('https://example.com/product')&&html.includes('could not be confirmed'));
+   if(variant==='error')assert.ok(html.includes('https://example.com/product')&&html.includes('Check your connection and try again.'));
    if(variant==='signed-out')assert.ok(!html.includes('value="https://example.com/product"'));
    checks++;
    if(variant==='input')save(`capture-${theme}-${os}`,html);
@@ -190,7 +217,7 @@ async function main(){
   for(const action of unavailable){
    const layout=typeof action.style==='function'?action.style({pressed:false}):action.style;
    assert.equal(layout.flexDirection,'column');assert.equal(layout.minWidth,0);
-   assert.ok(action.children.some(child=>child?.props?.style?.width==='100%'));
+   assert.ok(layout.minHeight>=44);assert.equal(layout.flex,1);assert.equal(layout.borderColor,FIND_CAPTURE_ACTION_COLORS[tokens.mode].border);assert.equal(layout.borderRadius,tokens.radius.lg);
   }
   if(theme==='titanium'&&os==='android')save('dashboard-unsupported-titanium-android',html);
   imageSupported=true;checks+=5;
@@ -210,7 +237,13 @@ async function main(){
    const toggle=actions.find(action=>action.accessibilityLabel==='Show creator suggestions');
    assert.ok(toggle);assert.equal(toggle.accessibilityState.expanded,false);
    const toggleStyle=web.StyleSheet.flatten(toggle.style({pressed:false}));
-   assert.equal(toggleStyle.width,44);assert.equal(toggleStyle.height,44);
+   assert.equal(toggleStyle.width,32);assert.equal(toggleStyle.height,32);
+   assert.equal(toggleStyle.height+toggle.hitSlop.top+toggle.hitSlop.bottom,44);
+   for(const label of ['Edit profile','Share profile']){
+    const action=actions.find(a=>a.accessibilityLabel===label),style=web.StyleSheet.flatten(typeof action.style==='function'?action.style({pressed:false}):action.style);
+    assert.equal(style.minHeight,32,'profile CTA keeps its original compact minimum');
+    assert.equal(style.minHeight+action.hitSlop.top+action.hitSlop.bottom,44);
+   }
    assert.ok(actions.some(action=>action.accessibilityLabel==='Edit profile'));
    assert.ok(actions.some(action=>action.accessibilityLabel==='Share profile'));
    assert.equal(actions.find(action=>action.accessibilityLabel==='Collections').accessibilityState.selected,true);
@@ -243,11 +276,11 @@ async function main(){
   assert.ok(actions.some(action=>action.accessibilityLabel==='Cancel'));
   checks+=10;
  }
- for(const width of [320,360,414])for(const scale of [1,1.7]){
-  dimensions={width,height:844,fontScale:scale,scale:1};tokens=getThemeTokens('titanium');reset();params={sourceId:'fixture-import'};
+ for(const theme of ['titanium','nebula'])for(const os of ['android','ios'])for(const width of [320,360,414])for(const scale of [1,1.7]){
+  platform=os;native.Platform.OS=os;dimensions={width,height:844,fontScale:scale,scale:1};tokens=getThemeTokens(theme);reset();params={sourceId:'fixture-import'};
   const products=Array.from({length:4},(_,i)=>({kind:'product',result:{id:`source-product-${i}`,identityKey:`c:catalog-${i}`,title:`Source product ${i}`,imageUrl:null,catalogProductId:`catalog-${i}`,discoveredProductId:null,matchKind:'exact',saved:true,removed:false}}));
   const places=Array.from({length:3},(_,i)=>({kind:'place',result:{id:`source-place-${i}`,name:`Source place ${i}`,placeId:`place-${i}`,resolution:'resolved',locality:'Paris',city:null,saved:true,removed:false}}));
-  overrideStates=[{owner:'owner',id:'fixture-import',items:[products[0],places[0],...products.slice(1),...places.slice(1)],cursor:'next',source:{...findFixture(),id:'fixture-import',title:'Fixture URL',sourceUrl:'https://example.com/find',outcome:{...findFixture().outcome,savedProducts:4,savedPlaces:3}},places:[],loaded:true,loading:false,refreshing:false,more:false,error:false,moreError:false},null,null];
+  overrideStates=[{owner:'owner',id:'fixture-import',items:[products[0],places[0],...products.slice(1),...places.slice(1)],cursor:'next',source:{...findFixture(),id:'fixture-import',title:'Fixture URL',sourceUrl:'https://www.youtube.com/watch?v=abcdefghijk',outcome:{...findFixture().outcome,savedProducts:4,savedPlaces:3}},places:[],loaded:true,loading:false,refreshing:false,more:false,error:false,moreError:false},null,null];
   const html=render(SourceScreen);assert.ok(html.includes('Products (4)')&&html.includes('Places (3)')&&html.includes('Fixture URL'));
   assert.ok(html.includes('Source product 0')&&html.includes('Source place 2'));
   assert.equal(lists[0].data.filter(row=>row.kind==='products').flatMap(row=>row.items).length,4);
@@ -258,18 +291,49 @@ async function main(){
   assert.ok(actions.some(action=>action.accessibilityLabel==='Search on Google, Source place 0'));
   assert.equal(actions.filter(action=>action.accessibilityLabel?.startsWith('Remove ')).length,7);
   const loaded=overrideStates[0];
-  assert.ok(!actions.some(action=>action.accessibilityLabel==='Back'), 'source page uses the navigator back button only');
-  assert.match(fs.readFileSync(path.join(root,'app/_layout.tsx'),'utf8'), /name="stash\/source\/\[sourceId\]" options=\{\{ title: 'Saved from Find' \}\}/);
+  assert.ok(actions.some(action=>action.accessibilityLabel==='Back'), 'source page retains the standard TopBar back action');
+  assert.match(fs.readFileSync(path.join(root,'app/_layout.tsx'),'utf8'), /name="stash\/source\/\[sourceId\]" options=\{\{ headerShown: false \}\}/);
   const removeAction=actions.find(action=>action.accessibilityLabel==='Remove Source product 0 from My Stash');
-  assert.equal(removeAction.hitSlop,8);
+  assert.equal(removeAction.hitSlop,6);
   const removeStyle=removeAction.style({pressed:false});
   assert.equal(removeStyle.width,32);assert.equal(removeStyle.height,32);
-  assert.equal(removeStyle.right,6+tokens.space.xs);
+  assert.equal(removeStyle.right,tokens.space.xs);
+  const buy=actions.find(action=>action.accessibilityLabel==='Buy now, Source product 0');assert.ok(buy);buy.onPress();
+  assert.equal(stateWrites.at(-1).index,1);assert.equal(stateWrites.at(-1).value.id,'catalog-0');
+  let stopped=0;const play=actions.find(action=>action.accessibilityLabel==='Source video, Source product 0');
+  assert.ok(play);play.onPress({stopPropagation(){stopped++;}});assert.equal(stopped,1);
+  assert.equal(stateWrites.at(-1).index,2);assert.equal(stateWrites.at(-1).value[0].url,'https://www.youtube.com/watch?v=abcdefghijk');
+  const header=actions.find(action=>action.accessibilityLabel==='Play source video, Fixture URL');assert.ok(header);header.onPress();
+  assert.equal(stateWrites.at(-1).value[0].url,'https://www.youtube.com/watch?v=abcdefghijk');
+  assert.ok(actions.some(action=>action.accessibilityLabel==='Source video, Source place 0'));
+  actions.find(action=>action.accessibilityLabel==='Back').onPress();assert.deepEqual(navigation.at(-1),['replace','/(tabs)/stash']);
+  if(width===360&&scale===1)save(`stash-source-${theme}-${os}`,html);
+  checks+=9;
   reset();params={sourceId:'fixture-import'};overrideStates=[{...loaded,refreshing:true,error:true},null,null];const cached=render(SourceScreen);
   assert.ok(cached.includes('Couldn’t refresh')&&cached.includes('Source product 0'));assert.equal(lists[0].refreshing,true);
   reset();params={sourceId:'fixture-import'};overrideStates=[{...loaded,items:[],cursor:null,source:{...loaded.source,outcome:{...loaded.source.outcome,savedProducts:0,savedPlaces:0}}},null,null];
   assert.ok(render(SourceScreen).includes('No saved items remain'));
   checks+=10;
+ }
+ // Render the actual Stash route under both tabs; the mixed rail is a single sibling above the tab content.
+ for(const theme of ['titanium','nebula'])for(const os of ['android','ios'])for(const width of [320,360,414]){
+  platform=os;native.Platform.OS=os;dimensions={width,height:844,fontScale:1,scale:1};tokens=getThemeTokens(theme);
+  const product={id:'catalog-1',catalogProductId:'catalog-1',title:'Saved product',heroImage:null,galleryImages:[],verificationStatus:'UNRESOLVED',category:'Electronics'};
+  stashCart={items:[{cartItemId:'save-1',productId:'catalog-1',catalogProductId:'catalog-1',product,addedAt:'2026-11-10T00:00:00Z',availability:'AVAILABLE',source:{userImportId:'import-1',contentSourceId:'content-1',surface:'USER_IMPORT'}}],itemCount:1,status:'ready',refresh:async()=>{},removeItem:async()=>{}};
+  const place={kind:'resolved',id:'place-1',saveId:'place-save-1',name:'Saved place',category:'Cafe',localityLabel:'Paris',formattedAddress:null,image:null,destination:{kind:'google_search',query:'Saved place Paris',url:'https://www.google.com/search?q=Saved+place+Paris'},sourceVideo:{url:'https://www.youtube.com/watch?v=abcdefghijk',thumbnailUrl:null}};
+  for(const tab of ['products','places']){
+   reset();overrideStates=[null,null,0,null,null,tab,{owner:'owner',items:[place]},'ready',null,false,{owner:'owner',items:[{...findFixture(),id:'import-1',contentSourceId:'content-1',sourceUrl:place.sourceVideo.url}]}];
+   const html=render(StashScreen);assert.equal((html.match(/Saved from your Finds/g)||[]).length,1);
+   assert.ok(html.indexOf('Saved from your Finds')<html.indexOf('Products'),'mixed sources precede the Product/Place tabs');
+   assert.ok(!actions.some(a=>a.accessibilityLabel==='Electronics, 1 product'),'removed category shelf stays absent');
+   const title=tab==='products'?'Saved product':'Saved place';
+   assert.ok(actions.some(action=>action.accessibilityLabel===`Remove ${title} from My Stash`));
+   const play=actions.find(action=>action.accessibilityLabel===`Source video, ${title}`);assert.ok(play);
+   play.onPress({stopPropagation(){}});
+   if(tab==='products')assert.ok(actions.some(action=>action.accessibilityLabel==='Buy now, Saved product'));
+   if(width===360)save(`stash-${tab}-${theme}-${os}`,html);
+   checks+=5;
+  }
  }
  // Exercise actual capture and Stash transports with an injected existing-session boundary.
  process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL='https://fixture.invalid';transportOwner='B';
@@ -280,6 +344,14 @@ async function main(){
  transportOwner='A';global.fetch=async()=>{transportOwner='B';return new Response(JSON.stringify({items:[],itemCount:0}));};await assert.rejects(()=>fetchCart('A'));checks+=4;
  transportOwner='A';global.fetch=async(_url,init)=>{assert.ok(init.signal instanceof require('abort-controller').AbortSignal);return Response.json({importId:findFixture().id,created:true,items:[],itemCount:0});};
  assert.equal((await submitUserImport('https://example.com/product','A')).created,true);assert.equal((await fetchCart('A')).itemCount,0);
+ const {removePlaceSave}=load(path.join(root,'src/services/placesApi'));
+ let deletes=0;transportOwner='B';global.fetch=async()=>{deletes++;return new Response(null,{status:204});};
+ await assert.rejects(()=>removePlaceSave('private-save','A'));assert.equal(deletes,0);
+ transportOwner='A';global.fetch=async(url,init)=>{assert.equal(url,'https://fixture.invalid/places/save%2F1');assert.equal(init.method,'DELETE');assert.equal(init.headers.Authorization,'Bearer dummy');deletes++;return new Response(null,{status:204});};
+ await removePlaceSave('save/1','A');assert.equal(deletes,1);
+ global.fetch=async()=>{transportOwner='B';return new Response(null,{status:204});};await assert.rejects(()=>removePlaceSave('save','A'));
+ transportOwner='A';global.fetch=async()=>new Response(null,{status:500});await assert.rejects(()=>removePlaceSave('save','A'));
+ global.fetch=async()=>Response.json({created:true});checks+=8;
  const {shareRequest}=load(path.join(root,'src/services/shareReviewApi'));assert.equal((await shareRequest('/history')).created,true);checks+=3;
  console.log(JSON.stringify({passed:true,checks,themes:2,platformAdapters:2,widths:[320,360,390,414,430],largeTypeAdapter:true,nativeAbortPolyfill:true,nativeExecution:false,artifacts:output??null}));
 }

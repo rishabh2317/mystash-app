@@ -1,3 +1,5 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -84,7 +86,7 @@ export default function CollectionPageRoute() {
       if (e instanceof CollectionApiError && e.statusCode === 404) {
         setNotFound(true);
       } else {
-        setError(e instanceof Error ? e.message : 'Could not load collection');
+        setError(apiFailureMessage(e));
       }
     } finally {
       setLoading(false);
@@ -179,7 +181,7 @@ export default function CollectionPageRoute() {
         surface: 'collection_page',
       });
     } catch (e) {
-      Alert.alert('Share', e instanceof Error ? e.message : 'Could not share collection.');
+      Alert.alert('Share', apiFailureMessage(e));
     }
   }, [detail]);
 
@@ -217,16 +219,13 @@ export default function CollectionPageRoute() {
     );
   }
 
-  if (error || !detail) {
-    return shell(
-      <>
-        <Text style={message}>{error ?? 'Something went wrong'}</Text>
-        <ActionButton label="Retry" variant="secondary" onPress={() => void load()} />
-      </>,
-    );
+  if (!detail) {
+    return shell(<FailureState error={error} title="Couldn’t load collection" onRetry={()=>void load()} />);
   }
 
   return (
+    <View style={{flex:1}}>
+    {error ? <FailureState error={error} variant="inline" onRetry={()=>void load()} /> : null}
     <CollectionScreen
       collection={detail}
       isLight={isLight}
@@ -239,6 +238,7 @@ export default function CollectionPageRoute() {
       isSelf={isSelf}
       onFollowPress={() => void onFollowPress()}
     />
+    </View>
   );
 }
 

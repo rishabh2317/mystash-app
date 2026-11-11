@@ -139,6 +139,7 @@ describe('ProductResolver', () => {
                 evidence: true,
               },
               enrichmentMeta: {
+                merchantPageIdentity: { title: 'Nike Air Max 95', brand: 'Nike' },
                 enrichmentProvider: 'mock',
                 metadata_completeness: 70,
                 availability: 'InStock',
@@ -520,6 +521,7 @@ describe('ProductResolver', () => {
         evidence: true,
       },
       ...overrides,
+      enrichmentMeta: { ...overrides.enrichmentMeta, merchantPageIdentity: { title, brand, model: overrides.model, category: overrides.category } },
     };
   }
 

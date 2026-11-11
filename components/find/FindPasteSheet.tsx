@@ -1,3 +1,4 @@
+import { FailureState } from '@/components/status/FailureState';
 import React, { useEffect, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -64,7 +65,7 @@ export function FindPasteSheet({visible,owner,authLoading,capture,onClose,onSign
             </View>
             {clipboard ? <Pressable accessibilityRole="button" accessibilityLabel="Paste link from clipboard" accessibilityState={{disabled:capture.busy}} disabled={capture.busy} onPress={()=>void paste()} style={{minHeight:44,alignSelf:'flex-start',justifyContent:'center'}}><View style={{flexDirection:'row',alignItems:'center',gap:tokens.space.xxs,paddingHorizontal:tokens.space.xs,paddingVertical:tokens.space.xxs,backgroundColor:tokens.color.surfaceSubtle,borderRadius:tokens.radius.pill}}><Ionicons name="clipboard-outline" size={15} color={tokens.color.primary}/><Text style={[typeStyle(tokens,'tileTitle'),{color:tokens.color.primary}]}>Paste link</Text></View></Pressable> : null}
             </View>
-            {capture.error||pasteError?<Text accessibilityRole="alert" style={[typeStyle(tokens,'caption'),{color:tokens.color.danger}]}>{capture.error??pasteError}</Text>:null}
+            {capture.error||pasteError?<FailureState error={capture.error??pasteError} variant="inline"/>:null}
             <ActionButton label="Find it ✨" minTouchHeight={52} variant="filled" disabled={!valid} pending={capture.busy} onPress={()=>{void capture.submit();}}/>
             <View style={{flexDirection:'row',alignItems:'center',gap:tokens.space.xs}}><Ionicons name="checkmark-circle-outline" size={16} color={tokens.color.textMuted}/><Text style={typeStyle(tokens,'caption')}>Automatically saved to your Stash</Text></View>
           </>}

@@ -1,0 +1,76 @@
+{
+  "provenance": "Historical final cache hypotheses and title; second description reduced to explicit product facts. Historical intermediate vision output was not retained: visual facts in tests are separately labeled human-observation fixtures, not recorded model responses. No account identifiers, signed media URLs or personal creator details.",
+  "runs": [
+    {
+      "id": "whiDdYRALIU",
+      "metadata": {
+        "title": "How Levi\u2019s Most Genius Design Works.",
+        "description": "",
+        "creator": "",
+        "thumbnailUrl": null,
+        "descriptionSource": "recorded-sanitized"
+      },
+      "products": [
+        {
+          "name": "Levi's Jeans",
+          "brand": "Levi's",
+          "model": null,
+          "category": "fashion",
+          "confidence": 0.9,
+          "sources": [
+            "SCENE"
+          ],
+          "evidence": {
+            "summary": "The video discusses Levi's design, indicating the presence of Levi's jeans.",
+            "frames": [
+              {
+                "frameIndex": 4,
+                "timestampMs": 35495
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ypyRj59jp9o",
+      "metadata": {
+        "title": "UNIQLO vs levi's denim jacket #mensfashion",
+        "description": "UNIQLO Denim Trucker Jacket, ID 484402, 64 Blue, size S.\nLevi's Relaxed Fit Trucker Jacket, ID A57820104, dark wash, size M.",
+        "creator": "",
+        "thumbnailUrl": null,
+        "descriptionSource": "recorded-sanitized"
+      },
+      "products": [
+        {
+          "name": "UNIQLO Denim Trucker Jacket",
+          "brand": "UNIQLO",
+          "model": "484402",
+          "category": "fashion",
+          "confidence": 1,
+          "sources": [
+            "METADATA"
+          ],
+          "evidence": {
+            "summary": "The product is explicitly mentioned in the video description with its ID.",
+            "frames": []
+          }
+        },
+        {
+          "name": "Levi's Relaxed Fit Trucker Jacket",
+          "brand": "Levi's",
+          "model": "A57820104",
+          "category": "fashion",
+          "confidence": 1,
+          "sources": [
+            "METADATA"
+          ],
+          "evidence": {
+            "summary": "The product is explicitly mentioned in the video description with its ID.",
+            "frames": []
+          }
+        }
+      ]
+    }
+  ]
+}

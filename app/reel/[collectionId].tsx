@@ -1,3 +1,7 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
+import CollectionReelFeed from '@/components/feed/CollectionReelFeed';
+import { getCollectionReelSession } from '@/src/state/collectionReelSession';
 import ReelItem from '@/components/ReelItem';
 import { FeedProductSheet } from '@/components/feed/FeedProductSheet';
 import { TopBar } from '@/components/chrome/TopBar';
@@ -29,12 +33,18 @@ import {
   View,
 } from 'react-native';
 
+export default function ReelHost() {
+  const params = useLocalSearchParams<{ collectionId?: string; session?: string }>();
+  const session = typeof params.session === 'string' ? getCollectionReelSession(params.session) : null;
+  return session ? <CollectionReelFeed key={params.session} sourceSession={session} /> : <FocusedReelHost key={String(params.collectionId)} />;
+}
+
 /**
  * Focused Reel host — loads Collection on demand, maps to ReelViewModel,
  * and reuses the existing Reel stack (no Home/Creator/Search Reel forks).
  * Save/Share use the same Engagement orchestration as Collection page.
  */
-export default function FocusedReelHost() {
+function FocusedReelHost() {
   const router = useRouter();
   const { user } = useAuth();
   const { mode } = useThemeMode();
@@ -80,7 +90,7 @@ export default function FocusedReelHost() {
       if (e instanceof CollectionApiError && e.statusCode === 404) {
         setNotFound(true);
       } else {
-        setError(e instanceof Error ? e.message : 'Could not load collection');
+        setError(apiFailureMessage(e));
       }
     } finally {
       setLoading(false);
@@ -181,7 +191,7 @@ export default function FocusedReelHost() {
         surface: 'focused_reel',
       });
     } catch (e) {
-      Alert.alert('Share', e instanceof Error ? e.message : 'Could not share collection.');
+      Alert.alert('Share', apiFailureMessage(e));
     }
   }, [detail]);
 
@@ -229,12 +239,7 @@ export default function FocusedReelHost() {
     return (
       <View style={styles.root}>
         <LinearGradient colors={['#05070A', '#0A0E14', '#05070A']} style={StyleSheet.absoluteFill} />
-        <View style={styles.centered}>
-          <Text style={[styles.message, { color: muted }]}>{error ?? 'Something went wrong'}</Text>
-          <Pressable onPress={() => void load()} style={styles.action}>
-            <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
-          </Pressable>
-        </View>
+        <FailureState error={error} title="Couldn’t load this reel" variant="immersive" onRetry={()=>void load()} fill />
         <TopBar
           mode="immersive"
           showBack

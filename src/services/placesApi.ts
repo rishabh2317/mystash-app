@@ -65,3 +65,15 @@ export async function fetchAllPlaces(isCurrent?: () => boolean): Promise<PlaceSt
   }, item => item.saveId ? `save:${item.saveId}` : `${item.kind}:${item.id}`, isCurrent);
   return { items, itemCount: Math.max(count, items.length), nextCursor: null };
 }
+
+/** Use the existing soft-removal endpoint, pinned to the account that confirmed. */
+export async function removePlaceSave(saveId: string, expectedOwner: string): Promise<void> {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session || data.session.user.id !== expectedOwner) throw new PlacesApiError('Account changed.', 401);
+  const res = await fetch(`${apiBase()}/places/${encodeURIComponent(saveId)}`, {
+    method: 'DELETE', headers: { Authorization: `Bearer ${data.session.access_token}`, Accept: 'application/json' },
+  });
+  if (!res.ok) throw new PlacesApiError('Couldn’t remove this place.', res.status);
+  const current = await supabase.auth.getSession();
+  if (current.data.session?.user.id !== expectedOwner) throw new PlacesApiError('Account changed.', 401);
+}

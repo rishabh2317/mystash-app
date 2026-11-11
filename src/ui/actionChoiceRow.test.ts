@@ -14,7 +14,7 @@ describe('ActionChoiceRow', () => {
     assert.match(src, /chevron-forward-outline/);
     assert.match(src, /typeStyle\(tokens, 'tileTitle'\)/);
     assert.match(src, /controlOpacity/);
-    assert.doesNotMatch(src, /shadow/);
-    assert.doesNotMatch(src, /elevation/);
+    assert.match(src, /shadowOpacity: 0/);
+    assert.match(src, /elevation: 0/);
   });
 });

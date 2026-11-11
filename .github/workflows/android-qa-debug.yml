@@ -3,6 +3,11 @@ name: Android Universal Find QA (debug signed)
 on:
   workflow_dispatch:
     inputs:
+      signed_release:
+        description: Build with the existing release signing identity against Render
+        required: false
+        default: false
+        type: boolean
       backend:
         description: QA API to embed in the APK
         required: true
@@ -16,7 +21,12 @@ permissions:
   contents: read
 
 jobs:
+  release:
+    if: inputs.signed_release
+    uses: ./.github/workflows/android-cloud-release.yml
+    secrets: inherit
   apk:
+    if: ${{ !inputs.signed_release }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:

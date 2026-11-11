@@ -1,16 +1,18 @@
+import {useAuth} from '@/contexts/AuthContext';
+import {useCommerceCountry} from '@/contexts/CommerceCountryContext';
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { TopBar } from '@/components/chrome/TopBar';
 import { ProductPage } from '@/components/product/ProductPage';
 import { ProductPageSkeleton } from '@/components/product/ProductPageSkeleton';
-import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
-import { fetchProductPage, ProductPageApiError } from '@/src/services/productPageApi';
+import { fetchProductPage } from '@/src/services/productPageApi';
 import { softCanvasGradient } from '@/src/theme/tokens';
-import { typeStyle } from '@/src/theme/typography';
 import type { ProductPageView } from '@/src/types/productPage';
 import {
   hasDetailContent,
@@ -41,13 +43,18 @@ export default function ProductPageScreen() {
   const contentSourceId = firstParam(params.contentSourceId);
   const userImportId = firstParam(params.userImportId);
 
+  const {snapshot:shoppingCountry}=useCommerceCountry();
+  const country=shoppingCountry?.country;
+  const {user}=useAuth();
   const [page, setPage] = useState<ProductPageView | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
   const pollInFlight = useRef(false);
   const loadedIdentityRef = useRef<string | null>(null);
-  const requestIdentity = resourceIdentity(productId, contentSourceId, userImportId);
+  const requestIdentity = resourceIdentity(productId, contentSourceId, userImportId,country,user?.id);
 
+  const currentIdentity=useRef(requestIdentity);
+  currentIdentity.current=requestIdentity;
   const load = useCallback(async () => {
     if (!productId) {
       loadedIdentityRef.current = null;
@@ -64,19 +71,21 @@ export default function ProductPageScreen() {
     }
     setError(null);
     try {
-      const next = await fetchProductPage(productId, { contentSourceId, userImportId });
+      const next = await fetchProductPage(productId, { contentSourceId, userImportId,country });
+      if(currentIdentity.current!==requestIdentity)return;
       loadedIdentityRef.current = requestIdentity;
       setPage(next);
       setStatus('ready');
     } catch (e) {
+      if(currentIdentity.current!==requestIdentity)return;
       if (!keep) {
         setPage(null);
         loadedIdentityRef.current = null;
       }
       setStatus('error');
-      setError(e instanceof ProductPageApiError ? e.message : PRODUCT_PAGE_COPY.loadError);
+      setError(apiFailureMessage(e));
     }
-  }, [contentSourceId, productId, requestIdentity, userImportId]);
+  }, [contentSourceId, productId, requestIdentity, userImportId,country]);
 
   useEffect(() => {
     void load();
@@ -91,7 +100,7 @@ export default function ProductPageScreen() {
     const timer = setInterval(() => {
       if (cancelled || pollInFlight.current) return;
       pollInFlight.current = true;
-      void fetchProductPage(productId, { contentSourceId, userImportId })
+      void fetchProductPage(productId, { contentSourceId, userImportId,country })
         .then((next) => {
           if (!cancelled) setPage(next);
         })
@@ -108,7 +117,7 @@ export default function ProductPageScreen() {
       clearInterval(timer);
       pollInFlight.current = false;
     };
-  }, [contentSourceId, detailsUpdating, productId, status, userImportId]);
+  }, [contentSourceId, detailsUpdating, productId, status, userImportId,country]);
 
   const loadState = resolveContentLoadState({
     hasContent: hasDetailContent(page != null),
@@ -121,22 +130,8 @@ export default function ProductPageScreen() {
       <LinearGradient colors={[...softCanvasGradient(tokens)]} style={StyleSheet.absoluteFill} />
       <TopBar mode="page" title={page?.title ?? 'Product'} showBack />
       {loadState === 'skeleton' ? <ProductPageSkeleton /> : null}
-      {loadState === 'error' ? (
-        <View style={styles.center}>
-          <Text style={[typeStyle(tokens, 'sectionTitle'), { textAlign: 'center' }]}>
-            {PRODUCT_PAGE_COPY.loadError}
-          </Text>
-          {error ? (
-            <Text style={[typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' }]}>{error}</Text>
-          ) : null}
-          <Pressable
-            onPress={() => void load()}
-            style={[styles.retry, { backgroundColor: tokens.color.cta }]}
-          >
-            <Text style={[typeStyle(tokens, 'cta'), { color: '#fff' }]}>{PRODUCT_PAGE_COPY.retry}</Text>
-          </Pressable>
-        </View>
-      ) : null}
+      {loadState === 'error' ? <FailureState error={error} title={PRODUCT_PAGE_COPY.loadError} onRetry={()=>void load()} fill /> : null}
+      {page && error ? <FailureState error={error} variant="inline" onRetry={()=>void load()} /> : null}
       {(loadState === 'content' || loadState === 'contentRefreshing') && page ? (
         <ProductPage page={page} measurementSurface={userImportId&&process.env.EXPO_PUBLIC_FIND_MEASUREMENT_ENABLED==='true'?'find':'product'} />
       ) : null}

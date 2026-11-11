@@ -34,7 +34,7 @@ export type FindItem = { id: string; createdAt: string; sourceUrl: string | null
   intent: { kind: 'product' | 'place' | 'both' | null; note: string | null; revision: number } };
 export type FindCounts = { all: number; processing: number; completed: number; attention: number; saved: number };
 export type FindProduct = { identityKey: string | null; id: string; title: string; imageUrl: string | null; catalogProductId: string | null; discoveredProductId: string | null;
-  matchKind: 'exact' | 'similar' | 'unable_to_identify'; saved: boolean; removed: boolean };
+  matchKind: 'exact' | 'possible' | 'similar' | 'unable_to_identify'; saved: boolean; removed: boolean };
 export type FindPlace = { id: string; name: string; placeId: string | null; resolution: string; locality: string | null; city: string | null; saved: boolean; removed: boolean };
 export type FindSavedSuggestion = { sourceProductId: string; candidateKey: string; identityKey: string; title: string; imageUrl: string | null; matchKind: 'similar'; saved: boolean; removed: boolean };
 export type FindDetail = FindItem & { savedSuggestions: FindSavedSuggestion[]; products: FindProduct[]; places: FindPlace[] };

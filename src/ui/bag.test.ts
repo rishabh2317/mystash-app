@@ -416,14 +416,16 @@ describe('Stash presentation', () => {
   it('Stash UI uses source cards, collection ProductCards and a category fallback', () => {
     const cart = readFileSync(join(ROOT, 'app/(tabs)/stash.tsx'), 'utf8');
     assert.match(cart, /StashSourceRail/);
-    assert.match(cart, /StashCategoryCard/);
+    assert.doesNotMatch(cart, /StashCategoryCard/);
+    assert.match(cart,/categories=\{home\.categories\}/);
     assert.match(cart, /ProductCard/);
     assert.match(cart, /variant=\"related\"/);
     assert.match(cart, /buildStashHome/);
     assert.match(cart, /StashRecentProducts/);
     assert.match(cart, /renderRelatedGrid/);
-    assert.match(cart, /trash-outline/);
-    assert.match(cart, /!item\.catalogProductId/);
+    assert.match(cart, /onRemove=\{\(\)\s*=>\s*onRemove\(item\)\}/);
+    assert.match(readFileSync(join(ROOT,'components/commerce/CardMediaActions.tsx'),'utf8'),/trash-outline/);
+    assert.match(cart, /onRemove=\{/);
     assert.doesNotMatch(cart, />\s*Remove\s*</);
     assert.match(cart, /onBecameReady/);
     assert.match(cart, /useFocusEffect/);

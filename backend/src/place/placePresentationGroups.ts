@@ -1,3 +1,4 @@
+import { samePlaceMention } from './placeMentionDedupe';
 import type { ContentSourcePlaceRecord, UserPlaceSaveRecord } from './domain/types';
 
 const LOCATION_FIELDS = ['locality', 'city', 'region', 'country', 'mentionedAddress'] as const;
@@ -46,6 +47,21 @@ export function placePresentationGroups(
     if (new Set(cluster.map(row => specificity(row.hypothesis))).size < 2) continue;
     const stable = [...cluster].sort((a, b) => a.save.createdAt.localeCompare(b.save.createdAt) || a.save.id.localeCompare(b.save.id))[0];
     for (const { save } of cluster) groups.set(save.id, stable.save.id);
+  }
+  // A full normalized address identifies a branch even if extraction formatted it
+  // differently. Require pairwise agreement: a sparse row cannot bridge branches.
+  const exactClusters: {save:UserPlaceSaveRecord;row:ContentSourcePlaceRecord}[][]=[];
+  for(const save of saves) {
+    const row=byId.get(save.contentSourcePlaceId);
+    if(!row || save.placeId || !row.mentionedAddress)continue;
+    const compatible=(other:{save:UserPlaceSaveRecord;row:ContentSourcePlaceRecord})=>other.save.userId===save.userId && other.save.contentSourceId===save.contentSourceId
+      && samePlaceMention({...other.row,name:other.row.extractedName},{...row,name:row.extractedName});
+    const cluster=exactClusters.find(c=>c.every(compatible));
+    if(cluster)cluster.push({save,row});else exactClusters.push([{save,row}]);
+  }
+  for(const cluster of exactClusters)if(cluster.length>1){
+    const stable=[...cluster].sort((a,b)=>a.save.createdAt.localeCompare(b.save.createdAt)||a.save.id.localeCompare(b.save.id))[0];
+    for(const {save} of cluster)groups.set(save.id,stable.save.id);
   }
   return groups;
 }

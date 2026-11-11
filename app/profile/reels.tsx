@@ -1,3 +1,4 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
 import { useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
@@ -34,7 +35,7 @@ export default function PersonalReelsScreen() {
       setItems((prev) => (append ? [...prev, ...page.collections] : page.collections));
       setCursor(page.nextCursor);
     } catch (e) {
-      setError(e instanceof Error ? e.message : PERSONAL_PROFILE_COPY.emptyReels);
+      setError(apiFailureMessage(e));
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -64,8 +65,9 @@ export default function PersonalReelsScreen() {
         empty={PERSONAL_PROFILE_COPY.emptyReels}
         variant="reel"
         loadingMore={loadingMore}
+        onRetry={()=>{if(creatorId)void load(creatorId);}}
         onPress={(collection) =>
-          router.push(collectionTilePressPath(collection.collectionId) as Href)
+          router.push(collectionTilePressPath(collection.collectionId, {collections:items, source:{kind:'creator',creatorId:creatorId??collection.creator.id}, nextCursor:cursor}) as Href)
         }
         onEndReached={() => {
           if (!creatorId || !cursor || loadingMore) return;

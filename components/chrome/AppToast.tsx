@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
 import type { ToastTone } from '@/src/ui/contracts';
+import { apiFailureMessage } from '@/src/ui/apiFailure';
 
 type Props = {
   tone: ToastTone;
@@ -16,6 +17,7 @@ type Props = {
  * Screens call useAppToast(); they must not invent a parallel toast host.
  */
 export function AppToast({ tone, title, onDismiss }: Props) {
+  const displayTitle = tone === 'error' ? apiFailureMessage(title) : title;
   const insets = useSafeAreaInsets();
   const { tokens } = useThemeMode();
   const bg =
@@ -46,7 +48,7 @@ export function AppToast({ tone, title, onDismiss }: Props) {
         ]}
       >
         <Text style={[styles.title, { color: fg }]} numberOfLines={3}>
-          {title}
+          {displayTitle}
         </Text>
       </Pressable>
     </View>

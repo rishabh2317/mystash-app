@@ -5,9 +5,12 @@ import { describe, it } from 'node:test';
 
 import {
   CARD_SURFACE_VARIANT,
+  FIND_CAPTURE_ACTION_COLORS,
+  FILTER_CHIP_DEPTH,
   OUTLINE_BORDER_VARIANT,
   TITANIUM_EXPERIMENT,
   getThemeTokens,
+  informationCardShadow,
   mediaScrimGradient,
   outlineCardChrome,
   pageCanvasGradient,
@@ -21,6 +24,19 @@ function channels(hex: string): [number, number, number] {
 }
 
 describe('theme tokens', () => {
+  it('keeps Find capture icons legible and the dark selected filter clearly distinct', () => {
+    const luminance = (hex: string) => channels(hex).map(value => {
+      const v = value / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+    const contrast = (a: string, b: string) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+    for (const mode of ['titanium', 'nebula'] as const) {
+      const colors = FIND_CAPTURE_ACTION_COLORS[mode];
+      assert.ok(contrast(colors.icon, colors.surface) >= 3);
+      assert.ok(contrast(getThemeTokens(mode).color.text, colors.surface) >= 4.5);
+    }
+    assert.ok(contrast(FILTER_CHIP_DEPTH.nebula.pressedFace[1], FILTER_CHIP_DEPTH.nebula.raisedFace[1]) >= 1.5);
+  });
+
   it('exposes the same semantic keys for Titanium and Nebula', () => {
     const t = getThemeTokens('titanium');
     const n = getThemeTokens('nebula');
@@ -123,7 +139,8 @@ describe('theme tokens', () => {
         assert.equal(tokens.color.outlineCard, mode === 'titanium' ? 'transparent' : 'rgba(255, 255, 255, 0.07)');
         assert.equal(tokens.semantic.surface.outlineCard, tokens.color.outlineCard);
       }
-      assert.notEqual(tokens.semantic.surface.outlineCard, tokens.semantic.surface.canvas);
+      if(mode==='nebula'||CARD_SURFACE_VARIANT==='outline')assert.notEqual(tokens.semantic.surface.outlineCard, tokens.semantic.surface.canvas);
+      else assert.equal(tokens.semantic.surface.outlineCard,TITANIUM_EXPERIMENT.card);
       assert.equal(tokens.semantic.border.subtle, tokens.color.border);
       assert.equal(tokens.semantic.text.primary, tokens.color.text);
       assert.equal(tokens.semantic.text.secondary, tokens.color.textMuted);
@@ -148,14 +165,20 @@ describe('theme tokens', () => {
       const chrome = outlineCardChrome(t);
       assert.equal(chrome.backgroundColor, TITANIUM_EXPERIMENT.card);
       assert.equal(chrome.borderColor, TITANIUM_EXPERIMENT.cardBorder);
-      assert.equal(n.color.outlineCard, '#141416');
-      assert.equal(n.color.canvas, '#050506');
+      assert.equal(n.color.outlineCard, 'rgba(255,255,255,0.09)');
+      assert.equal(n.color.canvas, '#000000');
     }
     const chrome = outlineCardChrome(t);
-    assert.equal(chrome.shadowOffset?.height, TITANIUM_EXPERIMENT.cardShadow.shadowOffset.height);
-    assert.equal(chrome.shadowOpacity, TITANIUM_EXPERIMENT.cardShadow.shadowOpacity);
-    assert.equal(chrome.shadowRadius, TITANIUM_EXPERIMENT.cardShadow.shadowRadius);
-    assert.equal(chrome.elevation, TITANIUM_EXPERIMENT.cardShadow.elevation);
+    if (CARD_SURFACE_VARIANT === 'raised') {
+      assert.equal(chrome.shadowOffset?.height, TITANIUM_EXPERIMENT.cardShadow.shadowOffset.height);
+      assert.equal(chrome.shadowOpacity, TITANIUM_EXPERIMENT.cardShadow.shadowOpacity);
+      assert.equal(chrome.shadowRadius, TITANIUM_EXPERIMENT.cardShadow.shadowRadius);
+      assert.equal(chrome.elevation, TITANIUM_EXPERIMENT.cardShadow.elevation);
+    } else {
+      assert.deepEqual(informationCardShadow(t), {});
+      assert.equal(chrome.shadowOpacity, undefined);
+      assert.equal(chrome.elevation, undefined);
+    }
     assert.equal(outlineCardChrome(n).shadowOpacity, undefined);
   });
 
@@ -174,7 +197,7 @@ describe('theme tokens', () => {
     assert.equal(t.color.border, 'rgba(0,0,0,0.14)');
     assert.equal(n.color.border, 'rgba(255,255,255,0.15)');
     assert.equal(t.elevation.card, 0);
-    assert.equal(outlineCardChrome(t).borderColor, t.color.border);
+    assert.equal(outlineCardChrome(t).borderColor,CARD_SURFACE_VARIANT==='raised'?TITANIUM_EXPERIMENT.cardBorder:t.color.border);
     assert.equal(outlineCardChrome(n).borderColor, n.color.border);
   });
 

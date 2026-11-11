@@ -69,8 +69,8 @@ describe('UX-B.2 chrome contracts', () => {
     assert.match(empty, /BAG_COPY\.signInBody/);
     assert.match(empty, /label="Sign in"/);
     assert.match(empty, /variant="filled"/);
-    assert.equal(BAG_COPY.signInTitle, 'Sign in to view your Stash');
-    assert.equal(BAG_COPY.signInBody, 'Sign in to stash products you discover.');
+    assert.equal(BAG_COPY.signInTitle, 'Your Stash, Your Shortlist');
+    assert.equal(BAG_COPY.signInBody, 'Sign in to save products you discover and pick up where you left off.');
   });
 
   it('hides Stash badge unless signed in with items', () => {

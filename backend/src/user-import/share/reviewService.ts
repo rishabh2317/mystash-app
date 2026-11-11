@@ -5,9 +5,10 @@ import { emitCartEvent } from '../../cart/observability';
 import { createDiscoveredProductService } from '../../discovered/factory';
 import { ProductNormalizer } from '../../product-intelligence/normalizer/ProductNormalizer';
 import { discoveredProductIdentityKey } from '../../product-intelligence/discovered/identity';
-import { assessSimilar, type MatchAssessment, type SimilarSuggestion } from './similarity';
+import { type MatchAssessment, type SimilarSuggestion } from './similarity';
+import { assessFindMatches } from './findMatches';
+import { assessMerchantIdentity } from '../../product-intelligence/verification/merchantEvidence';
 import { rankForIntent } from './intentRanking';
-import { assessProductIdentityCompatibility } from '../../product-intelligence/search/productIdentityCompatibility';
 
 export function createShareReviewService(db: SupabaseClient) {
   async function owned(user:string,id:string) {
@@ -49,7 +50,7 @@ export function createShareReviewService(db: SupabaseClient) {
       if(cat.error||!cat.data||cat.data.verification_status!=='VERIFIED'||cat.data.merchant_url!==current.merchantUrl)throw new ShareError('suggestion_changed',409);
       Object.assign(current,{title:cat.data.name,brand:cat.data.brand,model:cat.data.model,category:cat.data.category});
     }
-    const check=assessSimilar(p.data,[{title:current.title,brand:current.brand,model:current.model,category:current.category,
+    const check=assessFindMatches(p.data,[{title:current.title,brand:current.brand,model:current.model,category:current.category,
       image:current.image,merchantUrl:current.merchantUrl,merchant:null,score:1,pdpVerdict:'pdp',pdpScore:1,
       sourceTier:'retailer',verifiedCatalogId:current.catalogId??undefined,enrichmentSucceeded:true,enrichmentMeta:{identitySource:'merchant_html'}}]);
     if(!check.suggestions.some(s=>s.key===candidateKey))throw new ShareError('suggestion_changed',409);
@@ -60,7 +61,7 @@ export function createShareReviewService(db: SupabaseClient) {
       const saved=await createDiscoveredProductService(db).getOrCreate({name:current.title,brand:current.brand,model:current.model,category:current.category,
         imageUrl:current.image,merchantUrl:current.merchantUrl,merchant:null,price:null,currency:null,
         identityKey:discoveredProductIdentityKey(norm,current.merchantUrl),metadata:{source:'reviewed_merchant_candidate'},matchConfidence:null,completeness:null});
-      if(saved.record.merchantUrl!==current.merchantUrl || !assessProductIdentityCompatibility({name:current.title,brand:current.brand,model:current.model,category:current.category},
+      if(saved.record.merchantUrl!==current.merchantUrl || !assessMerchantIdentity({name:current.title,brand:current.brand,model:current.model,category:current.category},
         {title:saved.record.name,brand:saved.record.brand,model:saved.record.model,category:saved.record.category,merchantUrl:saved.record.merchantUrl}).ok)throw new ShareError('suggestion_changed',409);
       discoveredProductId=saved.record.id;productId=discoveredProductId;
     }

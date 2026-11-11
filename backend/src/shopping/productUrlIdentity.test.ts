@@ -30,3 +30,8 @@ describe('productUrlIdentity', () => {
     assert.equal(isExactProductBuyingUrl('https://www.apple.com/iphone/'), false);
   });
 });
+
+it('HP shop/pdp paths are exact product destinations, not generic shop or search pages', () => {
+  assert.equal(isExactProductBuyingUrl('https://www.hp.com/us-en/shop/pdp/hp-omnibook-x-laptop-ai-pc-14-fe000-14-9j1h6av-1'), true);
+  assert.equal(isExactProductBuyingUrl('https://www.hp.com/us-en/shop/pdp/'), false);
+});

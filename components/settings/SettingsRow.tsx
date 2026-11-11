@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Text } from '@/components/ui/Text';
 
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
 import { settingsRowShowsChevron } from '@/src/ui/settingsHub';
+import { typeStyle } from '@/src/theme/typography';
 
 export type SettingsRowVariant =
   | 'navigation'
@@ -64,24 +66,19 @@ export function SettingsRow({
       {icon ? <Ionicons name={icon} size={ICON_SIZE} color={iconColor} /> : null}
       <View style={styles.copy}>
         <Text
-          style={{
+          style={[typeStyle(tokens, 'body'), {
             color: titleColor,
-            fontSize: tokens.fontSize.bodyStrong,
-            lineHeight: tokens.lineHeight.bodyStrong,
-            fontWeight: tokens.fontWeight.bold,
-          }}
+            fontFamily: tokens.fontFamily.semibold,
+          }]}
           numberOfLines={1}
         >
           {title}
         </Text>
         {subtitle ? (
           <Text
-            style={{
-              color: tokens.color.textMuted,
-              fontSize: tokens.fontSize.caption,
-              lineHeight: tokens.lineHeight.caption,
+            style={[typeStyle(tokens, 'caption'), {
               marginTop: 2,
-            }}
+            }]}
             numberOfLines={2}
           >
             {subtitle}
@@ -90,15 +87,12 @@ export function SettingsRow({
       </View>
       {value ? (
         <Text
-          style={{
-            color: tokens.color.textMuted,
-            fontSize: tokens.fontSize.caption,
-            lineHeight: tokens.lineHeight.caption,
-            fontWeight: tokens.fontWeight.semibold,
+          style={[typeStyle(tokens, 'caption'), {
+            fontFamily: tokens.fontFamily.medium,
             flexShrink: 1,
             maxWidth: '42%',
             textAlign: 'right',
-          }}
+          }]}
           numberOfLines={1}
         >
           {value}

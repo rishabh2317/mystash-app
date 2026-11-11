@@ -11,6 +11,7 @@ function load(file){
  mod.require=id=>{
   if(id==='react')return adapter;
   if(id==='react-native')return web;
+  if(id==='expo-linear-gradient')return{LinearGradient:props=>React.createElement(web.View,{style:props.style},props.children)};
   if(id==='@/contexts/AuthContext')return{useAuth:()=>({user:{id:'fixture-user'}})};
   if(id==='@/contexts/CartContext')return{useCart:()=>({refresh:async()=>{throw Error('Network forbidden');}})};
   if(id==='@/contexts/ThemeContext')return{useThemeMode:()=>({tokens})};

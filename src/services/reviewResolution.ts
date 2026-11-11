@@ -53,3 +53,13 @@ export function ingestDraftNeedsProductRetry(
     return p.resolutionStatus === 'UNRESOLVED';
   });
 }
+
+/** Product identification does not imply that a shopping destination was verified. */
+export function reviewShoppingLinkStatus(product: Pick<DraftProduct, 'resolutionStatus' | 'merchantUrl'>): string {
+  if (!product.resolutionStatus) return 'Checking shopping link…';
+  let hasLink = false;
+  try { const url = new URL(product.merchantUrl ?? ''); hasLink = ['https:', 'http:'].includes(url.protocol); } catch { /* No shopping destination. */ }
+  if (product.resolutionStatus === 'VERIFIED' && hasLink) return 'Shopping link verified';
+  if (product.resolutionStatus === 'UNRESOLVED') return 'Shopping link could not be verified';
+  return hasLink ? 'Product identified · Shopping link not verified' : 'Product identified · Shopping link unavailable';
+}

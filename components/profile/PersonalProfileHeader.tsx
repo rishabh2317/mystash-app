@@ -69,8 +69,7 @@ export function PersonalProfileHeader({
               label={PERSONAL_PROFILE_COPY.editProfile}
               onPress={onEditPress}
               accessibilityLabel={PERSONAL_PROFILE_COPY.editProfile}
-              minTouchHeight={44}
-              wrapLabel
+              hitSlop={{ top: 6, bottom: 6 }}
             />
           </View>
           <View style={styles.btn}>
@@ -81,8 +80,7 @@ export function PersonalProfileHeader({
               label="Share"
               onPress={onSharePress}
               accessibilityLabel="Share profile"
-              minTouchHeight={44}
-              wrapLabel
+              hitSlop={{ top: 6, bottom: 6 }}
             />
           </View>
           <Pressable
@@ -90,6 +88,7 @@ export function PersonalProfileHeader({
             accessibilityLabel={discoverExpanded ? 'Hide creator suggestions' : 'Show creator suggestions'}
             accessibilityState={{ expanded: discoverExpanded }}
             onPress={onToggleDiscover}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             style={({ pressed }) => [styles.discoverToggle, {
               borderRadius: tokens.radius.md,
               borderColor: tokens.color.border,
@@ -97,7 +96,7 @@ export function PersonalProfileHeader({
               opacity: pressed ? tokens.motion.pressOpacity : 1,
             }]}
           >
-            <Ionicons name={discoverExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={tokens.color.text} />
+            <Ionicons name="person-add-outline" size={18} color={tokens.color.text} />
           </Pressable>
         </View>
       }
@@ -116,8 +115,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   discoverToggle: {
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
     alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',

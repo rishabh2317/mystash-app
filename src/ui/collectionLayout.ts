@@ -1,4 +1,5 @@
 import type { Video } from '@/src/mocks/videos';
+import { createCollectionReelSession, type CollectionReelContext } from '@/src/state/collectionReelSession';
 import type {
   CollectionDetailViewModel,
   CollectionMediaPlatform,
@@ -40,8 +41,9 @@ export function collectionReelPath(collectionId: string): `/reel/${string}` {
   return `/reel/${collectionId}`;
 }
 
-/** Primary tap target for Collection tiles/cards (Focused Reel, not Collection page). */
-export function collectionTilePressPath(collectionId: string): `/reel/${string}` {
+/** Collection tiles hand off their source list and cursor when available. */
+export function collectionTilePressPath(collectionId: string, context?: CollectionReelContext): `/reel/${string}` {
+  if (context) return `/reel/${encodeURIComponent(collectionId)}?session=${createCollectionReelSession(collectionId, context)}`;
   return collectionReelPath(collectionId);
 }
 

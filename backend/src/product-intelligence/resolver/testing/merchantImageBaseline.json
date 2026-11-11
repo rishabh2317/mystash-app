@@ -1,0 +1,256 @@
+{
+  "jbl:create:page": {
+    "hero": "https://images.example/jbl.jpg",
+    "gallery": [
+      "https://images.example/jbl.jpg"
+    ],
+    "imageCalls": [
+      "https://www.jbl.com/TUNE-BEAM-2.html"
+    ]
+  },
+  "jbl:create:blocked": {
+    "hero": "https://images.example/extracted-jbl.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.jbl.com/TUNE-BEAM-2.html"
+    ]
+  },
+  "jbl:create:fallback": {
+    "hero": "https://images.example/extracted-jbl.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.jbl.com/TUNE-BEAM-2.html"
+    ]
+  },
+  "jbl:find:page": {
+    "hero": "https://images.example/jbl.jpg",
+    "gallery": [
+      "https://images.example/jbl.jpg"
+    ],
+    "imageCalls": [
+      "https://www.jbl.com/TUNE-BEAM-2.html"
+    ]
+  },
+  "jbl:find:blocked": {
+    "hero": "https://images.example/extracted-jbl.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.jbl.com/TUNE-BEAM-2.html"
+    ]
+  },
+  "jbl:find:fallback": {
+    "hero": "https://images.example/extracted-jbl.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.jbl.com/TUNE-BEAM-2.html"
+    ]
+  },
+  "dji:create:page": {
+    "hero": "https://images.example/dji.jpg",
+    "gallery": [
+      "https://images.example/dji.jpg"
+    ],
+    "imageCalls": [
+      "https://store.dji.com/product/osmo-pocket-3"
+    ]
+  },
+  "dji:create:blocked": {
+    "hero": "https://images.example/extracted-dji.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://store.dji.com/product/osmo-pocket-3"
+    ]
+  },
+  "dji:create:fallback": {
+    "hero": "https://images.example/extracted-dji.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://store.dji.com/product/osmo-pocket-3"
+    ]
+  },
+  "dji:find:page": {
+    "hero": "https://images.example/dji.jpg",
+    "gallery": [
+      "https://images.example/dji.jpg"
+    ],
+    "imageCalls": [
+      "https://store.dji.com/product/osmo-pocket-3"
+    ]
+  },
+  "dji:find:blocked": {
+    "hero": "https://images.example/extracted-dji.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://store.dji.com/product/osmo-pocket-3"
+    ]
+  },
+  "dji:find:fallback": {
+    "hero": "https://images.example/extracted-dji.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://store.dji.com/product/osmo-pocket-3"
+    ]
+  },
+  "thinkpad:create:page": {
+    "hero": "https://images.example/thinkpad.jpg",
+    "gallery": [
+      "https://images.example/thinkpad.jpg"
+    ],
+    "imageCalls": [
+      "https://www.lenovo.com/product/thinkpad-x1-carbon"
+    ]
+  },
+  "thinkpad:create:blocked": {
+    "hero": "https://images.example/extracted-thinkpad.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.lenovo.com/product/thinkpad-x1-carbon"
+    ]
+  },
+  "thinkpad:create:fallback": {
+    "hero": "https://images.example/extracted-thinkpad.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.lenovo.com/product/thinkpad-x1-carbon"
+    ]
+  },
+  "thinkpad:find:page": {
+    "hero": "https://images.example/thinkpad.jpg",
+    "gallery": [
+      "https://images.example/thinkpad.jpg"
+    ],
+    "imageCalls": [
+      "https://www.lenovo.com/product/thinkpad-x1-carbon"
+    ]
+  },
+  "thinkpad:find:blocked": {
+    "hero": "https://images.example/extracted-thinkpad.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.lenovo.com/product/thinkpad-x1-carbon"
+    ]
+  },
+  "thinkpad:find:fallback": {
+    "hero": "https://images.example/extracted-thinkpad.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.lenovo.com/product/thinkpad-x1-carbon"
+    ]
+  },
+  "omnibook:create:page": {
+    "hero": "https://images.example/omnibook.jpg",
+    "gallery": [
+      "https://images.example/omnibook.jpg"
+    ],
+    "imageCalls": [
+      "https://www.hp.com/us-en/shop/pdp/hp-omnibook-x"
+    ]
+  },
+  "omnibook:create:blocked": {
+    "hero": "https://images.example/extracted-omnibook.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.hp.com/us-en/shop/pdp/hp-omnibook-x"
+    ]
+  },
+  "omnibook:create:fallback": {
+    "hero": "https://images.example/extracted-omnibook.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.hp.com/us-en/shop/pdp/hp-omnibook-x"
+    ]
+  },
+  "omnibook:find:page": {
+    "hero": "https://images.example/omnibook.jpg",
+    "gallery": [
+      "https://images.example/omnibook.jpg"
+    ],
+    "imageCalls": [
+      "https://www.hp.com/us-en/shop/pdp/hp-omnibook-x"
+    ]
+  },
+  "omnibook:find:blocked": {
+    "hero": "https://images.example/extracted-omnibook.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.hp.com/us-en/shop/pdp/hp-omnibook-x"
+    ]
+  },
+  "omnibook:find:fallback": {
+    "hero": "https://images.example/extracted-omnibook.jpg",
+    "gallery": [],
+    "imageCalls": [
+      "https://www.hp.com/us-en/shop/pdp/hp-omnibook-x"
+    ]
+  },
+  "mixed-generation:create": {
+    "hero": "https://images.example/existing-hero.jpg",
+    "gallery": [
+      "https://images.example/existing-hero.jpg",
+      "https://images.example/second.jpg",
+      "https://images.example/third.jpg"
+    ],
+    "imageCalls": []
+  },
+  "multi-gallery:create": {
+    "hero": "https://images.example/existing-hero.jpg",
+    "gallery": [
+      "https://images.example/existing-hero.jpg",
+      "https://images.example/second.jpg",
+      "https://images.example/third.jpg"
+    ],
+    "imageCalls": []
+  },
+  "seed:create": {
+    "hero": "https://images.example/existing-hero.jpg",
+    "gallery": [
+      "https://images.example/existing-hero.jpg",
+      "https://images.example/second.jpg",
+      "https://images.example/third.jpg"
+    ],
+    "imageCalls": []
+  },
+  "catalog-hit:create": {
+    "hero": "https://images.example/existing-hero.jpg",
+    "gallery": [
+      "https://images.example/cached-second.jpg",
+      "https://images.example/existing-hero.jpg"
+    ],
+    "imageCalls": []
+  },
+  "mixed-generation:find": {
+    "hero": "https://images.example/existing-hero.jpg",
+    "gallery": [
+      "https://images.example/existing-hero.jpg",
+      "https://images.example/second.jpg",
+      "https://images.example/third.jpg"
+    ],
+    "imageCalls": []
+  },
+  "multi-gallery:find": {
+    "hero": "https://images.example/existing-hero.jpg",
+    "gallery": [
+      "https://images.example/existing-hero.jpg",
+      "https://images.example/second.jpg",
+      "https://images.example/third.jpg"
+    ],
+    "imageCalls": []
+  },
+  "seed:find": {
+    "hero": "https://images.example/existing-hero.jpg",
+    "gallery": [
+      "https://images.example/existing-hero.jpg",
+      "https://images.example/second.jpg",
+      "https://images.example/third.jpg"
+    ],
+    "imageCalls": []
+  },
+  "catalog-hit:find": {
+    "hero": "https://images.example/existing-hero.jpg",
+    "gallery": [
+      "https://images.example/cached-second.jpg",
+      "https://images.example/existing-hero.jpg"
+    ],
+    "imageCalls": []
+  }
+}

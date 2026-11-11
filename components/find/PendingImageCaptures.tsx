@@ -1,3 +1,4 @@
+import { FailureState } from '@/components/status/FailureState';
 import React,{useCallback,useRef,useState} from 'react';
 import {Alert,View} from 'react-native';
 import {useFocusEffect,useRouter,type Href} from 'expo-router';
@@ -21,7 +22,7 @@ export function PendingImageCaptures(){
   const run=async(action:()=>Promise<unknown>)=>{setBusy(true);try{await action();notifyPendingShares();await refresh();}catch{if(latest.current===owner)setError('Couldn’t confirm the change. Your capture is still stored securely.');}finally{setBusy(false);}};
   return <View style={{gap:tokens.space.sm}}><Text accessibilityRole="header" style={typeStyle(tokens,'sectionTitle')}>Images on this device</Text>
     <Text style={typeStyle(tokens,'caption')}>Waiting to send. They’ll appear in your Finds once received.</Text>
-    {error?<Text accessibilityRole="alert" style={typeStyle(tokens,'bodyMuted')}>{error}</Text>:null}
+    {error?<FailureState error={error} variant="inline"/>:null}
     {rows.slice(0,limit).map(row=><View key={row.id} style={{gap:tokens.space.sm,padding:tokens.space.md,borderWidth:tokens.stroke.thin,borderColor:tokens.color.border,borderRadius:tokens.radius.xl}}>
       <Text style={typeStyle(tokens,'body')}>{row.origin==='camera'?'Camera photo':'Screenshot / Gallery'}</Text>
       <Text accessibilityLiveRegion="polite" style={typeStyle(tokens,'caption')}>{row.state==='accepted'?'Received by Mystash — processing. Refreshing your history…':row.state==='uploading'?'Sending securely…':row.state==='needs_auth'?'Sign in to this account again to send.':row.state==='needs_review'?'Couldn’t send this image. Try again or remove the local copy.':'Securely queued — we’ll retry when connected. Keep Mystash open to send images.'}</Text>

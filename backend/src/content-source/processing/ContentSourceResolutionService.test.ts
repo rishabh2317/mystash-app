@@ -706,6 +706,7 @@ describe('ContentSourceResolutionService', () => {
       pdpScore: 0.9,
       pdpVerdict: 'pdp' as const,
       enrichmentSucceeded: true,
+      enrichmentMeta: { merchantPageIdentity: { title, brand } },
       sourceType: 'MARKETPLACE' as const,
       pageType: 'PRODUCT' as const,
       capabilities: {
@@ -923,4 +924,28 @@ it('Find foundations defer one importer save failure without failing extraction 
     await h.service.fanOutUser(imported);
     assert.equal((await h.cart.getCart(USER_A)).itemCount, 1);
     assert.equal(h.searched(), 0);
+});
+
+it('possible fashion hypotheses never resolve or automatically enter Stash even when metadata names a brand', async()=>{
+  const harness=createHarness();
+  const source=await insertSource(harness.sources,'possible-jacket');
+  await harness.sources.replaceProducts(source.id,[candidate(source.id,{position:1,externalId:'jacket',name:'Levi denim jacket',brand:'Levi',sources:['METADATA'],evidence:{identification:{version:1,kind:'possible',reason:'exact_style_unconfirmed'}}})]);
+  await addImport(harness.imports,USER_A,source.id,source.canonicalUrl!);
+  assert.equal(await harness.service.resolveAndFanOut(source.id),0);
+  assert.equal(harness.searched(),0);
+  assertNoStashRows(harness);
+  assert.equal((await harness.sources.listProducts(source.id)).length,1,'useful hypothesis remains');
+});
+
+for(const identity of [
+  {name:'UNIQLO Denim Trucker Jacket',brand:'UNIQLO',model:'484402',title:'Unisex Denim Trucker Jacket',url:'https://www.uniqlo.com/us/en/products/E484402-000/00'},
+  {name:"Levi's Relaxed Fit Trucker Jacket",brand:"Levi's",model:'A57820104',title:'Relaxed Trucker Jacket - Dark Wash',url:'https://www.levi.com/US/en_US/clothing/men/outerwear/relaxed-trucker-jacket/p/A57820104'},
+]) it(`recorded ${identity.brand} discovery binds exact identity and automatically saves through the existing service`,async()=>{
+  const harness=createHarness({search:async()=>({kind:'Succeeded',provider:'recorded-serper',candidates:[],merchantEvidence:[{url:identity.url,discovery:{title:identity.title,provider:'recorded-serper'},pageRead:'NOT_ATTEMPTED'}]})});
+  const source=await insertSource(harness.sources,identity.model);
+  await harness.sources.replaceProducts(source.id,[candidate(source.id,{position:1,externalId:identity.model,...identity,category:'fashion'})]);
+  await addImport(harness.imports,USER_A,source.id,source.canonicalUrl!);
+  assert.equal(await harness.service.resolveAndFanOut(source.id),1);
+  assert.equal(harness.cartRepo.items.size,1);
+  assert.equal((await harness.sources.listProducts(source.id))[0].image,null,'merchant-only evidence does not introduce a new product image');
 });

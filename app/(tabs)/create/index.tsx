@@ -6,6 +6,7 @@ import { CreateSignedOutState } from '@/components/create/CreateSignedOutState';
 import { CreateStudioLibraryPicker } from '@/components/create/CreateStudioLibraryPicker';
 import { CreateStudioStage, configureStudioStageAnimation } from '@/components/create/CreateStudioStage';
 import { CreateStudioStepper } from '@/components/create/CreateStudioStepper';
+import { CreateProductLinks } from '@/components/create/CreateProductLinks';
 import { StagedProgressIndicator } from '@/components/create/StagedProgressIndicator';
 import { PublishConfirmSheet } from '@/components/create/PublishConfirmSheet';
 import { PublishSuccessScreen } from '@/components/create/PublishSuccessScreen';
@@ -58,7 +59,6 @@ import {
 import { useAppToast } from '@/src/ui/useAppToast';
 import { usePrefersReducedMotion } from '@/src/ui/usePrefersReducedMotion';
 import {
-  normalizeProductHttpUrl,
   studioActiveStepFromScroll,
   studioDefaultIncludeExtracted,
   studioExtractedProducts,
@@ -74,6 +74,7 @@ import {
   type StudioStepId,
 } from '@/src/ui/createStudioFlow';
 import type { DraftProduct, IngestDraftPayload } from '@/src/types/curation';
+import { collectStudioProductLinks, MAX_STUDIO_PRODUCT_LINKS, type StudioProductLinkField } from '@/src/ui/createProductLinks';
 import { detectPlatform, isSupportedVideoUrl } from '@/src/utils/videoUtils';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Image } from 'expo-image';
@@ -115,7 +116,9 @@ export default function CreateSubmitScreen() {
   const [draft, setDraft] = useState<IngestDraftPayload | undefined>();
   const [selectedProducts, setSelectedProducts] = useState<Record<string, boolean>>({});
   const [productSources, setProductSources] = useState<Record<string, StudioProductSource>>({});
-  const [linkUrl, setLinkUrl] = useState('');
+  const [linkFields, setLinkFields] = useState<StudioProductLinkField[]>([{ id: 0, value: '' }]);
+  const nextLinkId = useRef(1);
+  const addLinksLock = useRef(false);
   const [linkComposerOpen, setLinkComposerOpen] = useState(false);
   const [storyTitle, setStoryTitle] = useState('');
   const [storyCaption, setStoryCaption] = useState('');
@@ -150,7 +153,6 @@ export default function CreateSubmitScreen() {
   const pasteValid = isSupportedVideoUrl(pasteUrl.trim());
   const pasteField = createFieldColors(tokens, { invalid: Boolean(pasteUrl.trim()) && !pasteValid });
   const titleField = createFieldColors(tokens);
-  const productField = createFieldColors(tokens);
   const hasVideo = Boolean(selectedVideo?.sourceUrl);
   const extractedProducts = useMemo(
     () => studioExtractedProducts(draft?.products),
@@ -198,7 +200,7 @@ export default function CreateSubmitScreen() {
       setDraft(undefined);
       setSelectedProducts({});
       setProductSources({});
-      setLinkUrl('');
+      setLinkFields([{ id: nextLinkId.current++, value: '' }]);
       setLinkComposerOpen(false);
       setStoryTitle('');
       setStoryCaption('');
@@ -384,18 +386,20 @@ export default function CreateSubmitScreen() {
   };
 
   const onAddProductLink = async () => {
+    if (addLinksLock.current || addingLink || busy || extracting || processing) return;
     setFormError(null);
-    const productUrl = normalizeProductHttpUrl(linkUrl);
-    if (!productUrl) {
-      setFormError(CREATE_COPY.manualSaveFailedInline);
+    const links = collectStudioProductLinks(linkFields);
+    if (!links.valid) {
+      setFormError(CREATE_COPY.productLinksCheck);
       return;
     }
     const videoUrl = selectedVideo?.sourceUrl.trim();
     if (!videoUrl) return;
+    addLinksLock.current = true;
     setAddingLink(true);
     try {
       if (draft?.ingestId) {
-        const res = await appendManualProductsToIngest(draft.ingestId, [productUrl]);
+        const res = await appendManualProductsToIngest(draft.ingestId, links.urls);
         if (res.draft) {
           setDraft(res.draft);
           tagNewProducts(res.draft.products, 'link');
@@ -403,7 +407,7 @@ export default function CreateSubmitScreen() {
         const partial = createPartialProductLinksMessage(res.failedProductUrls ?? []);
         if (partial) setFormError(partial);
       } else {
-        const res = await submitManualProductLinks(videoUrl, [productUrl], {
+        const res = await submitManualProductLinks(videoUrl, links.urls, {
           videoTitle: (storyTitle.trim() || selectedVideo?.title)?.slice(0, 200),
         });
         if (!res.ingestId || !res.draft) {
@@ -415,11 +419,12 @@ export default function CreateSubmitScreen() {
         const partial = createPartialProductLinksMessage(res.failedProductUrls ?? []);
         if (partial) setFormError(partial);
       }
-      setLinkUrl('');
+      setLinkFields([{ id: nextLinkId.current++, value: '' }]);
       refreshResumeList();
     } catch (e) {
       setFormError(normalizeIngestError(e) || CREATE_COPY.manualSaveFailedInline);
     } finally {
+      addLinksLock.current = false;
       setAddingLink(false);
     }
   };
@@ -763,47 +768,15 @@ export default function CreateSubmitScreen() {
               disabled={extracting || addingLink || processing}
             />
             {linkComposerOpen ? (
-              <View style={{ gap: tokens.space.xs }}>
-                <View
-                  style={[
-                    styles.fieldRow,
-                    {
-                      backgroundColor: productField.backgroundColor,
-                      borderColor: tokens.color.border,
-                      borderRadius: tokens.radius.lg,
-                    },
-                  ]}
-                >
-                  <Ionicons name="link-outline" size={18} color={tokens.color.textMuted} />
-                  <TextInput
-                    value={linkUrl}
-                    onChangeText={setLinkUrl}
-                    accessibilityLabel={CREATE_COPY.productSourceLinkTitle}
-                    placeholder={CREATE_COPY.productSourceLinkPlaceholder}
-                    placeholderTextColor={productField.placeholderTextColor}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="url"
-                    style={[
-                      styles.fieldInput,
-                      {
-                        color: productField.color,
-                        fontFamily: tokens.fontFamily.regular,
-                        fontSize: tokens.fontSize.body,
-                        lineHeight: tokens.lineHeight.body,
-                      },
-                    ]}
-                  />
-                </View>
-                <ActionButton
-                  label={CREATE_COPY.productSourceLinkAction}
-                  variant="outlinePrimary"
-                    pending={addingLink}
-                  disabled={!normalizeProductHttpUrl(linkUrl) || addingLink}
-                  trailingIcon="chevron-forward-outline"
-                  onPress={() => void onAddProductLink()}
-                />
-              </View>
+              <CreateProductLinks
+                fields={linkFields}
+                pending={addingLink}
+                disabled={busy || extracting || processing}
+                onChange={(id, value) => setLinkFields(fields => fields.map(field => field.id === id ? { ...field, value } : field))}
+                onAdd={() => { const id = nextLinkId.current++; setLinkFields(fields => fields.length < MAX_STUDIO_PRODUCT_LINKS ? [...fields, { id, value: '' }] : fields); }}
+                onRemove={id => setLinkFields(fields => fields.length > 1 ? fields.filter(field => field.id !== id) : fields)}
+                onSubmit={() => void onAddProductLink()}
+              />
             ) : null}
 
             <ActionChoiceRow

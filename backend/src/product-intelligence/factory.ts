@@ -1,3 +1,5 @@
+import {CountryOfferService} from '../shopping/CountryOfferService';
+import {createCountryOfferCache} from '../shopping/CountryOfferCache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { privateImageContext,imageSafeSearchCache } from '../user-import/media/privacy';
 import type { SearchCandidateCache } from './interfaces/CatalogRepository';
@@ -22,6 +24,8 @@ import type { CollectionTagRemapPort } from '../catalog/ports';
 import { noopCollectionTagRemap } from '../catalog/ports';
 
 export type ProductIntelligenceBundle = {
+  countryOffers: CountryOfferService;
+  search: import('./interfaces/ProductSearchProvider').SearchStrategy;
   resolver: ProductResolver;
   enrichment: MerchantEnrichmentService;
   catalog: ReturnType<typeof createCatalogService>;
@@ -68,6 +72,8 @@ export function createProductIntelligence(
   const drafts = new SupabaseDraftUpdater(admin);
   const history = new SupabaseMatchHistoryWriter(admin);
 
+  const countryOffers = new CountryOfferService(createCountryOfferCache(admin),
+    (query,country)=>search.discoverMerchantEvidence(query,country));
   const resolver = new ProductResolver(
     catalog,
     search,
@@ -76,7 +82,8 @@ export function createProductIntelligence(
     cfg,
     cfg.backgroundResolve ? background : null,
     ingestId,
+    countryOffers,
   );
 
-  return { resolver, enrichment, catalog };
+  return { resolver, enrichment, catalog, search, countryOffers };
 }

@@ -12,7 +12,7 @@ test('activity prioritizes active work and falls back to the newest completed or
 });
 test('activity defaults and user choices respect state and identity',()=>{
   const completed=findFixture(1),active=findFixture(2,'processing'),failed=findFixture(3,'attention');
-  assert.equal(findActivityExpanded(completed,null),false);assert.equal(findActivityExpanded(active,null),true);assert.equal(findActivityExpanded(failed,null),true);
+  assert.equal(findActivityExpanded(completed,null),false);assert.equal(findActivityExpanded(active,null),true);assert.equal(findActivityExpanded(failed,null),false);
   assert.equal(findActivityExpanded(active,{id:active.id,expanded:false}),false);
   assert.equal(findActivityExpanded(completed,{id:active.id,expanded:true}),false);
 });

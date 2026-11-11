@@ -1,3 +1,4 @@
+import {countrySuitability} from '../../shopping/countrySuitability';
 import type { SearchCandidate } from '../domain/types';
 import { isExactProductBuyingUrl } from '../../shopping/productUrlIdentity';
 import { classifyShoppingProvider } from '../../shopping/shoppingPriorityConfig';
@@ -83,12 +84,14 @@ export function pickOneOfferPerMerchant<T extends SearchCandidate>(
     }
     const nextRank = rankMerchantOfferCandidate(candidate, country);
     const prevRank = rankMerchantOfferCandidate(existing, country);
-    if (nextRank > prevRank) {
+    const nextCountry=countrySuitability(candidate.merchantUrl,country,candidate.enrichmentMeta?.countryAvailability);
+    const prevCountry=countrySuitability(existing.merchantUrl,country,existing.enrichmentMeta?.countryAvailability);
+    if (nextCountry < prevCountry || (nextCountry===prevCountry && nextRank > prevRank)) {
       bestByGroup.set(key, candidate);
       continue;
     }
     if (
-      nextRank === prevRank &&
+      nextCountry === prevCountry && nextRank === prevRank &&
       !merchantUrlsMatch(existing.merchantUrl, candidate.merchantUrl) &&
       isExactProductBuyingUrl(candidate.merchantUrl) &&
       !isExactProductBuyingUrl(existing.merchantUrl)
@@ -96,5 +99,5 @@ export function pickOneOfferPerMerchant<T extends SearchCandidate>(
       bestByGroup.set(key, candidate);
     }
   }
-  return [...bestByGroup.values()];
+  return [...bestByGroup.values()].map((candidate,index)=>({candidate,index})).sort((a,b)=>countrySuitability(a.candidate.merchantUrl,country,a.candidate.enrichmentMeta?.countryAvailability)-countrySuitability(b.candidate.merchantUrl,country,b.candidate.enrichmentMeta?.countryAvailability)||a.index-b.index).map(x=>x.candidate);
 }

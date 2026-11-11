@@ -1,3 +1,4 @@
+import {countrySuitability,type CountryAvailability} from './countrySuitability';
 import { logger } from '../logger';
 import type {
   CandidatePageType,
@@ -22,6 +23,7 @@ import {
 } from './shoppingPriorityConfig';
 
 export type ShoppingOffer = {
+  countryAvailability?:CountryAvailability;
   url: string;
   merchant?: string | null;
   price?: string | null;
@@ -54,6 +56,7 @@ type ScoredShoppingOffer = {
   affiliateSupported: boolean;
   merchantPriority: number;
   pdpScore: number;
+  countryAvailability?:CountryAvailability;
   availability: string | null;
   sourceTier: ShoppingOffer['sourceTier'];
   shoppingProvider: string;
@@ -153,6 +156,7 @@ function scoreOffers(offers: ShoppingOffer[], priority: string[]): ScoredShoppin
         merchantPriority,
         pdpScore,
         availability: offer.availability ?? null,
+        countryAvailability:offer.countryAvailability,
         sourceTier: offer.sourceTier,
         shoppingProvider,
       };
@@ -177,9 +181,10 @@ function scoreOffers(offers: ShoppingOffer[], priority: string[]): ScoredShoppin
 export function resolveShoppingDestination(
   offers: ShoppingOffer[],
   priority: string[] = getShoppingProviderPriority(),
+  country?:string|null,
 ): ShoppingDestinationChoice | null {
   logger.info({ offerCount: offers.length, priority }, 'shopping.resolution.started');
-  const scored = scoreOffers(offers, priority);
+  const scored = scoreOffers(offers, priority).sort((a,b)=>countrySuitability(a.url,country,a.countryAvailability)-countrySuitability(b.url,country,b.countryAvailability));
   if (!scored.length) return null;
 
   const winner = scored[0]!;

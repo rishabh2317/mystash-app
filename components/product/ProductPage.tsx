@@ -21,7 +21,7 @@ import { ContentRail } from '@/components/ui/ContentRail';
 import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { hydrateSearchProducts } from '@/src/mappers/searchProductHydration';
-import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
+import { useProductAddToCartHandler, useProductBuyHandler } from '@/src/services/productActionOrchestration';
 import { fetchLivePrices } from '@/src/services/livePricesApi';
 import { searchBlended } from '@/src/services/searchApi';
 import { openProductShopping } from '@/src/services/shoppingClick';
@@ -33,7 +33,7 @@ import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { ProductPageOffer, ProductPageRelatedMedia, ProductPageView } from '@/src/types/productPage';
 import { pickRelatedProducts } from '@/src/ui/collectionRelatedProducts';
-import { COLLECTION_YOUTUBE_CROP_SCALE } from '@/src/ui/collectionLayout';
+import { COLLECTION_YOUTUBE_CROP_SCALE, collectionTilePressPath } from '@/src/ui/collectionLayout';
 import { BAG_COPY } from '@/src/ui/contracts';
 import {
   PRODUCT_PAGE_COPY,
@@ -117,6 +117,7 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
   const { tokens } = useThemeMode();
   const { width: screenWidth } = useWindowDimensions();
   const onAddToCart = useProductAddToCartHandler();
+  const onBuy = useProductBuyHandler();
   const product = useMemo(() => catalogViewFromProductPage(page), [page]);
   const sections = productPageSections(page);
   const priceLabel = productPagePriceLabel(page);
@@ -253,7 +254,9 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
   ) => {
     const path = relatedMediaPath(media);
     if (path) {
-      router.push(path as Href);
+      router.push(collectionTilePressPath(collection.collectionId, {
+        collections: featuredCollections.filter(item => Boolean(relatedMediaPath(item.media))).map(item => item.collection),
+      }) as Href);
       return;
     }
     if (featuredSourceCanPlayInline(media)) {
@@ -462,6 +465,7 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
                 <ProductCard
                   product={item}
                   variant="related"
+                  onBuy={item.catalogProductId ? onBuy : undefined}
                   showIndexPrice
                   onPress={(next) => {
                     const id = next.catalogProductId ?? next.id;

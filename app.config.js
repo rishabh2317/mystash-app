@@ -2,6 +2,13 @@ const { existsSync, readFileSync } = require('node:fs');
 
 /** Prepared internal QA profile only. No Firebase Auth, signing or identifier changes. */
 module.exports = ({ config }) => {
+  const versionCode = process.env.MYSTASH_ANDROID_VERSION_CODE;
+  if (versionCode) {
+    if (!/^\d+$/.test(versionCode) || Number(versionCode) < 1 || Number(versionCode) > 2100000000) {
+      throw new Error('Android versionCode must be a positive integer within the Play limit.');
+    }
+    config = { ...config, android: { ...config.android, versionCode: Number(versionCode) } };
+  }
   if (process.env.EAS_BUILD_PROFILE !== 'universal-find-qa') return config;
   const file = process.env.GOOGLE_SERVICES_JSON;
   // EAS secret file variables exist on the builder, not during every local CLI/config read.

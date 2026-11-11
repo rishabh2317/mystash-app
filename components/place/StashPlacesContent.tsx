@@ -1,14 +1,13 @@
+import { FailureState } from '@/components/status/FailureState';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { BackHandler, FlatList, Pressable, RefreshControl, StyleSheet, useWindowDimensions, View } from 'react-native';
 
-import { ActionButton } from '@/components/ui/ActionButton';
 import { StashFilterBar } from '@/components/commerce/StashFilterBar';
 import { activeStashFilter, filterRecentStash, stashFilterOptions, STASH_FILTER_COPY } from '@/src/ui/stashFilters';
 import { normalizedPlaceCategory } from '@/src/ui/placeCategories';
 import { StashCategoryCard } from '@/components/commerce/StashCategoryCard';
-import { StashSourceRail } from '@/components/commerce/StashSourceRail';
 import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { outlineCardChrome } from '@/src/theme/tokens';
@@ -21,24 +20,23 @@ import { PlaceCardSkeleton } from './PlaceCardSkeleton';
 import { PlaceSourceVideoModal } from './PlaceSourceVideoModal';
 
 type Props = {
-  owner: string;
-  onOpenFindSource: (id: string) => void;
   items: PlaceStashItem[];
   status: 'idle' | 'loading' | 'ready' | 'error';
+  error?: unknown;
   refreshing: boolean;
   bottomInset: number;
   onRefresh: () => void;
   onRetry: () => void;
   onSearch: (url: string) => void;
+  onRemove?: (item: PlaceStashItem) => void;
 };
 type ShelfRow = { kind: 'categories'; key: string; items: PlaceCategoryShelf[] }
-  | { kind: 'sources'; key: string }
   | { kind: 'places'; key: string; items: PlaceStashItem[] }
   | { kind: 'heading'; key: string; title: string }
   | { kind: 'filters'; key: string };
 
 /** One virtualized shelf surface for resolved and unverified entries on Android/iOS. */
-export function StashPlacesContent({ owner,onOpenFindSource,items, status, refreshing, bottomInset, onRefresh, onRetry, onSearch }: Props) {
+export function StashPlacesContent({ items, status, error, refreshing, bottomInset, onRefresh, onRetry, onSearch, onRemove }: Props) {
   const { tokens } = useThemeMode();
   const dimensions = useWindowDimensions();
   const [contentWidth, setContentWidth] = useState(dimensions.width);
@@ -74,7 +72,6 @@ export function StashPlacesContent({ owner,onOpenFindSource,items, status, refre
         result.push({ kind: 'places', key: `category:${items.map(placeStashItemKey).join('|')}`, items });
       }
     } else {
-      if(home.count) result.push({kind:'sources',key:'find-sources'});
       if (home.count) {
         result.push({ kind: 'heading', key: 'recent', title: STASH_FILTER_COPY.recentlyStashed });
         result.push({ kind: 'filters', key: 'recent-filters' });
@@ -87,16 +84,8 @@ export function StashPlacesContent({ owner,onOpenFindSource,items, status, refre
     return result;
   }, [category, columns, home, recentItems]);
 
-  const notice = (cached: boolean) => (
-    <View accessibilityLiveRegion="polite" style={[styles.notice, outlineCardChrome(tokens),
-      { borderRadius: tokens.radius.lg, padding: tokens.space.md, gap: tokens.space.sm }]}>
-      <Text accessibilityRole="header" style={typeStyle(tokens, 'sectionTitle')}>
-        {cached ? STASH_PLACES_COPY.refreshError : STASH_PLACES_COPY.loadError}
-      </Text>
-      <Text style={typeStyle(tokens, 'bodyMuted')}>{cached ? STASH_PLACES_COPY.refreshErrorHint : STASH_PLACES_COPY.loadErrorHint}</Text>
-      <ActionButton label={STASH_PLACES_COPY.retry} onPress={onRetry} variant="secondary" pending={refreshing} />
-    </View>
-  );
+  const notice = (cached: boolean) => <FailureState error={error} variant={cached?'inline':'page'} title={cached?STASH_PLACES_COPY.refreshError:STASH_PLACES_COPY.loadError} message={cached?STASH_PLACES_COPY.refreshErrorHint:STASH_PLACES_COPY.loadErrorHint} onRetry={onRetry} pending={refreshing} />;
+
   const header = category ? <View style={{ paddingBottom: tokens.space.sm, gap: tokens.space.xs }}>
     <Pressable accessibilityRole="button" accessibilityLabel="Back to all places"
       onPress={() => setSelectedCategory(null)} style={{ minHeight: FEED_MIN_HIT_TARGET, flexDirection: 'row', alignItems: 'center', gap: tokens.space.xs }}>
@@ -134,14 +123,13 @@ export function StashPlacesContent({ owner,onOpenFindSource,items, status, refre
         </View>
         : row.kind === 'filters'
           ? <StashFilterBar options={filters} selected={activeFilter} onSelect={setRecentFilter} accessibilityLabel={STASH_FILTER_COPY.places} />
-        : row.kind === 'sources' ? <StashSourceRail owner={owner} kind="place" revision={items.map(item=>item.saveId??item.id).join('|')} onOpen={onOpenFindSource}
-          fallback={<View style={{flexDirection:'row',gap:tokens.space.sm}}>{home.categories.slice(0,columns).map(shelf=><StashCategoryCard key={shelf.key} category={shelf} placeholder="place" metaLabel={shelf.count===1?'1 place':`${shelf.count} places`} onPress={next=>setSelectedCategory(next.key)}/>)}</View>}/>
         : <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: tokens.space.sm }}>
           {row.kind === 'categories' ? row.items.map(shelf => <StashCategoryCard key={shelf.key} category={shelf}
             placeholder="place" metaLabel={shelf.count === 1 ? '1 place' : `${shelf.count} places`}
             onPress={next => setSelectedCategory(next.key)} />)
             : row.items.map(item => <View key={placeStashItemKey(item)} style={styles.cell}>
-              <PlaceCard item={item} onSearch={onSearch} onOpenSource={openSource} />
+              <PlaceCard item={item} onSearch={onSearch} onOpenSource={openSource}
+                onRemove={onRemove && (item.saveId || item.groupedSaveIds?.length) ? () => onRemove(item) : undefined} />
             </View>)}
           {row.items.length < columns ? <View style={styles.cell} /> : null}
         </View>}

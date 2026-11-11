@@ -1,0 +1,423 @@
+{
+  "provenance": "Bounded no-write provider replay; existing frames; historical OCR/scene unavailable; case B description reduced to its explicit identity facts.",
+  "objects": [
+    {
+      "label": "person",
+      "confidence": 0.9,
+      "frameIndex": 0,
+      "timestampMs": 7099,
+      "bbox": null,
+      "attributes": {
+        "uncertainty": []
+      }
+    },
+    {
+      "label": "person",
+      "confidence": 0.9,
+      "frameIndex": 0,
+      "timestampMs": 7099,
+      "bbox": null,
+      "attributes": {
+        "uncertainty": []
+      }
+    },
+    {
+      "label": "hat",
+      "confidence": 0.8,
+      "frameIndex": 1,
+      "timestampMs": 14198,
+      "bbox": null,
+      "attributes": {
+        "uncertainty": []
+      }
+    },
+    {
+      "label": "person",
+      "confidence": 0.9,
+      "frameIndex": 2,
+      "timestampMs": 21297,
+      "bbox": null,
+      "attributes": {
+        "uncertainty": []
+      }
+    },
+    {
+      "label": "denim jacket",
+      "confidence": 0.85,
+      "frameIndex": 2,
+      "timestampMs": 21297,
+      "bbox": null,
+      "attributes": {
+        "uncertainty": []
+      }
+    },
+    {
+      "label": "denim jacket",
+      "confidence": 0.85,
+      "frameIndex": 3,
+      "timestampMs": 28396,
+      "bbox": null,
+      "attributes": {
+        "uncertainty": []
+      }
+    },
+    {
+      "label": "denim jacket",
+      "confidence": 0.85,
+      "frameIndex": 4,
+      "timestampMs": 35495,
+      "bbox": null,
+      "attributes": {
+        "uncertainty": []
+      }
+    }
+  ],
+  "results": [
+    {
+      "id": "whiDdYRALIU",
+      "products": [
+        {
+          "name": "Denim Jacket",
+          "category": "Clothing",
+          "brand": null,
+          "model": null,
+          "confidence": 0.85,
+          "evidence": {
+            "summary": "Multiple denim jackets were observed in the video.",
+            "frames": [
+              {
+                "frameIndex": 2,
+                "timestampMs": 21297
+              },
+              {
+                "frameIndex": 3,
+                "timestampMs": 28396
+              },
+              {
+                "frameIndex": 4,
+                "timestampMs": 35495
+              }
+            ],
+            "frameCount": 3,
+            "logoHits": 0,
+            "transcriptMentions": 0,
+            "ocrMentions": 0,
+            "attributes": [
+              {
+                "attribute": "type",
+                "value": "person",
+                "origin": "observed",
+                "frameIndex": 2,
+                "timestampMs": 21297
+              },
+              {
+                "attribute": "type",
+                "value": "denim jacket",
+                "origin": "observed",
+                "frameIndex": 2,
+                "timestampMs": 21297
+              },
+              {
+                "attribute": "type",
+                "value": "denim jacket",
+                "origin": "observed",
+                "frameIndex": 3,
+                "timestampMs": 28396
+              },
+              {
+                "attribute": "type",
+                "value": "denim jacket",
+                "origin": "observed",
+                "frameIndex": 4,
+                "timestampMs": 35495
+              },
+              {
+                "attribute": "brand",
+                "value": "Levi's",
+                "origin": "source_text"
+              }
+            ],
+            "stages": [
+              "fresh-replay"
+            ],
+            "identification": {
+              "version": 1,
+              "kind": "possible",
+              "reason": "visual_identity_unconfirmed"
+            }
+          },
+          "sources": [
+            "VISION"
+          ],
+          "reasoning": "The denim jackets were visually identified in the frames.",
+          "price": null,
+          "currency": null,
+          "merchantUrl": null,
+          "image": null
+        }
+      ],
+      "places": []
+    },
+    {
+      "id": "ypyRj59jp9o",
+      "products": [
+        {
+          "name": "Denim Trucker Jacket",
+          "category": "Jacket",
+          "brand": "UNIQLO",
+          "model": "ID 484402",
+          "confidence": 1,
+          "evidence": {
+            "summary": "The product is explicitly mentioned in the description.",
+            "frames": [],
+            "frameCount": 0,
+            "logoHits": 0,
+            "transcriptMentions": 0,
+            "ocrMentions": 0,
+            "attributes": [
+              {
+                "attribute": "brand",
+                "value": "UNIQLO",
+                "origin": "source_text"
+              },
+              {
+                "attribute": "model",
+                "value": "ID 484402",
+                "origin": "source_text"
+              }
+            ],
+            "stages": [
+              "fresh-replay"
+            ]
+          },
+          "sources": [
+            "METADATA"
+          ],
+          "reasoning": "The product is clearly identified in the description as a UNIQLO Denim Trucker Jacket.",
+          "price": null,
+          "currency": null,
+          "merchantUrl": null,
+          "image": null
+        },
+        {
+          "name": "Relaxed Fit Trucker Jacket",
+          "category": "Jacket",
+          "brand": "Levi's",
+          "model": "ID A57820104",
+          "confidence": 1,
+          "evidence": {
+            "summary": "The product is explicitly mentioned in the description.",
+            "frames": [],
+            "frameCount": 0,
+            "logoHits": 0,
+            "transcriptMentions": 0,
+            "ocrMentions": 0,
+            "attributes": [
+              {
+                "attribute": "brand",
+                "value": "Levi's",
+                "origin": "source_text"
+              },
+              {
+                "attribute": "model",
+                "value": "ID A57820104",
+                "origin": "source_text"
+              }
+            ],
+            "stages": [
+              "fresh-replay"
+            ]
+          },
+          "sources": [
+            "METADATA"
+          ],
+          "reasoning": "The product is clearly identified in the description as a Levi's Relaxed Fit Trucker Jacket.",
+          "price": null,
+          "currency": null,
+          "merchantUrl": null,
+          "image": null
+        }
+      ],
+      "places": []
+    }
+  ],
+  "measurements": [
+    {
+      "label": "vision",
+      "durationMs": 5779,
+      "model": "gpt-4o-mini-2024-07-18",
+      "usage": {
+        "prompt_tokens": 14504,
+        "completion_tokens": 316,
+        "total_tokens": 14820,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      }
+    },
+    {
+      "label": "case-a-reasoner",
+      "durationMs": 3336,
+      "model": "gpt-4o-mini-2024-07-18",
+      "usage": {
+        "prompt_tokens": 1443,
+        "completion_tokens": 234,
+        "total_tokens": 1677,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      }
+    },
+    {
+      "label": "case-b-reasoner",
+      "durationMs": 4596,
+      "model": "gpt-4o-mini-2024-07-18",
+      "usage": {
+        "prompt_tokens": 1086,
+        "completion_tokens": 353,
+        "total_tokens": 1439,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      }
+    }
+  ],
+  "finalVisionCall": {
+    "provenance": "Final structured visual prompt, five existing audit frames, no new media acquisition or database writes.",
+    "durationMs": 6464,
+    "model": "gpt-4o-mini-2024-07-18",
+    "usage": {
+      "prompt_tokens": 14481,
+      "completion_tokens": 416,
+      "total_tokens": 14897,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "objects": [
+      {
+        "label": "woman",
+        "confidence": 0.85,
+        "frameIndex": 0,
+        "timestampMs": 7099,
+        "bbox": {
+          "x": 0.1,
+          "y": 0.2,
+          "w": 0.3,
+          "h": 0.5
+        },
+        "attributes": {
+          "colour": "unknown",
+          "material": "unknown",
+          "fit": "unknown",
+          "style": "casual",
+          "uncertainty": []
+        }
+      },
+      {
+        "label": "man",
+        "confidence": 0.85,
+        "frameIndex": 0,
+        "timestampMs": 7099,
+        "bbox": {
+          "x": 0.4,
+          "y": 0.2,
+          "w": 0.3,
+          "h": 0.5
+        },
+        "attributes": {
+          "colour": "unknown",
+          "material": "denim",
+          "fit": "unknown",
+          "style": "casual",
+          "uncertainty": []
+        }
+      },
+      {
+        "label": "man",
+        "confidence": 0.9,
+        "frameIndex": 1,
+        "timestampMs": 14198,
+        "bbox": {
+          "x": 0.1,
+          "y": 0.2,
+          "w": 0.3,
+          "h": 0.5
+        },
+        "attributes": {
+          "colour": "unknown",
+          "material": "unknown",
+          "fit": "unknown",
+          "style": "unknown",
+          "uncertainty": []
+        }
+      },
+      {
+        "label": "man",
+        "confidence": 0.9,
+        "frameIndex": 2,
+        "timestampMs": 21297,
+        "bbox": {
+          "x": 0.1,
+          "y": 0.2,
+          "w": 0.3,
+          "h": 0.5
+        },
+        "attributes": {
+          "colour": "unknown",
+          "material": "denim",
+          "fit": "unknown",
+          "style": "unknown",
+          "uncertainty": []
+        }
+      },
+      {
+        "label": "denim jacket",
+        "confidence": 0.8,
+        "frameIndex": 4,
+        "timestampMs": 35495,
+        "bbox": {
+          "x": 0.1,
+          "y": 0.2,
+          "w": 0.4,
+          "h": 0.5
+        },
+        "attributes": {
+          "colour": "blue",
+          "material": "denim",
+          "fit": "unknown",
+          "style": "unknown",
+          "uncertainty": []
+        }
+      }
+    ]
+  }
+}

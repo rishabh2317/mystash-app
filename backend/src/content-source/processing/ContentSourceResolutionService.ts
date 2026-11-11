@@ -18,7 +18,8 @@ import {
   isAffiliateOrSocialRedirectUrl,
   isQualifyingMerchantSeedUrl,
 } from '../../product-intelligence/search/directUrlIdentity';
-import { assessProductIdentityCompatibility } from '../../product-intelligence/search/productIdentityCompatibility';
+import { assessMerchantIdentity as assessProductIdentityCompatibility } from '../../product-intelligence/verification/merchantEvidence';
+import { merchantComparison } from '../../product-intelligence/verification/merchantIdentity';
 import {
   pdpSearchHintsAls,
   userIdentityExpectation,
@@ -400,6 +401,7 @@ export class ContentSourceResolutionService {
     row: { id: string; userId: string; contentSourceId: string | null },
     product: ContentSourceProductRecord,
   ): Promise<void> {
+    if (!hypothesisMayResolve(product)) return;
     const item = product.catalogProductId
       ? { catalogProductId: product.catalogProductId }
       : product.discoveredProductId
@@ -471,8 +473,12 @@ function buyUrlContradictsExpectation(
   url: string | null | undefined,
 ): boolean {
   if (!url) return false;
+  // This is a URL heuristic, not fetched merchant text. Strip only recognized
+  // manufacturer routing before deriving its comparison title, just as the
+  // merchant gate does; otherwise E484402-000/00 invents generation conflicts.
+  const comparisonUrl = merchantComparison(expectation, { merchantUrl: url }).candidate.merchantUrl ?? url;
   const result = assessProductIdentityCompatibility(expectation, {
-    title: pathTitle(url),
+    title: pathTitle(comparisonUrl),
     merchantUrl: url,
   });
   return result.reason != null && BUY_URL_CONTRADICTIONS.has(result.reason);

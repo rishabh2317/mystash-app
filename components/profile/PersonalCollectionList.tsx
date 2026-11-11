@@ -1,5 +1,6 @@
+import { FailureState } from '@/components/status/FailureState';
 import React from 'react';
-import { FlatList, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { FlatList, Text, useWindowDimensions, View } from 'react-native';
 
 import { CollectionTile, type CollectionTileVariant } from '@/components/collection/CollectionTile';
 import { CollectionTileSkeleton } from '@/components/collection/CollectionTileSkeleton';
@@ -23,6 +24,7 @@ type Props = {
   onPress: (collection: CollectionViewModel) => void;
   onEndReached?: () => void;
   loadingMore?: boolean;
+  onRetry?: () => void;
 };
 
 export function PersonalCollectionList({
@@ -34,6 +36,7 @@ export function PersonalCollectionList({
   onPress,
   onEndReached,
   loadingMore,
+  onRetry,
 }: Props) {
   const { tokens } = useThemeMode();
   const { width: screenWidth } = useWindowDimensions();
@@ -65,13 +68,7 @@ export function PersonalCollectionList({
     );
   }
 
-  if (error && items.length === 0) {
-    return (
-      <View style={styles.centered}>
-        <Text style={{ color: tokens.color.textMuted, textAlign: 'center' }}>{error}</Text>
-      </View>
-    );
-  }
+  if (error && items.length === 0) return <FailureState error={error} onRetry={onRetry} fill />;
 
   return (
     <FlatList
@@ -83,6 +80,7 @@ export function PersonalCollectionList({
         paddingHorizontal: PROFILE_VIDEO_GRID_GUTTER,
         paddingBottom: tokens.space.xxl,
       }}
+      ListHeaderComponent={error ? <FailureState error={error} variant="inline" onRetry={onRetry} /> : null}
       ListEmptyComponent={
         <Text style={{ color: tokens.color.textMuted, textAlign: 'center', marginTop: tokens.space.lg }}>
           {empty}
@@ -109,12 +107,3 @@ export function PersonalCollectionList({
     />
   );
 }
-
-const styles = StyleSheet.create({
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-});

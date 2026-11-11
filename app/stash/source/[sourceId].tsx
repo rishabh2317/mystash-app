@@ -1,5 +1,6 @@
+import { FailureState } from '@/components/status/FailureState';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Linking, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Alert, FlatList, Linking, Pressable, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +10,7 @@ import { PlaceCard } from '@/components/place/PlaceCard';
 import { PlaceSourceVideoModal } from '@/components/place/PlaceSourceVideoModal';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { Text } from '@/components/ui/Text';
+import { TopBar } from '@/components/chrome/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartOptional } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
@@ -17,9 +19,8 @@ import type { FindItem, FindSourceResult } from '@/src/services/findClient';
 import { fetchAllPlaces } from '@/src/services/placesApi';
 import { findDetailPath, findSourceLabel, safeFindUrl } from '@/src/ui/find';
 import { productPagePath } from '@/src/ui/productPage';
-import { PRODUCT_CARD_LAYOUT } from '@/src/ui/productCardLayout';
 import { placesColumnCount } from '@/src/ui/stashPlaces';
-import { controlOpacity, resolveControlPhase } from '@/src/ui/contracts';
+import { placeSourcePreview } from '@/src/ui/placeSourceVideo';
 import { groupSourceRows, mergeSourceResults, sourcePlaceModel, sourceProductId, sourceProductModel, sourceResultKey,
   type SourceProduct } from '@/src/ui/stashSourceResults';
 import { typeStyle } from '@/src/theme/typography';
@@ -39,8 +40,6 @@ export default function StashSourceScreen() {
   const contentWidth = Math.min(dimensions.width - insets.left - insets.right, 680);
   const gridWidth = contentWidth - 2 * tokens.space.md;
   const columns = placesColumnCount(gridWidth, dimensions.fontScale);
-  const cardWidth = (gridWidth - (columns - 1) * tokens.space.sm) / columns;
-  const mediaSize = cardWidth - 2 * PRODUCT_CARD_LAYOUT.relatedInset;
   const [state, setState] = useState<SourceState>(() => empty(null, ''));
   const [shopping, setShopping] = useState<Product | null>(null);
   const [selectedSources, setSelectedSources] = useState<PlaceSourceVideo[] | null>(null);
@@ -115,7 +114,15 @@ export default function StashSourceScreen() {
   const sourceTitle = candidateTitle && !/^stash\/source\/|^\[sourceId\]$/i.test(candidateTitle)
     ? candidateTitle : visible.source ? findSourceLabel(visible.source.sourceType) : 'Saved from this Find';
   const sourceUrl = safeFindUrl(visible.source?.sourceUrl);
+  const sourceVideo = sourceUrl && placeSourcePreview({ url: sourceUrl, thumbnailUrl: visible.source?.thumbnailUrl ?? null })
+    ? { url: sourceUrl, thumbnailUrl: visible.source?.thumbnailUrl ?? null } : null;
+  const openSource = () => {
+    if (sourceVideo) setSelectedSources([sourceVideo]);
+    else if (sourceUrl) void Linking.openURL(sourceUrl).catch(() => Alert.alert('Source unavailable', 'Couldn’t open this source.'));
+  };
   return <View style={{ flex: 1, backgroundColor: tokens.color.canvasSoft, paddingLeft: insets.left, paddingRight: insets.right }}>
+    <TopBar mode="page" title="Saved from Find" showBack showBag={false}
+      onBack={() => router.canGoBack() ? router.back() : router.replace('/(tabs)/stash' as Href)} />
     {!owner ? <View style={{ padding: tokens.space.lg }}><Text style={typeStyle(tokens, 'body')}>Sign in to view your saved items.</Text></View> :
     <FlatList data={rows} keyExtractor={row => row.key}
       contentContainerStyle={{ padding: tokens.space.md, paddingBottom: insets.bottom + tokens.space.xl,
@@ -123,35 +130,33 @@ export default function StashSourceScreen() {
       onRefresh={() => void load()} refreshing={visible.refreshing}
       onEndReached={() => { if (visible.cursor && !visible.more && !visible.moreError) void load(true); }} onEndReachedThreshold={0.35}
       ListHeaderComponent={<View style={{ gap: tokens.space.xs, paddingBottom: tokens.space.xs }}>
-        <Text accessibilityRole='header' numberOfLines={2} style={typeStyle(tokens, 'sectionTitle')}>{sourceTitle}</Text>
-        {sourceUrl ? <Text selectable numberOfLines={2} style={typeStyle(tokens, 'tileMeta')}>{sourceUrl}</Text> : null}
+        <Pressable disabled={!sourceUrl} accessibilityRole={sourceUrl ? 'button' : undefined}
+          accessibilityLabel={sourceVideo ? `Play source video, ${sourceTitle}` : sourceUrl ? `Open source, ${sourceTitle}` : sourceTitle}
+          onPress={openSource} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44,
+            padding: tokens.space.xs, gap: tokens.space.sm, borderRadius: tokens.radius.md, backgroundColor: tokens.color.surfaceSubtle }}>
+          <View style={{ flex: 1, gap: tokens.space.xxs / 2 }}>
+            <Text numberOfLines={2} style={typeStyle(tokens, 'tileTitle')}>{sourceTitle}</Text>
+            {sourceUrl ? <Text numberOfLines={1} style={typeStyle(tokens, 'tileMeta')}>{sourceUrl}</Text> : null}
+          </View>
+          {sourceUrl ? <Ionicons accessible={false} name={sourceVideo ? 'play-circle-outline' : 'open-outline'} size={24} color={tokens.color.textMuted} /> : null}
+        </Pressable>
         {visible.error && visible.items.length ? <View accessibilityRole='alert' style={{ gap: tokens.space.xs }}><Text style={typeStyle(tokens, 'bodyMuted')}>Couldn’t refresh. Your saved results are still here.</Text><ActionButton label='Try refreshing' variant='quiet' onPress={() => void load()} /></View> : null}
       </View>}
       ListEmptyComponent={visible.loading && !visible.loaded ? <Text style={typeStyle(tokens, 'bodyMuted')}>Loading saved items…</Text>
-        : visible.error ? <View accessibilityRole='alert' style={{ gap: tokens.space.sm }}><Text style={typeStyle(tokens, 'bodyMuted')}>Couldn’t load saved items from this Find.</Text><ActionButton label='Retry' onPress={() => void load()} /></View>
+        : visible.error ? <FailureState error={visible.error} onRetry={()=>void load()} />
           : <Text style={typeStyle(tokens, 'bodyMuted')}>No saved items remain from this Find.</Text>}
       ListFooterComponent={visible.moreError ? <View accessibilityRole='alert' style={{ gap: tokens.space.xs }}><Text style={typeStyle(tokens, 'bodyMuted')}>Couldn’t load more results.</Text><ActionButton label='Try loading more' variant='quiet' onPress={() => void load(true)} /></View>
         : visible.cursor ? <ActionButton label={visible.more ? 'Loading…' : 'Load more results'} disabled={visible.more} onPress={() => void load(true)} variant='quiet' /> : null}
       renderItem={({ item: row }) => row.kind === 'heading'
-        ? <Text accessibilityRole='header' style={[typeStyle(tokens, 'sectionTitle'), { marginTop: tokens.space.md }]}>{row.label}{row.count === null ? '' : ` (${row.count})`}</Text>
+        ? <Text accessibilityRole='header' style={[typeStyle(tokens, 'tileTitle'), { marginTop: tokens.space.xs }]}>{row.label}{row.count === null ? '' : ` (${row.count})`}</Text>
         : <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: tokens.space.sm }}>
           {row.items.map(item => <View key={sourceResultKey(item)} style={{ flex: 1, minWidth: 0, position: 'relative' }}>
-            {item.kind === 'product' ? <>
-              {(() => { const model = sourceProductModel(item, cart?.items ?? []); return model ? <ProductCard product={model} variant='related' showIndexPrice onPress={() => openProduct(item)} /> : null; })()}
-              <Pressable accessibilityRole='button' accessibilityLabel={`Buy now, ${item.result.title}`}
-                onPress={() => { const productId = sourceProductId(item); if (productId) setShopping({ id: productId, name: item.result.title, image: item.result.imageUrl ?? '', price: '' }); }}
-                style={{ minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start', paddingHorizontal: tokens.space.xs }}><Text style={typeStyle(tokens, 'link')}>Buy now</Text></Pressable>
-            </> : <PlaceCard item={sourcePlaceModel(item, id, visible.places)} onSearch={onPlaceSearch}
-              onOpenSource={(source, sources) => setSelectedSources(sources?.length ? sources : [source])} />}
-            <Pressable accessibilityRole='button' accessibilityLabel={`Remove ${'title' in item.result ? item.result.title : item.result.name} from My Stash`}
-              onPress={() => remove(item)} hitSlop={8} style={({ pressed }) => ({ position: 'absolute',
-                top: PRODUCT_CARD_LAYOUT.relatedInset + mediaSize - tokens.space.xs - 32,
-                right: PRODUCT_CARD_LAYOUT.relatedInset + tokens.space.xs,
-                width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: tokens.radius.pill,
-                borderWidth: StyleSheet.hairlineWidth, borderColor: tokens.immersive.border,
-                backgroundColor: tokens.immersive.controlStrong, zIndex: 2,
-                opacity: controlOpacity(resolveControlPhase({ pressed }), tokens.motion.pressOpacity),
-              })}><Ionicons name='trash-outline' size={15} color={tokens.immersive.icon} /></Pressable>
+            {item.kind === 'product' ? (() => { const model = sourceProductModel(item, cart?.items ?? []); return model ?
+              <ProductCard product={model} variant='related' showIndexPrice onPress={() => openProduct(item)}
+                onRemove={() => remove(item)} onOpenSource={sourceVideo ? openSource : undefined}
+                onBuy={() => setShopping({ id: model.id, name: model.title, image: model.heroImage ?? '', price: model.price ?? '' })} /> : null; })()
+              : <PlaceCard item={{ ...sourcePlaceModel(item, id, visible.places), ...(sourceVideo ? { sourceVideo } : {}) }} onSearch={onPlaceSearch}
+                onRemove={() => remove(item)} onOpenSource={(source, sources) => setSelectedSources(sources?.length ? sources : [source])} />}
           </View>)}
           {row.items.length < columns ? <View style={{ flex: 1 }} /> : null}
         </View>} />}

@@ -206,17 +206,21 @@ describe('PlaceCard states', () => {
     assert.equal(view.imageUrl, 'https://img.youtube.com/vi/abc/hqdefault.jpg');
   });
 
-  it('PlaceCard keeps actions and imagery while omitting presentation-only verification badges', () => {
+  it('PlaceCard keeps actions and delegates demand-loaded imagery to PlaceImage', () => {
     const card = read('components/place/PlaceCard.tsx');
-    assert.match(card, /from 'expo-image'/);
+    const image = read('components/place/PlaceImage.tsx');
+    assert.match(card, /import \{ PlaceImage \}/);
+    assert.match(image, /from 'expo-image'/);
     assert.match(card, /accessibilityLabel=\{`\$\{destination\.label\}, \$\{view\.name\}`\}/);
     assert.match(card, /onSearch\(view\.searchUrl\)/);
     assert.doesNotMatch(card, /styles\.status|Unverified place|STASH_PLACES_COPY\.unverified/);
     assert.match(card, /view\.categoryText/);
-    assert.match(card, /view\.imageLabel/);
-    assert.match(card, /onError=/);
+    assert.match(card, /placeId=\{item\.kind==='resolved'\?item\.id:null\}/);
+    assert.match(image, /onError=/);
+    assert.match(image, /cachePolicy="none"/);
+    assert.doesNotMatch(card, /GooglePlacePhotoProvider|failedImages|source\.thumbnailUrl/);
     assert.doesNotMatch(card, /opacity: view\.lead/);
-    assert.match(card, /location-outline/);
+    assert.match(image, /location-outline/);
     assert.doesNotMatch(card, /ProductCard|picsum|latitude|longitude|rating|MapView|WebView/);
   });
 });
@@ -294,7 +298,8 @@ describe('Products Stash regression', () => {
   it('keeps the existing Products grid path when the Places tab is not selected', () => {
     const stash = read('app/(tabs)/stash.tsx');
     assert.match(stash, /StashSourceRail/);
-    assert.match(stash, /StashCategoryCard/);
+    assert.doesNotMatch(stash, /StashCategoryCard/);
+    assert.match(stash,/categories=\{home\.categories\}/);
     assert.match(stash, /ProductCard/);
     assert.match(stash, /variant="related"/);
     assert.match(stash, /buildStashHome/);

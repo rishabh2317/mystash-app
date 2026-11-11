@@ -4,6 +4,9 @@ import { classifyPdp } from './PdpClassifier';
 import { isProductIdentityCompatible } from './productIdentityCompatibility';
 
 export type PdpRankHints = {
+  variantContext?: string | null;
+  gtin?: string | null;
+  mpn?: string | null;
   brand?: string | null;
   name?: string | null;
   model?: string | null;
@@ -136,7 +139,7 @@ export function rankPdpCandidates(
         merchantUrl: candidate.merchantUrl,
         category: candidate.category,
       },
-      { requireBrandSupport: false },
+      { requireBrandSupport: false, requireVariantSupport: false },
     ),
   );
   return eligible

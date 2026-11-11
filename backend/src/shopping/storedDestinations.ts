@@ -1,3 +1,7 @@
+import {canonicalizeProductUrl} from '../pipeline/urlCanonicalization';
+import {isAmazonMarketplaceHost} from './productUrlIdentity';
+import {storedMerchantIdentity} from './storedMerchantIdentity';
+import { MERCHANT_EVIDENCE_VERSION } from '../product-intelligence/verification/merchantEvidence';
 import { createHash } from 'node:crypto';
 import { parseRegionalUrls } from '../merchant-pricing/MerchantRegionResolver';
 import { detectMerchantLabel } from '../product-intelligence/enrichment/merchantDetect';
@@ -7,10 +11,13 @@ import type { DiscoveredProductRecord } from '../discovered/domain/types';
 import { resolveShoppingSelectionForProduct } from './ShoppingConfiguration';
 import { classifyShoppingProvider } from './shoppingPriorityConfig';
 import { validHttpUrl } from './urlValidation';
+import {countryAvailability,type CountryAvailability,rankCountryOffers} from './countrySuitability';
+import {qualifyMerchantEvidenceSet,type MerchantEvidenceInput} from '../product-intelligence/verification/merchantEvidence';
 
 export type StoredDestinationType = 'configured' | 'affiliate' | 'preferred' | 'merchant';
 
 export type StoredShoppingDestination = {
+  countryAvailability?: CountryAvailability;
   offerId: string;
   url: string;
   merchant: string | null;
@@ -24,6 +31,8 @@ export type StoredShoppingDestination = {
 };
 
 export type StoredShoppingSource = {
+  name?: string;
+  model?: string | null;
   merchant: string | null;
   merchantUrl: string | null;
   preferredShoppingUrl: string | null;
@@ -35,6 +44,7 @@ export type StoredShoppingSource = {
 };
 
 type CandidateHint = {
+  countryAvailability?: CountryAvailability;
   url?: string | null;
   merchant?: string | null;
   price?: string | null;
@@ -58,6 +68,7 @@ export function shoppingOfferId(url: string): string {
 
 export function catalogShoppingSource(product: CatalogProduct): StoredShoppingSource {
   return {
+    name: product.name, model: product.model,
     merchant: product.merchant,
     merchantUrl: product.merchantUrl,
     preferredShoppingUrl: product.preferredShoppingUrl,
@@ -71,6 +82,7 @@ export function catalogShoppingSource(product: CatalogProduct): StoredShoppingSo
 
 export function discoveredShoppingSource(product: DiscoveredProductRecord): StoredShoppingSource {
   return {
+    name: product.name, model: typeof product.metadata.model==='string'?product.metadata.model:null,
     merchant: product.merchant,
     merchantUrl: product.merchantUrl,
     preferredShoppingUrl: null,
@@ -131,6 +143,7 @@ function readCandidates(metadata: Record<string, unknown> | null | undefined): C
         parseRegionalUrls(row.regionalUrls) ??
         parseRegionalUrls(row.regional_urls) ??
         parseRegionalUrls(row.urlsByCountry),
+      countryAvailability: countryAvailability(row.countryAvailability),
     });
   }
   return out;
@@ -152,6 +165,12 @@ function commerceFor(
   source: StoredShoppingSource,
   hint: CandidateHint,
 ): { price: string | null; currency: string | null; availability: string | null } {
+  if (source.metadata?.merchant_evidence_version === MERCHANT_EVIDENCE_VERSION) {
+    const evidence = source.metadata.merchant_evidence;
+    const pageVerified = Array.isArray(evidence) && evidence.some(e => e && typeof e === 'object'
+      && e.state === 'PAGE_VERIFIED' && merchantUrlsMatch(e.url, url));
+    if (!pageVerified || source.metadata.merchant_price_unverified === true) return { price: null, currency: null, availability: null };
+  }
   if (hint.price) {
     return {
       price: hint.price,
@@ -195,15 +214,27 @@ function displayMerchant(url: string, source: StoredShoppingSource, hint: Candid
   return fromHost === 'Merchant' ? null : fromHost;
 }
 
-export function listStoredShoppingDestinations(source: StoredShoppingSource): StoredShoppingDestination[] {
+export function listStoredShoppingDestinations(source: StoredShoppingSource, country?:string|null): StoredShoppingDestination[] {
+  const regional = regionalEvidence(source);
   const seen = new Set<string>();
   const out: StoredShoppingDestination[] = [];
 
   const push = (rawUrl: string | null | undefined, hint: CandidateHint = {}): void => {
     const url = validHttpUrl(rawUrl);
     if (!url) return;
+    if (source.metadata?.merchant_evidence_version === MERCHANT_EVIDENCE_VERSION) {
+      const evidence = [...(Array.isArray(source.metadata.merchant_evidence)?source.metadata.merchant_evidence:[]),...regional];
+      if (!Array.isArray(evidence) || !evidence.some(e => e && typeof e === 'object'
+        && (e.state === 'PAGE_VERIFIED' || e.state === 'DISCOVERY_VERIFIED')
+        && e.usable === true && (!source.metadata?.merchant_requires_page_evidence || e.state === 'PAGE_VERIFIED') && merchantUrlsMatch(e.url, url))) return;
+    }
     const key = normalizeMerchantUrl(url);
-    if (!key || seen.has(key)) return;
+    if (!key) return;
+    if(seen.has(key)) {
+      const existing=out.find(row=>normalizeMerchantUrl(row.url)===key);
+      if(existing && hint.countryAvailability && !Object.values(existing.countryAvailability??{}).some(value=>value===true||typeof value==='string'||Array.isArray(value)&&value.length))existing.countryAvailability=hint.countryAvailability;
+      return;
+    }
     seen.add(key);
     const commerce = commerceFor(url, source, hint);
     const shoppingProvider =
@@ -218,6 +249,7 @@ export function listStoredShoppingDestinations(source: StoredShoppingSource): St
       currency: commerce.currency,
       availability: commerce.availability,
       regionalUrls: hint.regionalUrls ?? metadataRegionalUrls(source.metadata),
+      countryAvailability: hint.countryAvailability,
     });
   };
 
@@ -228,6 +260,7 @@ export function listStoredShoppingDestinations(source: StoredShoppingSource): St
     ).selection.configuredBuyingUrl;
     push(configured, { destinationType: 'configured' });
   }
+
 
   for (const hint of readCandidates(source.metadata)) {
     push(hint.url, { ...hint, destinationType: 'merchant' });
@@ -253,7 +286,29 @@ export function listStoredShoppingDestinations(source: StoredShoppingSource): St
     availability: metadataAvailability(source.metadata),
   });
 
-  return out;
+  // Existing raw/tracked destinations win URL-equivalent duplicates; regional
+  // evidence may add suitability but must never strip affiliate query parameters.
+  const comparison=(raw:string)=>{
+    const parsed=new URL(canonicalizeProductUrl(raw));
+    if(isAmazonMarketplaceHost(parsed.hostname))parsed.searchParams.delete('ascsubtag');
+    return normalizeMerchantUrl(parsed.toString());
+  };
+  for(const evidence of regional){
+    const equivalent=out.find(row=>comparison(row.url)===comparison(evidence.url));
+    if(equivalent){
+      if(!Object.values(equivalent.countryAvailability??{}).some(value=>value===true||typeof value==='string'||Array.isArray(value)&&value.length))equivalent.countryAvailability=evidence.countryAvailability;
+    }else push(evidence.url,{countryAvailability:evidence.countryAvailability});
+  }
+  return rankCountryOffers(out,country);
+}
+
+/** Revalidate cached regional offers against current identity; never expose stale variants. */
+function regionalEvidence(source:StoredShoppingSource) {
+  const cache=source.metadata?.shopping_country_offers;
+  if(!source.name || !cache || typeof cache!=='object')return [];
+  const rows=Object.values(cache).flatMap((entry:unknown)=>entry && typeof entry==='object' && Array.isArray((entry as {evidence?:unknown}).evidence)?(entry as {evidence:MerchantEvidenceInput[]}).evidence:[]);
+  return qualifyMerchantEvidenceSet(storedMerchantIdentity(source),rows,
+    {requirePage:source.metadata?.merchant_requires_page_evidence===true}).filter(e=>e.usable);
 }
 
 export function findStoredShoppingDestination(

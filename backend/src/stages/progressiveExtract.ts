@@ -39,6 +39,7 @@ import { USER_IMPORT_EXTRACTION_CACHE_SCOPE, getVideoExtractionCache, setVideoEx
 import type { ExtractedPlaceMention } from '../place/parseReasonerPayload';
 import { emitPipelineEvent } from '../services/observability';
 import { discoveryStageDecision, needsStage2Enrichment } from './gate';
+import { FIND_EVIDENCE_VERSION, groundPlaceLocality, prepareFindHypotheses, retainFindHypotheses } from './findEvidence';
 
 export type VideoSourceMetadata = {
   title: string;
@@ -133,14 +134,22 @@ async function reasonValidateRank(
     stage: stageTag,
     durationMs: reasoned.meta.durationMs,
     provider: reasoned.meta.provider,
+    ...(includePlaces ? { evidenceVersion: FIND_EVIDENCE_VERSION, model: reasoned.meta.model, promptTokens: reasoned.meta.tokenUsage?.promptTokens, completionTokens: reasoned.meta.tokenUsage?.completionTokens } : {}),
   });
-  const validated = validator.validate(reasoned.products);
+  const hypotheses = includePlaces ? prepareFindHypotheses(reasoned.products, ctx, stageTag) : reasoned.products;
+  const validated = validator.validate(hypotheses, { distinguishModels: includePlaces });
+  if (includePlaces) emitPipelineEvent('validate.complete', { ingestId: correlationId, traceId, stage: stageTag,
+    evidenceVersion: FIND_EVIDENCE_VERSION, rawCount: hypotheses.length, retainedCount: validated.length,
+    possibleCount: validated.filter(p => typeof p.evidence !== 'string' && p.evidence.identification?.kind === 'possible').length,
+    rejectedCount: reasoned.products.length - validated.length,
+    rejectionReasons: JSON.stringify({ unsupportedEvidence: reasoned.products.length - hypotheses.length, validation: hypotheses.length - validated.length }) });
   const ranked = ranker.rank(validated, ctx);
   emitPipelineEvent('rank.complete', { ingestId: correlationId, traceId, count: ranked.length });
-  return { products: ranked, places: includePlaces ? (reasoned.places ?? []) : [] };
+  return { products: ranked, places: includePlaces ? groundPlaceLocality(reasoned.places ?? [],
+    [ctx.metadata.title, ctx.metadata.description, ctx.transcript.text].filter(Boolean).join('\n')) : [] };
 }
 
-function enrichEvidence(products: ProductCandidate[], frames: FrameRef[]): ProductCandidate[] {
+function enrichEvidence(products: ProductCandidate[], frames: FrameRef[], explicitOnly = false): ProductCandidate[] {
   if (frames.length === 0) return products;
   const byIndex = new Map(frames.map((f) => [f.index, f]));
   return products.map((p) => {
@@ -159,14 +168,15 @@ function enrichEvidence(products: ProductCandidate[], frames: FrameRef[]): Produ
             ocrMentions: false,
           }
         : { ...p.evidence };
-    const srcFrames =
+    let srcFrames =
       base.frames.length > 0
         ? base.frames
-        : frames.slice(0, 3).map((f) => ({
+        : (explicitOnly ? [] : frames.slice(0, 3)).map((f) => ({
             frameIndex: f.index,
             timestampMs: f.timestampMs,
             storagePath: f.storagePath,
           }));
+    if (explicitOnly) srcFrames = srcFrames.filter(fr => byIndex.has(fr.frameIndex)).map(fr => ({ ...fr, timestampMs: byIndex.get(fr.frameIndex)!.timestampMs }));
     return {
       ...p,
       evidence: {
@@ -175,7 +185,7 @@ function enrichEvidence(products: ProductCandidate[], frames: FrameRef[]): Produ
           ...fr,
           storagePath: fr.storagePath || byIndex.get(fr.frameIndex)?.storagePath,
         })),
-        frameCount: base.frameCount || srcFrames.length,
+        frameCount: explicitOnly ? srcFrames.length : base.frameCount || srcFrames.length,
       },
     };
   });
@@ -296,14 +306,15 @@ export async function runProgressiveExtract(
   let reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's1', includePlaces, runtime.reasoner);
   let products = reasoned.products;
   let places = reasoned.places;
-  let decision = discoveryStageDecision(products, places, [title, description, transcript].join(' '));
+  const gateProducts = () => includePlaces && !ctx.media ? products.filter(p => typeof p.evidence === 'string' || p.evidence.identification?.kind !== 'possible') : products;
+  let decision = discoveryStageDecision(gateProducts(), places, [title, description, transcript].join(' '));
   let gate = decision.productGate;
   let enrichmentFailed = false;
   const retainedPlaces = new Map<string, ExtractedPlaceMention>();
   const publish = (stage: string, finalEvidence = false) => {
     if (!includePlaces) return;
     assertImportWorkActive();
-    decision = discoveryStageDecision(products, places, [title, description, transcript,
+    decision = discoveryStageDecision(gateProducts(), places, [title, description, transcript,
       ...(ctx.media?.ocr ?? []).map((line) => line.text)].join(' '));
     gate = decision.productGate;
     for (const place of decision.earlyPlaces) retainedPlaces.set(placeHypothesisKey({ extractedName: place.name, ...place }), place);
@@ -322,7 +333,7 @@ export async function runProgressiveExtract(
   let durationMs = 0;
 
   const mu = runtime.media ?? new CompositeMediaUnderstanding(
-    new OpenAiVisionProvider(admin),
+    new OpenAiVisionProvider(admin, includePlaces),
     new GoogleVisionOcrProvider(),
     new GoogleVisionLogoProvider(),
     new OpenAiSceneProvider(admin),
@@ -365,7 +376,7 @@ export async function runProgressiveExtract(
           media,
         });
         reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's2', includePlaces, runtime.reasoner);
-        products = reasoned.products;
+        products = includePlaces ? retainFindHypotheses(products, reasoned.products) : reasoned.products;
         places = reasoned.places;
         gate = discoveryStageDecision(products, places, [title, description, transcript].join(' ')).productGate;
         enrichmentFailed = false;
@@ -423,7 +434,7 @@ export async function runProgressiveExtract(
           media,
         });
         reasoned = await reasonValidateRank(admin, ctx, correlationId, traceId, 's3', includePlaces, runtime.reasoner);
-        products = reasoned.products;
+        products = includePlaces ? retainFindHypotheses(products, reasoned.products) : reasoned.products;
         places = reasoned.places;
         gate = discoveryStageDecision(products, places, [title, description, transcript].join(' ')).productGate;
         enrichmentFailed = false;
@@ -441,7 +452,7 @@ export async function runProgressiveExtract(
       }
     }
 
-    products = enrichEvidence(products, frames);
+    products = enrichEvidence(products, frames, includePlaces);
     // Preserve only early text-grounded mentions, plus the final unchanged reasoner output.
     if (includePlaces) {
       for (const place of places) retainedPlaces.set(placeHypothesisKey({ extractedName: place.name, ...place }), place);

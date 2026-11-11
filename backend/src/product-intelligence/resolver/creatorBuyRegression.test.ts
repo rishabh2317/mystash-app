@@ -14,7 +14,7 @@ import { TavilyEnrichedPdpSearchStrategy } from '../search/TavilyEnrichedPdpSear
 import fixture from '../search/testing/creatorBatCandidates.json';
 import { ProductResolver } from './ProductResolver';
 
-it('repairs the recorded identity miss within the existing search/enrichment budget and preserves the catalog ID through Buy publication', async () => {
+it('repairs the recorded identity miss with a regional merchant query and the existing image-enrichment budget and preserves the catalog ID through Buy publication', async () => {
   const repo = new InMemoryCatalogRepository();
   const catalog = new CatalogService(repo);
   const original = await catalog.createFromResolve({
@@ -43,7 +43,9 @@ it('repairs the recorded identity miss within the existing search/enrichment bud
     draftId: 'draft-fixture', externalId: 'same-external-id', catalogProductId: original.id,
     ...fixture.expected, confidence: 1, price: '70000', currency: 'INR',
   }]));
-  assert.equal(queries.length, 3, 'existing base + official + Amazon discovery budget');
+  assert.equal(queries.length, 5, 'base + official + legacy image Amazon + regional Amazon miss + one broad regional fallback');
+  assert.match(queries[4]!, /shipping to IN/);
+  assert.match(queries[3]!, /site:amazon\.in/);
   assert.equal(enriched.length, 3, 'only the already discovered hits are enriched');
   assert.equal(new Set(enriched).size, 3);
   assert.equal(repo.all().length, 1, 'repair updates the original catalog product');

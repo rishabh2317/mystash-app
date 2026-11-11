@@ -109,7 +109,7 @@ export function useFeedReelEngagement(
     }
     const cached = creatorCollectionsCache.get(creatorId);
     if (cached && Date.now() - cached.at < CREATOR_COLLECTIONS_TTL_MS) {
-      setMoreFromCreator(creatorMoreReelTarget(cached.page.collections, collectionId));
+      setMoreFromCreator(creatorMoreReelTarget(cached.page.collections, collectionId, cached.page.nextCursor));
       return;
     }
     let cancelled = false;
@@ -121,7 +121,7 @@ export function useFeedReelEngagement(
         }
         creatorCollectionsCache.set(creatorId, { at: Date.now(), page });
         if (cancelled) return;
-        setMoreFromCreator(creatorMoreReelTarget(page.collections, collectionId));
+        setMoreFromCreator(creatorMoreReelTarget(page.collections, collectionId, page.nextCursor));
       })
       .catch(() => {
         if (!cancelled) setMoreFromCreator(null);

@@ -1,3 +1,4 @@
+import {resolveShoppingRequestCountry} from '../shopping/requestCountry';
 import type { Express, Request, Response } from 'express';
 import { isValidCatalogProductId } from '../cart/domain/lifecycle';
 import { createCatalogService } from '../catalog/factory';
@@ -9,17 +10,8 @@ import {
   listStoredShoppingDestinations,
 } from '../shopping/storedDestinations';
 import { createSupabaseAdmin } from '../supabase';
-import { resolveCountryCode } from './country';
 import { createMerchantPricingService } from './factory';
 import type { MerchantPricingOfferInput } from './types';
-
-function queryString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function headerString(value: string | string[] | undefined): string | null {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null;
-}
 
 export function registerMerchantPricingRoutes(app: Express): void {
   const admin = createSupabaseAdmin();
@@ -35,17 +27,13 @@ export function registerMerchantPricingRoutes(app: Express): void {
         return;
       }
 
-      const country = resolveCountryCode({
-        explicit: queryString(req.query.country),
-        profile: queryString(req.query.profileCountry),
-        deviceLocale: queryString(req.query.locale) ?? headerString(req.headers['accept-language']),
-      });
+      const country = await resolveShoppingRequestCountry(admin,req);
 
       const catalogProduct = await catalog.resolveActiveProduct(productId);
       let offers: MerchantPricingOfferInput[] = [];
 
       if (catalogProduct && catalogProduct.status !== 'HIDDEN') {
-        offers = listStoredShoppingDestinations(catalogShoppingSource(catalogProduct)).map((d) => ({
+        offers = listStoredShoppingDestinations(catalogShoppingSource(catalogProduct),country).map((d) => ({
           offerId: d.offerId,
           url: d.url,
           merchant: d.merchant,
@@ -60,7 +48,7 @@ export function registerMerchantPricingRoutes(app: Express): void {
           res.status(404).json({ error: 'Product not found' });
           return;
         }
-        offers = listStoredShoppingDestinations(discoveredShoppingSource(imported)).map((d) => ({
+        offers = listStoredShoppingDestinations(discoveredShoppingSource(imported),country).map((d) => ({
           offerId: d.offerId,
           url: d.url,
           merchant: d.merchant,

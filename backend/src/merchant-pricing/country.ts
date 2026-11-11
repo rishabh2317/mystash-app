@@ -10,6 +10,21 @@ export function normalizeCountryCode(value: string | null | undefined): string |
   return raw;
 }
 
+let countryEvidenceNames:Map<string,string>|undefined;
+/** Structured merchant schemas may use region display names rather than ISO codes. */
+export function countryCodeForEvidence(value:string|null|undefined):string|null {
+  const code=normalizeCountryCode(value);if(code)return code;
+  if(!value)return null;
+  if(!countryEvidenceNames){
+    countryEvidenceNames=new Map();const names=new Intl.DisplayNames(['en'],{type:'region',fallback:'none'});
+    for(let a=65;a<=90;a++)for(let b=65;b<=90;b++){
+      const iso=String.fromCharCode(a,b),name=names.of(iso);
+      if(name)countryEvidenceNames.set(name.toLowerCase(),iso);
+    }
+  }
+  return countryEvidenceNames.get(value.trim().toLowerCase())??null;
+}
+
 /**
  * Resolve country for merchant routing.
  * Priority: explicit → profile → device locale → app default → safe fallback.

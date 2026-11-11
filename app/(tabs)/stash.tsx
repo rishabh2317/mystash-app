@@ -1,5 +1,5 @@
+import { FailureState } from '@/components/status/FailureState';
 import { createPlacesRequestScope } from '@/src/ui/placesRequestScope';
-import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,31 +18,33 @@ import { TopBar } from '@/components/chrome/TopBar';
 import { ProductCard } from '@/components/commerce/ProductCard';
 import { CartPurchaseConfirmModal } from '@/components/commerce/CartPurchaseConfirmModal';
 import { StashRecentProducts } from '@/components/commerce/StashRecentProducts';
-import { StashCategoryCard } from '@/components/commerce/StashCategoryCard';
 import { StashSourceRail } from '@/components/commerce/StashSourceRail';
 import { StashSignedOutState } from '@/components/commerce/StashSignedOutState';
 import { StashHomeSkeleton } from '@/components/commerce/StashHomeSkeleton';
 import { StashPlacesContent } from '@/components/place/StashPlacesContent';
-import { withPlaceSourceVideos } from '@/src/ui/placeSourceVideo';
+import { PlaceSourceVideoModal } from '@/components/place/PlaceSourceVideoModal';
+import { FeedProductSheet } from '@/components/feed/FeedProductSheet';
+import { placeSourcePreview, withPlaceSourceVideos } from '@/src/ui/placeSourceVideo';
 import { ProfileContentTabs } from '@/components/profile/ProfileContentTabs';
 import { Text } from '@/components/ui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { useImportSharesPoll } from '@/src/hooks/useImportSharesPoll';
-import { fetchAllPlaces } from '@/src/services/placesApi';
-import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
+import { findApi } from '@/src/services/findApi';
+import type { FindItem } from '@/src/services/findClient';
+import { fetchAllPlaces, removePlaceSave } from '@/src/services/placesApi';
 import { typeStyle } from '@/src/theme/typography';
-import type { PlaceStashItem } from '@/src/types/placeStash';
+import type { PlaceSourceVideo, PlaceStashItem } from '@/src/types/placeStash';
+import type { Product } from '@/src/mocks/videos';
 import {
   BAG_PROGRESS_COPY,
   bagHasInFlightShares,
   bagItemFromLine,
   buildStashHome,
   type BagItemView,
-  type StashCategoryCardModel,
 } from '@/src/ui/bag';
-import { BAG_COPY, controlOpacity, displayBagError, resolveControlPhase } from '@/src/ui/contracts';
+import { BAG_COPY } from '@/src/ui/contracts';
 import { productPagePath } from '@/src/ui/productPage';
 import { resolveListLoadState } from '@/src/ui/contentLoadState';
 import {
@@ -56,9 +58,6 @@ import {
 
 const GUTTER = 16;
 const GRID_GAP = 12;
-/** Matches ProductCard related inset + AddToCartButton icon size. */
-const RELATED_CARD_INSET = 6;
-const STASH_REMOVE_ICON = 32;
 
 export default function StashScreen() {
   const router = useRouter();
@@ -78,7 +77,11 @@ export default function StashScreen() {
     awaitingConfirmationProductId,
     resolvePurchaseConfirmation,
   } = useCart();
-  const onAddToCart = useProductAddToCartHandler();
+  const [shopping, setShopping] = useState<Product | null>(null);
+  const [selectedSources, setSelectedSources] = useState<PlaceSourceVideo[] | null>(null);
+  const [sourceRevision, setSourceRevision] = useState(0);
+  const accountRef = useRef(user?.id); accountRef.current = user?.id;
+  const removingPlace = useRef(false);
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedCategoryKey, setSelectedCategoryKey] = useState<string | null>(null);
@@ -90,6 +93,7 @@ export default function StashScreen() {
   const placesScope = scopeRef.current;
   placesScope.setAccount(user?.id);
   const [placesStatus, setPlacesStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [placesError,setPlacesError]=useState<unknown>(null);
   const [placesRefreshing, setPlacesRefreshing] = useState(false);
 
   const loadPlaces = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -104,8 +108,9 @@ export default function StashScreen() {
       if (!current()) return;
       setPlacesData({ owner: accountId, items: page.items });
       setPlacesStatus('ready');
-    } catch {
+    } catch (error) {
       if (!current()) return;
+      setPlacesError(error);
       setPlacesStatus('error');
     } finally {
       if (current()) setPlacesRefreshing(false);
@@ -113,6 +118,7 @@ export default function StashScreen() {
   }, [placesScope, user]);
 
   const onBecameReady = useCallback(() => {
+    setSourceRevision(n => n + 1);
     void refresh();
     if (stashTab === STASH_SEGMENT.places) void loadPlaces('refresh');
   }, [loadPlaces, refresh, stashTab]);
@@ -137,6 +143,25 @@ export default function StashScreen() {
     [home.categories, selectedCategoryKey],
   );
   const looking = bagHasInFlightShares(shares);
+  const [productSources, setProductSources] = useState<{ owner: string; items: FindItem[] } | null>(null);
+  const sourceIds = JSON.stringify([...new Set(bagItems.map(item => item.userImportId).filter((id): id is string => Boolean(id)))].sort());
+  useEffect(() => {
+    const owner = user?.id;
+    if (!owner) { setProductSources(null); return; }
+    let cancelled = false;
+    // The polling head is bounded. Resolve attributed older saves through the
+    // existing owned batch API, rather than guessing a video URL or paging history.
+    void (async () => {
+      const ids: string[] = JSON.parse(sourceIds), resolved: FindItem[] = [];
+      for (let index = 0; index < ids.length; index += 100) {
+        const page = await findApi.batch(ids.slice(index, index + 100), owner);
+        if (cancelled || accountRef.current !== owner) return;
+        resolved.push(...page.items);
+      }
+      if (!cancelled && accountRef.current === owner) setProductSources({ owner, items: resolved });
+    })().catch(() => { /* Existing import history remains usable when enrichment is offline. */ });
+    return () => { cancelled = true; };
+  }, [sourceIds, user?.id]);
 
   const confirmTitle = useMemo(() => {
     if (!awaitingConfirmationProductId) return null;
@@ -161,22 +186,43 @@ export default function StashScreen() {
 
   const onRemove = useCallback(
     (item: BagItemView) => {
+      const owner = user?.id;
+      if (!owner) return;
       Alert.alert(BAG_COPY.removeFromBag, `Remove ${item.title} from your Stash?`, [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
+            if (accountRef.current !== owner) return;
             setActionError(null);
             void removeItem(item.productId, 'user_remove').catch(() => {
-              setActionError(BAG_COPY.removeError);
+              if (accountRef.current === owner) setActionError(BAG_COPY.removeError);
             });
           },
         },
       ]);
     },
-    [removeItem],
+    [removeItem, user?.id],
   );
+
+  const onRemovePlace = (item: PlaceStashItem) => {
+    const owner = user?.id;
+    const ids = [...new Set(item.groupedSaveIds?.length ? item.groupedSaveIds : item.saveId ? [item.saveId] : [])];
+    if (!owner || !ids.length || removingPlace.current) return;
+    Alert.alert('Remove from My Stash?', `Remove ${item.name} from your Stash?`, [
+      { text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { void (async () => {
+        if (accountRef.current !== owner || removingPlace.current) return;
+        removingPlace.current = true; setActionError(null);
+        try { for (const id of ids) await removePlaceSave(id, owner); }
+        catch { if (accountRef.current === owner) setActionError('Couldn’t remove this place. Please try again.'); }
+        finally {
+          removingPlace.current = false;
+          if (accountRef.current === owner) { setSourceRevision(n => n + 1); await loadPlaces('refresh'); }
+        }
+      })(); } },
+    ]);
+  };
 
   const onBack = useCallback(() => {
     if (selectedCategoryKey) {
@@ -192,6 +238,7 @@ export default function StashScreen() {
     setPlacesData(null);
     setPlacesStatus('idle');
     setPlacesRefreshing(false);
+    setShopping(null); setSelectedSources(null);
   }, [placesScope, user?.id]);
 
   useEffect(() => {
@@ -224,79 +271,29 @@ export default function StashScreen() {
 
   const contentTab = stashContentTab(stashTab, { selectedCategory: Boolean(selectedCategory) });
 
-  /** Related product card in a clean 2-column shelf. Parent owns horizontal padding. */
+  /** Product and place cards share the same independent media actions. */
   const renderRelatedGrid = (list: BagItemView[]) => {
     const gridCardWidth = (screenWidth - GUTTER * 2 - GRID_GAP) / 2;
     const rows: BagItemView[][] = [];
-    for (let i = 0; i < list.length; i += 2) {
-      rows.push(list.slice(i, i + 2));
-    }
-    return (
-      <View style={{ gap: GRID_GAP }}>
-        {rows.map((row) => (
-          <View
-            key={row.map((item) => item.cartItemId).join('-')}
-            style={{ flexDirection: 'row', gap: GRID_GAP }}
-          >
-            {row.map((item) => {
-              const mediaSize = gridCardWidth - RELATED_CARD_INSET * 2;
-              return (
-              <View key={item.cartItemId} style={{ width: gridCardWidth, position: 'relative' }}>
-                <ProductCard
-                  product={item.product}
-                  variant="related"
-                  showIndexPrice
-                  onPress={() => onOpenProduct(item)}
-                  onAddToCart={item.catalogProductId ? onAddToCart : undefined}
-                />
-                {item.source?.matchKind === 'similar' ? <Text style={typeStyle(tokens,'caption')}>Similar product</Text> : null}
-                {!item.catalogProductId ? (
-                  <Pressable
-                    onPress={() => onRemove(item)}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${BAG_COPY.removeFromBag} ${item.title}`}
-                    style={({ pressed }) => [
-                      {
-                        position: 'absolute',
-                        top:
-                          RELATED_CARD_INSET +
-                          mediaSize -
-                          tokens.space.xs -
-                          STASH_REMOVE_ICON,
-                        right: RELATED_CARD_INSET + tokens.space.xs,
-                        width: STASH_REMOVE_ICON,
-                        height: STASH_REMOVE_ICON,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: tokens.radius.pill,
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: tokens.immersive.border,
-                        backgroundColor: tokens.immersive.controlStrong,
-                        zIndex: 2,
-                        opacity: controlOpacity(
-                          resolveControlPhase({ pressed }),
-                          tokens.motion.pressOpacity,
-                        ),
-                      },
-                    ]}
-                  >
-                    <Ionicons name="trash-outline" size={15} color={tokens.immersive.icon} />
-                  </Pressable>
-                ) : null}
-              </View>
-              );
-            })}
-          </View>
-        ))}
-      </View>
-    );
+    for (let i = 0; i < list.length; i += 2) rows.push(list.slice(i, i + 2));
+    return <View style={{ gap: GRID_GAP }}>{rows.map(row =>
+      <View key={row.map(item => item.cartItemId).join('-')} style={{ flexDirection: 'row', gap: GRID_GAP }}>
+        {row.map(item => {
+          const share = shares.find(source => source.importId === item.userImportId && source.contentSourceId === item.contentSourceId);
+          const ownedSource = productSources && productSources.owner === user?.id ? productSources.items.find(source => source.id === item.userImportId && source.contentSourceId === item.contentSourceId) : null;
+          const url = ownedSource?.sourceUrl ?? share?.sourceUrl;
+          const source = url && placeSourcePreview({ url, thumbnailUrl: item.imageUrl })
+            ? { url, thumbnailUrl: item.imageUrl } : null;
+          return <View key={item.cartItemId} style={{ width: gridCardWidth }}>
+            <ProductCard product={item.product} variant="related" showIndexPrice onPress={() => onOpenProduct(item)}
+              onRemove={() => onRemove(item)} onOpenSource={source ? () => setSelectedSources([source]) : undefined}
+              onBuy={() => setShopping({ id: item.productId, name: item.title, image: item.imageUrl ?? '', price: item.product.price ?? '' })} />
+            {item.source?.matchKind === 'similar' ? <Text style={typeStyle(tokens, 'caption')}>Similar product</Text> : null}
+          </View>;
+        })}
+        {row.length === 1 ? <View style={{ flex: 1 }} /> : null}
+      </View>)}</View>;
   };
-
-  const categoryRows: StashCategoryCardModel[][] = [];
-  for (let i = 0; i < home.categories.length; i += 2) {
-    categoryRows.push(home.categories.slice(i, i + 2));
-  }
 
   const topTitle = selectedCategory ? selectedCategory.title : BAG_COPY.yourStash;
   const scrollPad = {
@@ -320,16 +317,16 @@ export default function StashScreen() {
     if (contentTab === STASH_SEGMENT.places) {
       return (
         <StashPlacesContent
+          error={placesError}
           key={user.id}
-          owner={user.id}
-          onOpenFindSource={id => router.push(`/stash/source/${id}` as Href)}
           items={withPlaceSourceVideos(placeItems, shares)}
           status={placesStatus}
           refreshing={placesRefreshing}
           bottomInset={tabBarHeight}
-          onRefresh={() => { void loadPlaces('refresh'); void refreshShares(); }}
+          onRefresh={() => { void loadPlaces('refresh'); void refreshShares(); setSourceRevision(n => n + 1); }}
           onRetry={() => void loadPlaces(placeItems.length ? 'refresh' : 'initial')}
           onSearch={onPlaceSearch}
+          onRemove={onRemovePlace}
         />
       );
     }
@@ -344,38 +341,7 @@ export default function StashScreen() {
     }
 
     if (status === 'error' && items.length === 0) {
-      return (
-        <View style={styles.center}>
-          <Text
-            style={{
-              color: tokens.color.text,
-              fontFamily: tokens.fontFamily.bold,
-              fontSize: tokens.fontSize.display,
-              textAlign: 'center',
-            }}
-          >
-            {BAG_COPY.loadError}
-          </Text>
-          <Text
-            style={{
-              color: tokens.color.textMuted,
-              fontFamily: tokens.fontFamily.regular,
-              fontSize: tokens.fontSize.body,
-              textAlign: 'center',
-            }}
-          >
-            {displayBagError(errorMessage, 'Please try again.')}
-          </Text>
-          <Pressable
-            style={[styles.cta, { backgroundColor: tokens.color.primary, borderRadius: tokens.radius.lg }]}
-            onPress={() => void refresh()}
-          >
-            <Text style={{ color: tokens.color.onPrimary, fontFamily: tokens.fontFamily.bold }}>
-              Retry
-            </Text>
-          </Pressable>
-        </View>
-      );
+      return <FailureState error={errorMessage} title={BAG_COPY.loadError} onRetry={()=>void refresh()} fill />;
     }
 
     if (itemCount === 0 && !looking) {
@@ -452,28 +418,6 @@ export default function StashScreen() {
           </View>
         ) : null}
 
-        {home.categories.length > 0 ? (
-          <View style={[styles.section, { paddingHorizontal: GUTTER }]}>
-            <StashSourceRail owner={user.id} kind="product" revision={items.map(item=>item.cartItemId).join('|')} onOpen={id=>router.push(`/stash/source/${id}` as Href)} fallback={<View style={{ gap: GRID_GAP }}>
-              {categoryRows.map((row) => (
-                <View
-                  key={row.map((c) => c.key).join('-')}
-                  style={{ flexDirection: 'row', gap: GRID_GAP }}
-                >
-                  {row.map((category) => (
-                    <StashCategoryCard
-                      key={category.key}
-                      category={category}
-                      onPress={(next) => setSelectedCategoryKey(next.key)}
-                    />
-                  ))}
-                  {row.length === 1 ? <View style={{ flex: 1 }} /> : null}
-                </View>
-              ))}
-            </View>} />
-          </View>
-        ) : null}
-
         {bagItems.length > 0 ? (
           <View style={[styles.section, { paddingHorizontal: GUTTER }]}>
             <StashRecentProducts key={user?.id} items={bagItems} categories={home.categories} renderGrid={renderRelatedGrid} />
@@ -500,24 +444,15 @@ export default function StashScreen() {
             gap: tokens.space.md,
           }}
         >
+          <StashSourceRail key={user.id} owner={user.id} revision={`${items.map(item => item.cartItemId).join('|')}:${sourceRevision}`}
+            onOpen={id => router.push(`/stash/source/${id}` as Href)} />
           <ProfileContentTabs tabs={STASH_SEGMENT_TABS} active={stashTab} onChange={onStashTabChange} />
         </View>
       ) : null}
-      {actionError ? (
-        <Text
-          style={{
-            color: tokens.color.danger,
-            fontFamily: tokens.fontFamily.semibold,
-            fontSize: tokens.fontSize.caption,
-            textAlign: 'center',
-            paddingHorizontal: GUTTER,
-            paddingBottom: 4,
-          }}
-        >
-          {actionError}
-        </Text>
-      ) : null}
+      {actionError ? <FailureState error={actionError} variant="inline" actionLabel="Dismiss" onRetry={()=>setActionError(null)} /> : null}
       {body}
+      <FeedProductSheet video={null} product={shopping} shoppingProductId={shopping?.id} visible={Boolean(shopping)} onClose={() => setShopping(null)} />
+      {selectedSources?.[0] ? <PlaceSourceVideoModal key={selectedSources[0].url} source={selectedSources[0]} sources={selectedSources} onClose={() => setSelectedSources(null)} /> : null}
       <CartPurchaseConfirmModal
         visible={purchaseConfirmVisible}
         productTitle={confirmTitle}

@@ -1,3 +1,5 @@
+import { SignedOutSettings } from '@/components/settings/SignedOutSettings';
+import { useFailureNotice } from '@/src/ui/useFailureNotice';
 import { AnalyticsPrivacyControls } from '@/src/analytics/PrivacyControls';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -6,7 +8,6 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -15,13 +16,11 @@ import {
 import { SettingsIdentityHeader } from '@/components/settings/SettingsIdentityHeader';
 import { SettingsRow } from '@/components/settings/SettingsRow';
 import { SettingsSection } from '@/components/settings/SettingsSection';
-import { Text } from '@/components/ui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCommerceCountry } from '@/contexts/CommerceCountryContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { ensureMe, type UserSettingsViewModel } from '@/src/services/userApi';
 import {
-  ConnectedAccountsApiError,
   connectProviderWithBrowser,
   disconnectConnectedAccount,
   healthCheckConnectedAccount,
@@ -40,7 +39,6 @@ import {
   settingsIdentityDisplayName,
   settingsShoppingCountryValue,
 } from '@/src/ui/settingsHub';
-import { typeStyle } from '@/src/theme/typography';
 import { useUnreadNotifications } from '@/src/hooks/useUnreadNotifications';
 import { NOTIFICATIONS_HREF } from '@/src/notifications/linking';
 import { usePushPermission } from '@/src/hooks/usePushPermission';
@@ -50,6 +48,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { tokens, isLight, toggleTheme } = useThemeMode();
   const { user, loading, signOut } = useAuth();
+  const {showFailure,notice:failureNotice}=useFailureNotice(user?.id);
   const { snapshot, setManualCountry, enableAutomaticLocation, refresh } = useCommerceCountry();
   const notifications = useUnreadNotifications();
   const push = usePushPermission();
@@ -65,8 +64,8 @@ export default function SettingsScreen() {
     }
     try {
       setConnected(await listConnectedAccounts());
-    } catch {
-      setConnected(null);
+    } catch (error) {
+      showFailure(error);
     }
   };
 
@@ -81,20 +80,20 @@ export default function SettingsScreen() {
       .then((next) => {
         if (!cancelled) setMe(next);
       })
-      .catch(() => {
-        if (!cancelled) setMe(null);
+      .catch((error) => {
+        if (!cancelled) showFailure(error);
       });
     listConnectedAccounts()
       .then((snap) => {
         if (!cancelled) setConnected(snap);
       })
-      .catch(() => {
-        if (!cancelled) setConnected(null);
+      .catch((error) => {
+        if (!cancelled) showFailure(error);
       });
     return () => {
       cancelled = true;
     };
-  }, [user, loading]));
+  }, [user, loading, showFailure]));
 
   useEffect(() => {
     if (!snapshot?.country || !me) return;
@@ -153,7 +152,7 @@ export default function SettingsScreen() {
         await setManualCountry(code);
         await refresh();
       } catch (e) {
-        Alert.alert('Could not update country', e instanceof Error ? e.message : 'Try again.');
+        showFailure(e);
       } finally {
         setCountryBusy(false);
       }
@@ -164,7 +163,7 @@ export default function SettingsScreen() {
         await enableAutomaticLocation();
         await refresh();
       } catch (e) {
-        Alert.alert('Could not use location', e instanceof Error ? e.message : 'Try again.');
+        showFailure(e);
       } finally {
         setCountryBusy(false);
       }
@@ -223,13 +222,7 @@ export default function SettingsScreen() {
         }
         await refreshConnected();
       } catch (e) {
-        const msg =
-          e instanceof ConnectedAccountsApiError
-            ? e.message
-            : e instanceof Error
-              ? e.message
-              : 'Try again.';
-        Alert.alert(`Could not update ${title}`, msg);
+        showFailure(e);
       } finally {
         setConnectedBusy(false);
       }
@@ -287,21 +280,10 @@ export default function SettingsScreen() {
   if (!user) {
     return (
       <View style={[styles.screen, { backgroundColor: tokens.color.canvas }]}>
-        <View style={styles.centered}>
-          <Text style={[typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' }]}>
-            {SETTINGS_COPY.signInPrompt}
-          </Text>
-          <Pressable onPress={() => router.replace('/(tabs)/profile')} style={{ marginTop: 16 }}>
-            <Text style={typeStyle(tokens, 'link')}>{SETTINGS_COPY.goToProfile}</Text>
-          </Pressable>
+        <SignedOutSettings onSignIn={()=>router.replace('/(tabs)/profile')}
+          onPrivacy={()=>router.push('/settings/privacy' as Href)} onTerms={()=>router.push('/settings/terms' as Href)}>
           <AnalyticsPrivacyControls />
-          <View style={{ alignSelf: 'stretch', marginTop: tokens.space.lg }}>
-            <SettingsSection title={SETTINGS_COPY.account}>
-              <SettingsRow variant="navigation" icon="shield-checkmark-outline" title={SETTINGS_COPY.privacy}
-                subtitle={SETTINGS_COPY.privacyHint} onPress={() => router.push('/settings/privacy' as Href)} />
-            </SettingsSection>
-          </View>
-        </View>
+        </SignedOutSettings>
       </View>
     );
   }
@@ -320,6 +302,7 @@ export default function SettingsScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        {failureNotice}
         <SettingsIdentityHeader
           displayName={profileDisplayName}
           username={profileHandle}
@@ -448,7 +431,6 @@ export default function SettingsScreen() {
             variant="toggle"
             icon="color-palette-outline"
             title={SETTINGS_COPY.appearance}
-            subtitle={SETTINGS_COPY.appearanceHint}
             value={settingsAppearanceValue(isLight)}
             toggleValue={!isLight}
             onToggle={() => toggleTheme()}
@@ -457,7 +439,6 @@ export default function SettingsScreen() {
             variant="navigation"
             icon="flag-outline"
             title={SETTINGS_COPY.shoppingCountry}
-            subtitle={SETTINGS_COPY.shoppingCountryHint}
             value={countryBusy ? 'Updating…' : shoppingCountryValue}
             onPress={onPickShoppingCountry}
           />
@@ -466,13 +447,13 @@ export default function SettingsScreen() {
         <AnalyticsPrivacyControls />
         <SettingsSection title={SETTINGS_COPY.account}>
           <SettingsRow variant="navigation" icon="shield-checkmark-outline" title={SETTINGS_COPY.privacy}
-            subtitle={SETTINGS_COPY.privacyHint} onPress={() => router.push('/settings/privacy' as Href)} />
+            onPress={() => router.push('/settings/privacy' as Href)} />
           <SettingsRow
             variant="destructive"
             icon="log-out-outline"
             title={SETTINGS_COPY.signOut}
             onPress={() => {
-              void signOut().catch(() => Alert.alert('Sign out', 'Could not sign out.'));
+              void signOut().catch(error => showFailure(error));
             }}
           />
         </SettingsSection>

@@ -96,6 +96,8 @@ export class MerchantMetadataNormalizer {
 
     const meta: MerchantProductMetadata = {
       title: titleNorm.name || titleRaw,
+      pageRead: raw.pageRead,
+      pageEvidence: raw.identitySource === 'merchant_html' || raw.identitySource === 'tavily_gpt' && raw.pageEvidence?.hasProductJsonLd ? raw.pageEvidence : undefined,
       brand,
       image: validImage,
       primaryImage: validImage,

@@ -7,6 +7,10 @@ import { SupabasePlaceRepository } from './SupabasePlaceRepository';
 import { PlaceRepositoryError, type PlaceRepository } from './PlaceRepository';
 import { uuid } from '../user-import/share/contracts';
 import { logger } from '../logger';
+import { getEnv } from '../env';
+import { createPlacePhotoHandler } from './photos/routes';
+import { PlacePhotoService, supabaseOwnedPhotoPlace } from './photos/PlacePhotoService';
+import { GooglePlacePhotoProvider } from './photos/GooglePlacePhotoProvider';
 
 export type PlaceAuthenticator = (req: Request) => Promise<{ userId: string } | null>;
 
@@ -67,6 +71,11 @@ export function createPlaceListHandler(deps: {
 
 export function registerPlaceRoutes(app: Express): void {
   const admin = createSupabaseAdmin();
+  const photos = new GooglePlacePhotoProvider({apiKey:getEnv('GOOGLE_PLACES_API_KEY')});
+  const photoService = new PlacePhotoService(supabaseOwnedPhotoPlace(admin), photos);
+  app.get('/places/:placeId/photo', createPlacePhotoHandler({ authenticate: supabasePlaceAuthenticator(),
+    service: { async read(...args) { try { return await photoService.read(...args); }
+      finally { logger.debug(photos.metrics(), 'place.photo_counters'); } } } }));
   app.get(
     '/places',
     createPlaceListHandler({

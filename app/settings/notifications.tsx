@@ -1,5 +1,7 @@
+import { FailureState } from '@/components/status/FailureState';
+import { useFailureNotice } from '@/src/ui/useFailureNotice';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { SettingsRow } from '@/components/settings/SettingsRow';
 import { SettingsSection } from '@/components/settings/SettingsSection';
@@ -40,6 +42,7 @@ function deviceTimeZone(): string {
 export default function NotificationSettingsScreen() {
   const { tokens } = useThemeMode();
   const { user } = useAuth();
+  const {showFailure,notice:failureNotice,error:loadError}=useFailureNotice(user?.id);
   const push = usePushPermission();
   const field = createFieldColors(tokens);
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
@@ -64,8 +67,8 @@ export default function NotificationSettingsScreen() {
     }
     let cancelled = false;
     load()
-      .catch(() => {
-        if (!cancelled) Alert.alert(NOTIFICATIONS_COPY.prefsLoadError);
+      .catch((error) => {
+        if (!cancelled) showFailure(error);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -73,7 +76,7 @@ export default function NotificationSettingsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [user, load]);
+  }, [user, load, showFailure]);
 
   const save = async (patch: Parameters<typeof updateNotificationSettings>[0]) => {
     if (!settings || saving) return;
@@ -85,8 +88,8 @@ export default function NotificationSettingsScreen() {
         setQuietStart(clockInput(next.quietHours.start));
         setQuietEnd(clockInput(next.quietHours.end));
       }
-    } catch {
-      Alert.alert(NOTIFICATIONS_COPY.prefsSaveError);
+    } catch (error) {
+      showFailure(error);
     } finally {
       setSaving(false);
     }
@@ -137,7 +140,7 @@ export default function NotificationSettingsScreen() {
   if (!settings) {
     return (
       <View style={[styles.centered, { backgroundColor: tokens.color.canvas, padding: tokens.space.lg, gap: tokens.space.md }]}>
-        <Text style={typeStyle(tokens, 'body')}>{NOTIFICATIONS_COPY.prefsLoadError}</Text>
+        <FailureState error={loadError} message={NOTIFICATIONS_COPY.prefsLoadError} onRetry={()=>{void load().catch(showFailure);}}/>
       </View>
     );
   }
@@ -160,6 +163,7 @@ export default function NotificationSettingsScreen() {
       style={{ flex: 1, backgroundColor: tokens.color.canvas }}
       contentContainerStyle={{ padding: tokens.space.lg, gap: tokens.space.lg, paddingBottom: tokens.space.xxl }}
     >
+      {failureNotice}
       <SettingsSection title={NOTIFICATIONS_COPY.prefsSocial}>
         <SettingsRow
           variant="toggle"

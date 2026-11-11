@@ -12,6 +12,8 @@ const ts = require('typescript');
 const root = path.dirname(require.resolve('../package.json'));
 const modules = new Map();
 let tokens;
+let photoVisible=false,photoOwner='owner';
+const photoLinks=[];
 let dimensions = { width: 390, height: 844, scale: 1, fontScale: 1 };
 let captured = null;
 let allowObservations = false;
@@ -19,6 +21,7 @@ const observations = [];
 let controlled = null;
 let stateIndex = 0;
 let refIndex = 0;
+let deferredLayoutUpdates = null;
 const reactAdapter = { ...React, useRef(initial) {
   const real = React.useRef(initial);
   if (!controlled) return real;
@@ -31,8 +34,11 @@ const reactAdapter = { ...React, useRef(initial) {
   const index = stateIndex++;
   if (!controlled || index >= controlled.count) return real;
   if (!controlled.values.has(index)) controlled.values.set(index, real[0]);
-  return [controlled.values.get(index), update => controlled.values.set(index,
-    typeof update === 'function' ? update(controlled.values.get(index)) : update)];
+  return [controlled.values.get(index), update => {
+    const apply = () => controlled.values.set(index, typeof update === 'function' ? update(controlled.values.get(index)) : update);
+    if (deferredLayoutUpdates && index === 4) deferredLayoutUpdates.push(apply);
+    else apply();
+  }];
 } };
 function capture() { return { views: [], actions: [], images: [], scrolls: [], lists: [] }; }
 function renderControlled(Component, props) {
@@ -41,6 +47,7 @@ function renderControlled(Component, props) {
 }
 const nativeAdapters = {
   ...nativeWeb,
+  Linking:{openURL:async url=>{photoLinks.push(url);}},
   useWindowDimensions: () => dimensions,
   ScrollView: props => {
     if (captured?.scrolls) captured.scrolls.push(props);
@@ -80,6 +87,9 @@ function load(file) {
       if (!allowObservations) throw new Error('Analytics forbidden in render checks');
       observations.push(args);
     } };
+    if (id === '@/contexts/AuthContext') return { useAuth: () => ({ user: photoOwner ? { id: photoOwner } : null }) };
+    if (id === '@/src/services/placeImages') return { placeImages: { acquire() { throw Error('Photo network forbidden in SSR'); } } };
+    if (id === '@/src/ui/useVisibleResource') return { useVisibleResource: () => ({ref: React.useRef(null),visible:photoVisible,onLayout(){}}) };
     if (id === '@/src/analytics/hooks') return { useQualifiedExposure: () => React.useRef(null) };
     if (id === '@/src/services/findApi') return { findApi: { sourceSummaries: async () => ({ items: [], nextCursor: null }) } };
     if (id === './PlaceSourceVideoModal') return { PlaceSourceVideoModal: props => {
@@ -87,7 +97,7 @@ function load(file) {
       return React.createElement(nativeWeb.Text, null, 'Source viewer');
     } };
     if (id === '@react-navigation/native') return { useIsFocused: () => true, useFocusEffect() {} };
-    if (id === 'react-native-safe-area-context') return { SafeAreaView: nativeAdapters.View };
+    if (id === 'react-native-safe-area-context') return { SafeAreaView: nativeAdapters.View, useSafeAreaInsets:()=>({top:24,bottom:24,left:0,right:0}) };
     if (id === '@/components/YouTubeReelItem' || id === '@/components/InstagramReelItem') return { __esModule: true,
       default: props => {
         if (captured) captured.player = props;
@@ -105,6 +115,7 @@ function load(file) {
     } };
     if (id === '@/components/status/SkeletonBlock') return { SkeletonBlock: ({ width, height, radius, style }) =>
       React.createElement(nativeAdapters.View, { style: [{ width, height, borderRadius: radius, backgroundColor: tokens.color.surfaceSubtle }, style] }) };
+    if (id.endsWith('.png')) return {uri:'file:///official-branding-fixture.png'};
     if (id.startsWith('@/')) return load(path.join(root, id.slice(2)));
     if (id.startsWith('.')) return load(path.resolve(path.dirname(filename), id));
     return require(id);
@@ -156,15 +167,15 @@ try {
         assert.ok(html.includes('Loading places')); assert.ok(html.includes('role="progressbar"'));
         assert.ok(!html.includes('No places yet'));
       }
-      if (state === 'empty') { assert.ok(html.includes('No places yet')); assert.ok(!html.includes('Retry')); }
+      if (state === 'empty') { assert.ok(html.includes('No places yet')); assert.ok(!html.includes('Try again')); }
       if (state === 'error') {
-        assert.ok(html.includes('Couldn’t load places')); assert.ok(html.includes('Retry')); assert.ok(!html.includes('No places yet'));
+        assert.ok(html.includes('Couldn’t load places')); assert.ok(html.includes('Try again')); assert.ok(!html.includes('No places yet'));
       }
       if (state === 'cached-error') {
-        assert.ok(html.includes('Couldn’t refresh places')); assert.ok(html.includes('Potato Head Beach Club')); assert.ok(html.includes('Retry'));
+        assert.ok(html.includes('Couldn’t refresh places')); assert.ok(html.includes('Potato Head Beach Club')); assert.ok(html.includes('Try again'));
       }
       if (state === 'mixed' || state === 'refreshing') {
-        assert.ok(html.includes('2 places')); assert.ok(!html.includes('Unverified')); assert.ok(html.includes('Saved video preview'));
+        assert.ok(html.includes('2 places')); assert.ok(!html.includes('Unverified')); assert.ok(html.includes('Place photo, Potato Head Beach Club')); assert.ok(!html.includes('fixture.invalid/video.jpg'));
         assert.ok(html.includes('Source video, Potato Head Beach Club'));
         assert.ok(!html.includes('Source video unavailable') && !html.includes('No photo available') && !html.includes('Not confirmed yet'));
         assert.ok(html.includes('Recently stashed'));
@@ -188,26 +199,30 @@ try {
         lineHeight: Object.fromEntries(Object.entries(base.lineHeight).map(([k, v]) => [k, v * scale])) };
       for (const width of [320, 430]) {
         const item = fixtures[0];
-        const searched = [], opened = [];
+        const searched = [], opened = [], removed = [];
         captured = { views: [], actions: [] };
         const html = renderToStaticMarkup(React.createElement(nativeWeb.View, { style: { width } },
-          React.createElement(PlaceCard, { item, onSearch: (url) => searched.push(url), onOpenSource: (source) => opened.push(source) })));
+          React.createElement(PlaceCard, { item, onSearch: (url) => searched.push(url), onOpenSource: (source) => opened.push(source), onRemove: () => removed.push(item.id) })));
         const styles = captured.views.map((p) => nativeWeb.StyleSheet.flatten(p.style) ?? {});
         assert.ok(styles.some((s) => s.aspectRatio === PRODUCT_CARD_LAYOUT.relatedMediaAspect));
         assert.ok(styles.some((s) => s.padding === PRODUCT_CARD_LAYOUT.relatedInset));
         const search = captured.actions.find((p) => p.accessibilityLabel === 'Search on Google, Potato Head Beach Club');
         const source = captured.actions.find((p) => p.accessibilityLabel === 'Source video, Potato Head Beach Club');
-        assert.ok(search && source);
+        const remove = captured.actions.find(p => p.accessibilityLabel === 'Remove Potato Head Beach Club from My Stash');
+        assert.ok(search && source && remove);
         assert.ok(!renderToStaticMarkup(React.createElement(React.Fragment, null, source.children)).includes('Source video'));
-        assert.ok(nativeWeb.StyleSheet.flatten(source.style({ pressed: false })).minWidth >= 44);
-        for (const action of [search, source]) {
+        const sourceStyle = nativeWeb.StyleSheet.flatten(source.style({ pressed: false }));
+        assert.ok(sourceStyle.width + 2 * source.hitSlop >= 44);
+        assert.ok(sourceStyle.height + 2 * source.hitSlop >= 44);
+        for (const action of [search]) {
           const style = nativeWeb.StyleSheet.flatten(action.style({ pressed: false }));
           assert.ok(style.minHeight >= 44); assert.equal(style.maxWidth, '100%');
         }
-        assert.ok(html.includes('Seminyak') && html.includes('Saved video preview'));
+        assert.ok(html.includes('Seminyak') && html.includes('Place photo, Potato Head Beach Club'));
         assert.equal(observations.length, 0, 'render does not send an event');
         allowObservations = true;
-        search.onPress(); source.onPress();
+        search.onPress(); let stopped=0; source.onPress({ stopPropagation() { stopped++; } }); remove.onPress({ stopPropagation() { stopped++; } });
+        assert.equal(stopped,2); assert.deepEqual(removed,[item.id]);
         allowObservations = false;
         assert.deepEqual(searched, [destination.url]); assert.deepEqual(opened, [item.sourceVideo]);
         assert.deepEqual(observations.splice(0), [['place.outbound_requested', 'place', 'a', 'stash', { destination_kind: 'search' }]]);
@@ -259,31 +274,24 @@ try {
       onRefresh() {}, onRetry() {}, onSearch() { throw new Error('Unexpected navigation'); } };
     controlled = { count: 4, values: new Map() };
     let html = renderControlled(StashPlacesContent, props);
-    assert.ok(html.includes('Saved from your Finds') && html.includes('Recently stashed'));
+    assert.ok(!html.includes('Saved from your Finds') && html.includes('Recently stashed'));
     assert.ok(html.includes('Potato Head Beach Club') && html.includes('Café de Flore'));
-    captured.actions.find(p => p.accessibilityLabel === 'Source video, Potato Head Beach Club').onPress();
+    captured.actions.find(p => p.accessibilityLabel === 'Source video, Potato Head Beach Club').onPress({stopPropagation(){}});
     html = renderControlled(StashPlacesContent, props);
     assert.equal(captured.modal.sources.length, 2);
     captured.modal.onClose();
     renderControlled(StashPlacesContent, props);
     assert.equal(captured.modal, undefined, 'Close unmounts the source viewer');
     html = renderControlled(StashPlacesContent, props);
-    assert.ok(html.includes('Recently stashed') && html.includes('Saved from your Finds'));
+    assert.ok(html.includes('Recently stashed') && !html.includes('Saved from your Finds'));
     controlled = null; captured = null; checks++;
 
-    // Initial image failure advances to an associated source poster, then a quiet placeholder.
+    // Source posters remain playable, but never stand in for canonical place photos.
     const fallbackItem = { ...fixtures[0], sourceVideo: { ...fixtures[0].sourceVideo, thumbnailUrl: 'https://fixture.invalid/alternate.jpg' } };
-    controlled = { count: 2, values: new Map() }; // reduced-motion hook, then failed-image URLs
-    renderControlled(PlaceCard, { item: fallbackItem, onSearch() {}, onOpenSource() {} });
-    assert.equal(captured.images[0].source.uri, fallbackItem.image.url);
-    assert.equal(captured.images[0].cachePolicy, 'memory-disk');
-    captured.images[0].onError();
-    renderControlled(PlaceCard, { item: fallbackItem, onSearch() {}, onOpenSource() {} });
-    assert.equal(captured.images[0].source.uri, 'https://fixture.invalid/alternate.jpg');
-    captured.images[0].onError();
-    html = renderControlled(PlaceCard, { item: fallbackItem, onSearch() {}, onOpenSource() {} });
-    assert.equal(captured.images.length, 0); assert.ok(!html.includes('No photo available'));
-    controlled = null; captured = null; checks++;
+    let fallbackHtml=renderControlled(PlaceCard,{item:fallbackItem,onSearch(){},onOpenSource(){}});
+    assert.equal(captured.images.length,0);assert.ok(!fallbackHtml.includes('fixture.invalid/alternate.jpg'));
+    assert.ok(captured.actions.some(a=>a.accessibilityLabel==='Source video, Potato Head Beach Club'));
+    controlled=null;captured=null;checks++;
 
     const { PlaceSourceVideoModal } = load(path.join(root, 'components/place/PlaceSourceVideoModal'));
     const source = fixtures[0].sourceVideo;
@@ -351,7 +359,7 @@ try {
       html = renderControlled(StashPlacesContent, placeProps);
       let list = captured.lists[0];
       assert.equal(list.data.filter(row => row.kind === 'places').flatMap(row => row.items).length, 15);
-      assert.equal(list.data.filter(row => row.kind === 'sources').length, 1);
+      assert.equal(list.data.filter(row => row.kind === 'sources').length, 0, 'mixed source rail is outside the Places tab');
       captured.actions.find(action => action.accessibilityLabel === 'Cafés').onPress();
       html = renderControlled(StashPlacesContent, placeProps);
       list = captured.lists[0];
@@ -412,6 +420,41 @@ try {
     renderControlled(FollowControl, { isFollowing: true, pending: true, immersive: true, onPress() {} });
     assert.ok(captured.actions.some(action => action.accessibilityLabel === 'Following' && !action.disabled));
     checks++;
+  }
+  const { PlaceImage } = load(path.join(root,'components/place/PlaceImage'));
+  const photo={source:'google_places',uri:'https://lh3.googleusercontent.com/photo-fixture',width:1200,height:800,cachePolicy:'none',attribution:{provider:'Google Maps',sourceUrl:'https://www.google.com/maps/photo/fixture',reportUrl:'https://www.google.com/maps/report/fixture',authors:[{name:'Fixture photographer',url:'https://www.google.com/maps/contrib/fixture',avatar:'https://lh3.googleusercontent.com/avatar'}],providers:[]}};
+  for(const theme of ['titanium','nebula'])for(const os of ['android','ios'])for(const width of [320,360,414])for(const scale of [1,1.7]){
+    tokens=getThemeTokens(theme);dimensions={width,height:844,scale:1,fontScale:scale};nativeAdapters.Platform={...nativeWeb.Platform,OS:os};photoVisible=true;photoOwner='owner';
+    const key=JSON.stringify(['owner','canonical',undefined,640]);
+    controlled={count:5,values:new Map([[0,false],[1,{key,photo,loaded:true}],[2,{key:'',count:0}],[3,false],[4,0]])};
+    const props={placeId:'canonical',name:'Fixture venue',style:{width:(width-48)/2,height:(width-48)/2,borderRadius:tokens.radius.md}};
+    let html=renderControlled(PlaceImage,props);
+    assert.ok(html.includes('Google Maps'));assert.equal(captured.images[0].cachePolicy,'none');assert.equal(captured.images[0].source.headers['Cache-Control'],'no-store');
+    const credit=captured.actions.find(a=>a.accessibilityLabel==='Photo credits and Google Maps source, Fixture venue');assert.ok(credit);
+    const stale=captured.images[0];credit.onPress({stopPropagation(){}});html=renderControlled(PlaceImage,props);
+    assert.ok(html.includes('Fixture photographer'));assert.ok(html.includes('View original photo on Google Maps'));assert.ok(html.includes('Report photo'));
+    assert.ok(captured.images.every(image=>image.cachePolicy==='none'));
+    captured.actions.find(a=>a.accessibilityLabel==='View original photo on Google Maps').onPress();
+    assert.equal(photoLinks.at(-1),photo.attribution.sourceUrl);
+    captured.actions.find(a=>a.accessibilityLabel==='Fixture photographer').onPress();assert.equal(photoLinks.at(-1),photo.attribution.authors[0].url);
+    controlled.values.set(3,false);controlled.values.set(1,{key,photo:{...photo,uri:'https://lh3.googleusercontent.com/new-photo'},loaded:false});
+    renderControlled(PlaceImage,props);stale.onLoad();assert.equal(controlled.values.get(1).loaded,false,'old image events cannot mark a replacement loaded');
+    photoOwner='other-owner';html=renderControlled(PlaceImage,props);assert.ok(!html.includes('Google Maps')&&!captured.images.length,'account changes hide old image synchronously');
+    photoOwner='owner';photoVisible=false;html=renderControlled(PlaceImage,props);assert.equal(captured.images.length,1,'minor viewport crossings retain an already displayed image');
+    photoVisible=true;controlled.values.set(1,null);html=renderControlled(PlaceImage,{...props,placeId:null});assert.equal(captured.images.length,0);
+    const imageView=captured.views.find(view=>view.accessibilityLabel==='Place photo, Fixture venue');
+    assert.ok(imageView?.onLayout);
+    deferredLayoutUpdates=[];
+    let released=false,reads=0;
+    const event={get nativeEvent(){assert.ok(!released,'queued state updates must not read released native events');reads++;return {layout:{width:176}};}};
+    imageView.onLayout(event);released=true;
+    assert.equal(reads,1,'layout dimensions are copied synchronously');
+    assert.equal(deferredLayoutUpdates.length,1);
+    deferredLayoutUpdates.splice(0).forEach(apply=>apply());
+    assert.equal(controlled.values.get(4),176);
+    imageView.onLayout({nativeEvent:{layout:{width:0}}});assert.equal(deferredLayoutUpdates.length,0,'ignore transient zero-width layouts');
+    deferredLayoutUpdates=null;
+    controlled=null;captured=null;photoVisible=false;checks++;
   }
 } finally { global.fetch = originalFetch; }
 console.log(`${checks} Places/Create/profile/Watch render and interaction checks passed. SSR does not verify native image loading, gestures, or device layout.`);

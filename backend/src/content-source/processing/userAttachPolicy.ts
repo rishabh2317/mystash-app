@@ -25,6 +25,8 @@ export function isAttachableUserDecision(decision: string | null | undefined): b
  * GPT fallback is not evidence enough to resolve.
  */
 export function hypothesisMayResolve(product: ContentSourceProductRecord): boolean {
+  const identification = product.evidence?.identification as { kind?: string } | undefined;
+  if (identification?.kind === 'possible') return false;
   if (product.extractionMethod === 'merchant_enrichment') {
     return product.evidence?.identitySource !== 'tavily_gpt';
   }

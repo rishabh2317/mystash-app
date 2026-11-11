@@ -94,14 +94,14 @@ describe('skeleton loading contracts', () => {
   it('keeps error retry paths and does not leave skeletons after failure', () => {
     const product = read('app/product/[productId].tsx');
     assert.match(product, /loadState === 'error'/);
-    assert.match(product, /PRODUCT_PAGE_COPY\.retry/);
+    assert.match(product, /FailureState[^>]*onRetry=\{\(\)=>void load\(\)\}/);
 
     const stash = read('app/(tabs)/stash.tsx');
     assert.match(stash, /status === 'error'/);
     assert.match(stash, /BAG_COPY\.loadError/);
 
     const notifications = read('app/notifications.tsx');
-    assert.match(notifications, /NOTIFICATIONS_COPY\.retry/);
+    assert.match(notifications, /FailureState[^>]*onRetry/);
     assert.match(notifications, /loadFirst\('loading'\)/);
   });
 });

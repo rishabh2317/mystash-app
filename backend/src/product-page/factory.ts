@@ -1,3 +1,4 @@
+import {createCountryOfferService} from '../shopping/createCountryOfferService';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createCatalogService } from '../catalog/factory';
 import { createContentSourceService } from '../content-source/factory';
@@ -29,6 +30,7 @@ export function createProductPageService(admin: SupabaseClient): ProductPageServ
       findReady: async (catalogProductId) =>
         projectReadyReview(await reviewRepo.findByProductId(catalogProductId)),
     },
+    createCountryOfferService(admin),
   );
 }
 

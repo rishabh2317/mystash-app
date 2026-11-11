@@ -24,6 +24,8 @@ import { Text } from '@/components/ui/Text';
 import { AddToCartButton } from './AddToCartButton';
 import { ProductHeroImage } from './ProductHeroImage';
 import { VerificationBadge } from './VerificationBadge';
+import { ActionButton } from '@/components/ui/ActionButton';
+import { CardMediaActions } from './CardMediaActions';
 
 /**
  * One semantic product card, several intentional visual contracts.
@@ -54,6 +56,8 @@ type Props = {
    * Parent owns shopping redirect — ProductCard never calls openProductShopping.
    */
   onBuy?: (product: CatalogProductViewModel) => void;
+  onRemove?: () => void;
+  onOpenSource?: () => void;
   /**
    * Optional. Collection page: opens AI Review sheet (replaces Buy / View Product).
    */
@@ -86,6 +90,8 @@ export function ProductCard({
   variant = 'standard',
   onAddToCart,
   onBuy,
+  onRemove,
+  onOpenSource,
   onAiReview,
   onMerchantShortcut,
   showIndexPrice = false,
@@ -487,11 +493,12 @@ export function ProductCard({
               contentFit="cover"
               style={styles.relatedMedia}
             />
-            {showAddToCart && onAddToCart ? (
+            {showAddToCart && !onRemove ? (
               <View style={[styles.relatedSave, { bottom: tokens.space.xs, right: tokens.space.xs }]}>
                 <AddToCartButton product={product} variant="icon" onAddToCart={onAddToCart} />
               </View>
             ) : null}
+            <CardMediaActions title={product.title} onPlay={onOpenSource} onRemove={onRemove} />
           </View>
           <View
             style={[
@@ -517,6 +524,10 @@ export function ProductCard({
             </Text>
           </View>
         </Pressable>
+        {onBuy ? <View style={{ marginTop: tokens.space.xs }}>
+          <ActionButton label="Buy now" accessibilityLabel={`Buy now, ${product.title}`} variant="secondary"
+            size="compact" minTouchHeight={44} radius="md" onPress={() => onBuy(product)} />
+        </View> : null}
       </View>
     );
   }

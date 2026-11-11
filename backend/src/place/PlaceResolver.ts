@@ -1,3 +1,5 @@
+import { dedupePlaceMentions } from './placeMentionDedupe';
+import { isGeographyOnly } from './placeClassification';
 import { assertImportWorkActive, importWorkContext, mapImportConcurrent } from '../user-import/workContext';
 import { logger } from '../logger';
 import { decidePlaceMention } from './decidePlaceMention';
@@ -39,9 +41,8 @@ export class PlaceResolver {
   }): Promise<PlaceResolutionSummary> {
     const summary: PlaceResolutionSummary = { kept: 0, discarded: 0, leads: 0, resolved: 0 };
 
-    const unique = [...new Map(input.mentions.map((mention) => [placeHypothesisKey({
-      extractedName: mention.name, ...mention,
-    }), mention])).values()];
+    const unique = dedupePlaceMentions(input.mentions);
+    summary.discarded += input.mentions.filter(isGeographyOnly).length;
     await mapImportConcurrent(unique, 2, async (mention) => {
       try {
         assertImportWorkActive();
@@ -84,6 +85,7 @@ export class PlaceResolver {
     const fields = hypothesisFields(contentSourceId, mention, 'pending_resolution');
     const existing = await this.repository.findHypothesis(contentSourceId, placeHypothesisKey({
       extractedName: mention.name,
+      evidence:mention.evidence,
       locality: mention.locality,
       city: mention.city,
       region: mention.region,

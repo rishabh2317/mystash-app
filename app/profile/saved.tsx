@@ -1,3 +1,4 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
 import { useRouter, type Href } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
@@ -17,10 +18,12 @@ export default function PersonalSavedScreen() {
   const { user } = useAuth();
   const [items, setItems] = useState<CollectionViewModel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [retryVersion,setRetryVersion]=useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
+    setLoading(true);setError(null);
     let cancelled = false;
     setLoading(true);
     void loadSavedCollections()
@@ -28,7 +31,7 @@ export default function PersonalSavedScreen() {
         if (!cancelled) setItems(rows.items);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : PERSONAL_PROFILE_COPY.emptySaved);
+        if (!cancelled) setError(apiFailureMessage(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -36,7 +39,7 @@ export default function PersonalSavedScreen() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user,retryVersion]);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.color.canvas }}>
@@ -45,10 +48,11 @@ export default function PersonalSavedScreen() {
         items={items}
         loading={loading}
         error={error}
+        onRetry={()=>setRetryVersion(n=>n+1)}
         empty={PERSONAL_PROFILE_COPY.emptySaved}
         variant="personal"
         onPress={(collection) =>
-          router.push(collectionTilePressPath(collection.collectionId) as Href)
+          router.push(collectionTilePressPath(collection.collectionId, {collections:items, source:{kind:'saved'},nextCursor:'',ownerId:user?.id}) as Href)
         }
       />
     </View>

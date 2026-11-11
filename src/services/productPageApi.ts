@@ -1,3 +1,4 @@
+import {getCommerceCountry,getCommerceCountryOwner} from '@/src/services/commerceCountry';
 import { hydrateProductPage } from '@/src/services/productPageMap';
 import type { ProductPageView } from '@/src/types/productPage';
 
@@ -21,11 +22,15 @@ function apiBase(): string {
 
 export async function fetchProductPage(
   productId: string,
-  attrs?: { contentSourceId?: string | null; userImportId?: string | null },
+  attrs?: { country?:string|null; contentSourceId?: string | null; userImportId?: string | null },
 ): Promise<ProductPageView> {
   const id = productId.trim();
   if (!id) throw new ProductPageApiError('Product id is required', 400);
   const query = new URLSearchParams();
+  const owner=getCommerceCountryOwner();
+  const country=attrs?.country??(await getCommerceCountry()).country;
+  if(owner!==getCommerceCountryOwner())throw new ProductPageApiError('Account changed. Try again.',409);
+  if(country)query.set('country',country);
   if (attrs?.contentSourceId?.trim()) query.set('contentSourceId', attrs.contentSourceId.trim());
   if (attrs?.userImportId?.trim()) query.set('userImportId', attrs.userImportId.trim());
   const suffix = query.toString();

@@ -147,7 +147,7 @@ export default function AnalyticsScreen() {
                   return (
                     <Pressable
                       key={c.collectionId}
-                      onPress={() => router.push(collectionTilePressPath(c.collectionId))}
+                      onPress={() => router.push(collectionTilePressPath(c.collectionId,{collections:ranked}))}
                       accessibilityRole="button"
                       style={[
                         styles.row,

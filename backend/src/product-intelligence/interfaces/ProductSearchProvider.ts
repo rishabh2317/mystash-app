@@ -34,6 +34,8 @@ export type SearchStrategyHints = {
 
 export type SearchStrategy = {
   search(query: string, hints?: SearchStrategyHints): Promise<SearchResult>;
+  /** Discovery only: cannot call image or metadata enrichment. */
+  discoverMerchantEvidence?(query: string, country: string, options?: { includeBase?: boolean }): Promise<import('../verification/merchantEvidence').MerchantEvidenceInput[]>;
 };
 
 export type { SearchCandidate, SearchResult };

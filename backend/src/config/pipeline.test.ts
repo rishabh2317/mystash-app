@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it, beforeEach } from 'node:test';
 import {
+  USER_IMPORT_PLACE_CACHE_VERSION,
   adaptiveFrameCount,
   buildCacheKey,
   resetPipelineConfigCache,
@@ -56,7 +57,7 @@ describe('buildCacheKey', () => {
     });
     assert.notEqual(creator, user);
     assert.equal(creator, 'youtube:abc123:v5-test:prov-test:youtube-text-captions-v1');
-    assert.match(user, /:user-import:places-v2$/);
+    assert.ok(user.endsWith(`:user-import:${USER_IMPORT_PLACE_CACHE_VERSION}`));
     assert.doesNotMatch(user, /places-v1/);
   });
 });

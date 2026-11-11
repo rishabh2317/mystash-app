@@ -1,3 +1,5 @@
+import { useFailureNotice } from '@/src/ui/useFailureNotice';
+import { FailureState } from '@/components/status/FailureState';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, type Href } from 'expo-router';
@@ -44,9 +46,12 @@ export default function NotificationsScreen() {
   const { tokens } = useThemeMode();
   const { user, loading: authLoading } = useAuth();
   const { enabled, unread, setUnread, refreshUnread } = useNotificationsContext();
+  const {showFailure,notice:failureNotice}=useFailureNotice(user?.id);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [headCursor, setHeadCursor] = useState<string | null>(null);
+  const [moreError,setMoreError]=useState<unknown>(null);
+  const [loadError,setLoadError]=useState<unknown>(null);
   const [state, setState] = useState<LoadState>('loading');
   const generation = useRef(0);
   const userId = user?.id ?? null;
@@ -55,7 +60,7 @@ export default function NotificationsScreen() {
     async (mode: 'loading' | 'refreshing') => {
       if (!enabled || !userId) return;
       const gen = ++generation.current;
-      setState(mode);
+      setState(mode);setLoadError(null);setMoreError(null);
       try {
         const page = await listNotifications({ limit: NOTIFICATIONS_PAGE_SIZE });
         if (gen !== generation.current) return;
@@ -66,8 +71,8 @@ export default function NotificationsScreen() {
         if (page.headCursor && page.items.some((i) => !i.seen)) {
           void markNotificationsSeen(page.headCursor).catch(() => undefined);
         }
-      } catch {
-        if (gen === generation.current) setState('error');
+      } catch (error) {
+        if (gen === generation.current) {setLoadError(error);setState('error');}
       }
     },
     [enabled, userId],
@@ -83,15 +88,15 @@ export default function NotificationsScreen() {
   const loadMore = useCallback(async () => {
     if (!nextCursor || state !== 'idle') return;
     const gen = generation.current;
-    setState('more');
+    setState('more');setMoreError(null);
     try {
       const page = await listNotifications({ cursor: nextCursor, limit: NOTIFICATIONS_PAGE_SIZE });
       if (gen !== generation.current) return;
       setItems((prev) => mergeNotificationPages(prev, page.items));
       setNextCursor(page.nextCursor);
       setState('idle');
-    } catch {
-      if (gen === generation.current) setState('idle');
+    } catch (error) {
+      if (gen === generation.current) {setMoreError(error);setState('idle');}
     }
   }, [nextCursor, state]);
 
@@ -115,10 +120,12 @@ export default function NotificationsScreen() {
     setUnread({ unread: 0, capped: false });
     try {
       await markNotificationsRead({ all: true, before: headCursor });
+    } catch (error) {
+      showFailure(error);
     } finally {
       void refreshUnread();
     }
-  }, [headCursor, refreshUnread, setUnread]);
+  }, [headCursor, refreshUnread, setUnread, showFailure]);
 
   const hasUnread = items.some((i) => !i.read);
   const sections = sectionNotifications(items);
@@ -144,18 +151,12 @@ export default function NotificationsScreen() {
         </View>
       );
     }
-    if (state === 'error' && items.length === 0) {
-      return (
-        <CenteredMessage
-          title={NOTIFICATIONS_COPY.errorTitle}
-          actionLabel={NOTIFICATIONS_COPY.retry}
-          onAction={() => void loadFirst('loading')}
-        />
-      );
-    }
+    if (state === 'error' && items.length === 0) return <FailureState error={loadError} onRetry={()=>void loadFirst('loading')} fill />;
+
     return (
       <SectionList
         sections={sections}
+        ListHeaderComponent={<>{failureNotice}{state==='error'?<FailureState error={loadError} variant="inline" onRetry={()=>void loadFirst('refreshing')}/>:null}</>}
         keyExtractor={(item) => item.id}
         stickySectionHeadersEnabled={false}
         contentContainerStyle={{ paddingBottom: tokens.space.xxl, flexGrow: 1 }}
@@ -167,7 +168,7 @@ export default function NotificationsScreen() {
           />
         }
         onEndReachedThreshold={0.4}
-        onEndReached={() => void loadMore()}
+        onEndReached={() => {if (!moreError) void loadMore();}}
         renderSectionHeader={({ section }) => (
           <Text
             style={[
@@ -183,7 +184,7 @@ export default function NotificationsScreen() {
           <CenteredMessage title={NOTIFICATIONS_COPY.emptyTitle} body={NOTIFICATIONS_COPY.emptyBody} />
         }
         ListFooterComponent={
-          loadState === 'contentPaginating' ? (
+          moreError ? <FailureState error={moreError} variant="inline" onRetry={()=>void loadMore()} /> : loadState === 'contentPaginating' ? (
             <View style={{ marginVertical: tokens.space.sm }}>
               <NotificationRowSkeleton />
               <NotificationRowSkeleton />

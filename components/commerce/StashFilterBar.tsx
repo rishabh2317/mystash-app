@@ -33,7 +33,7 @@ export function StashFilterBar({ options, selected, onSelect, accessibilityLabel
     accessibilityLabel={accessibilityLabel} showsHorizontalScrollIndicator={false}
     style={styles.scroll} onContentSizeChange={revealSelection}
     contentContainerStyle={{ flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: tokens.space.xs, paddingVertical: tokens.space.xs,
-      paddingHorizontal: tokens.space.xxs }}>
+      paddingHorizontal: tokens.space.xs }}>
     {options.map(option => {
       const active = selected === option.key;
       return <TactileFilterChip key={option.key === null ? 'all' : `category:${option.key}`} selected={active} accessibilityRole="button"

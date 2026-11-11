@@ -1,3 +1,4 @@
+import { API_FAILURE_COPY, apiFailure, apiFailureMessage } from '../ui/apiFailure';
 export const AUTH_COPY = {
   genericSignUp:
     'If this email can be registered, we sent a confirmation message. Check your inbox and spam.',
@@ -6,7 +7,7 @@ export const AUTH_COPY = {
   emailNotConfirmed: 'Confirm your email to continue. Open the message we sent, then return to the app.',
   invalidCredentials: 'Incorrect email or password.',
   rateLimited: 'Too many attempts. Wait a minute and try again.',
-  offline: 'You appear to be offline. Check your connection and try again.',
+  offline: API_FAILURE_COPY.connection.message,
   expiredLink: 'This link has expired. Request a new email and try again.',
   invalidLink: 'This link is invalid or has already been used.',
   weakPassword: 'Password must be at least 8 characters.',
@@ -78,12 +79,14 @@ function isOfflineMessage(message: string): boolean {
 }
 
 export function formatAuthError(
-  err: { message?: string; code?: string } | null | undefined,
+  err: { message?: string; code?: string; status?: number } | null | undefined,
   context: 'signin' | 'signup' | 'resend' | 'recovery' | 'callback' | 'update-password' | 'google' = 'signin',
 ): string {
   if (!err) return 'Something went wrong. Please try again.';
   const code = err.code ?? '';
   const message = err.message ?? '';
+  const failure = apiFailure(err);
+  if (['service','connection','timeout'].includes(failure.kind)) return failure.message;
 
   if (isOfflineMessage(message)) return AUTH_COPY.offline;
   if (RATE_LIMIT_CODES.has(code) || /rate limit|too many/i.test(message)) return AUTH_COPY.rateLimited;
@@ -123,8 +126,8 @@ export function formatAuthError(
   }
 
   if (context === 'google') {
-    return message || AUTH_COPY.googleFailed;
+    return message ? apiFailureMessage(message) : AUTH_COPY.googleFailed;
   }
 
-  return message || 'Something went wrong. Please try again.';
+  return apiFailureMessage(message);
 }

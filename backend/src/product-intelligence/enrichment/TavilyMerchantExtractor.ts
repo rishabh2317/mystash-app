@@ -27,6 +27,8 @@ export class TavilyMerchantExtractor implements MerchantExtractor {
 
     return {
       title: preview.name,
+      pageEvidence: preview.pageEvidence,
+      pageRead: preview.pageRead,
       brand: preview.brand ?? null,
       image,
       primaryImage: image,

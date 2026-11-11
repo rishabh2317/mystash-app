@@ -7,7 +7,7 @@ function normalizeName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function asEvidence(e: ProductCandidate['evidence']): ProductEvidence {
+function asEvidence(e: ProductCandidate['evidence'], preserveFind = false): ProductEvidence {
   if (typeof e === 'string') {
     return {
       summary: e,
@@ -19,6 +19,11 @@ function asEvidence(e: ProductCandidate['evidence']): ProductEvidence {
     };
   }
   return {
+    ...(preserveFind && e?.uncertainty ? { uncertainty: e.uncertainty } : {}),
+    ...(preserveFind && e?.attributes ? { attributes: e.attributes } : {}),
+    ...(preserveFind && e?.stages ? { stages: e.stages } : {}),
+    ...(preserveFind && e?.identification ? { identification: e.identification } : {}),
+    ...(preserveFind && e?.rejectedHypotheses ? { rejectedHypotheses: e.rejectedHypotheses } : {}),
     summary: e?.summary ?? '',
     frames: Array.isArray(e?.frames) ? e.frames : [],
     frameCount: typeof e?.frameCount === 'number' ? e.frameCount : e?.frames?.length ?? 0,
@@ -30,7 +35,7 @@ function asEvidence(e: ProductCandidate['evidence']): ProductEvidence {
 
 /** Deterministic post-reasoner cleanup — no LLM. */
 export class ProductValidator {
-  validate(raw: ProductCandidate[]): ProductCandidate[] {
+  validate(raw: ProductCandidate[], options?: { distinguishModels?: boolean }): ProductCandidate[] {
     const cfg = getPipelineConfig();
     const out: ProductCandidate[] = [];
     const seen = new Set<string>();
@@ -53,14 +58,14 @@ export class ProductValidator {
       const sources = Array.isArray(p.sources)
         ? (p.sources.filter(Boolean) as EvidenceSource[])
         : [];
-      const evidence = asEvidence(p.evidence);
+      const evidence = asEvidence(p.evidence, options?.distinguishModels);
       const hasLogo = sources.includes('LOGO') || evidence.logoHits.length > 0;
       if (brand && !hasLogo && sources.includes('VISION') && !sources.includes('OCR')) {
         // Prefer null brand when only weak visual inference and no logo evidence
         if (confidence < cfg.autoApproveConfidence) brand = null;
       }
 
-      const key = `${normalizeName(name)}|${(brand ?? '').toLowerCase()}`;
+      const key = `${normalizeName(name)}|${(brand ?? '').toLowerCase()}${options?.distinguishModels ? `|${p.model ?? ''}` : ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
 

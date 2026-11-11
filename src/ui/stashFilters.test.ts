@@ -4,7 +4,7 @@ import { activeStashFilter, filterRecentStash, stashFilterOptions } from './stas
 import { bagCategoryKey, buildStashHome, type BagItemView } from './bag';
 import { buildPlacesHome, hydratePlaceStashItem, placeCategoryText } from './stashPlaces';
 import { normalizedPlaceCategory } from './placeCategories';
-import { FILTER_CHIP_DEPTH, getThemeTokens, stashFilterChipChrome } from '../theme/tokens';
+import { FILTER_CHIP_DEPTH, filterChipAmbientChrome, getThemeTokens, stashFilterChipChrome } from '../theme/tokens';
 
 it('All is distinct from real categories and only represented categories become options', () => {
   const filters = stashFilterOptions([{ key: 'Cafe', title: 'Cafés' }, { key: 'All', title: 'All things' }, { key: 'Cafe', title: 'Cafés' }]);
@@ -59,15 +59,20 @@ it('category text uses only supplied types, deduplicates labels, and never inven
   assert.equal(placeCategoryText({ category: 'Unknown', extractedCategory: 'N/A' }), null);
 });
 
-it('chips have a raised edge and a shadow-free pressed state in both themes', () => {
+it('chips have a soft raised edge and reduced contact shadow while pressed in both themes', () => {
   for (const theme of ['titanium', 'nebula'] as const) {
     const tokens = getThemeTokens(theme);
     const off = stashFilterChipChrome(tokens, false), on = stashFilterChipChrome(tokens, true);
-    assert.equal(on.borderRadius, tokens.radius.pill); assert.equal(off.borderWidth, tokens.stroke.thin);
+    assert.equal(on.borderRadius, tokens.radius.pill); assert.equal(off.borderWidth, 0);
     assert.equal(off.backgroundColor, FILTER_CHIP_DEPTH[theme].raised);
     assert.equal(on.backgroundColor, FILTER_CHIP_DEPTH[theme].pressed);
-    assert.notEqual(off.borderTopColor, on.borderTopColor);
+    assert.notDeepEqual(FILTER_CHIP_DEPTH[theme].raisedRim, FILTER_CHIP_DEPTH[theme].pressedRim);
+    assert.notDeepEqual(FILTER_CHIP_DEPTH[theme].raisedFace, FILTER_CHIP_DEPTH[theme].pressedFace);
     assert.ok(off.elevation > 0); assert.equal(on.elevation, 0);
-    assert.ok(off.shadowOpacity > 0); assert.equal(on.shadowOpacity, 0);
+    assert.ok(off.shadowOpacity > on.shadowOpacity); assert.ok(on.shadowOpacity > 0);
+    const ambient = filterChipAmbientChrome(tokens, false), pressedAmbient = filterChipAmbientChrome(tokens, true);
+    assert.deepEqual(ambient.shadowOffset, { width: 0, height: 0 });
+    assert.ok(ambient.shadowRadius > off.shadowRadius);
+    assert.ok(pressedAmbient.shadowOpacity > 0 && pressedAmbient.shadowOpacity < ambient.shadowOpacity);
   }
 });

@@ -52,6 +52,17 @@ describe('UserService', () => {
     return { users, collections, svc };
   }
 
+  it('saving device locale does not replace a manual or permissioned country',async()=>{
+    const {svc}=setup();await svc.ensureFromAuth(authUser);
+    await svc.updateCommerceCountry(authUser.id,{country:'IN',source:'manual'});
+    await svc.updateLocale(authUser.id,{shoppingLocale:'en-US'});
+    const settings=await svc.getSettings(authUser.id);assert.ok(settings);
+    assert.equal(settings.country,'IN');assert.equal(settings.countrySource,'manual');assert.equal(settings.shoppingLocale,'en-US');
+    await svc.updateCommerceCountry(authUser.id,{country:'GB',source:'location'});
+    assert.equal((await svc.getSettings(authUser.id))?.country,'IN');
+    await assert.rejects(svc.updateLocale(authUser.id,{shoppingLocale:'not a locale'}),/Invalid shopping locale/);
+  });
+
   it('notifies only operator-driven creator status changes', async () => {
     const changes: Parameters<UserNotificationPort['creatorStatusChanged']>[0][] = [];
     const { svc } = setup(0, async () => {}, async (input) => {

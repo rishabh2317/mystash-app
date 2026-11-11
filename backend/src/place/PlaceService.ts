@@ -1,3 +1,4 @@
+import { isGeographyOnly } from './placeClassification';
 import { placePresentationGroups } from './placePresentationGroups';
 import type { PlaceUnresolvedReason } from './domain/types';
 import {
@@ -94,7 +95,7 @@ export class PlaceService {
     }
     for (const save of saves) {
       const hypothesis = hypotheses.get(save.contentSourcePlaceId);
-      if (!hypothesis || hypothesis.retiredAt) continue;
+      if (!hypothesis || hypothesis.retiredAt || isGeographyOnly(hypothesis)) continue;
       const source = {
         contentSourceId: save.contentSourceId,
         userImportId: save.userImportId,
@@ -116,7 +117,7 @@ export class PlaceService {
         ...(groups.has(save.id) ? { presentationGroupId: groups.get(save.id) } : {}) };
       if (save.placeId) {
         const place = places.get(save.placeId);
-        if (!place) continue;
+        if (!place || isGeographyOnly(place)) continue;
         items.push({
           kind: 'resolved', ...attribution, resolutionStatus: 'resolved',
           name: place.name,

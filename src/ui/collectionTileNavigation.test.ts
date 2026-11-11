@@ -8,7 +8,7 @@ import {
   collectionTilePressPath,
 } from './collectionLayout';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(join(ROOT, relativePath), 'utf8');
@@ -28,7 +28,7 @@ describe('collection tile navigation', () => {
     for (const file of tileConsumers) {
       const src = readRepoFile(file);
       assert.match(src, /collectionTilePressPath\(/, `${file} must use collectionTilePressPath`);
-      const handler = src.match(/const onPressCollection = useCallback\([\s\S]*?\[router\],\s*\);/)?.[0];
+      const handler = src.match(/const onPressCollection = useCallback\([\s\S]*?\[router[^\]]*\],\s*\);/)?.[0];
       assert.ok(handler, `${file} must define a collection tile press handler`);
       assert.doesNotMatch(
         handler,
@@ -66,7 +66,7 @@ describe('collection tile navigation', () => {
 
   it('Home play chip uses the existing collection reel destination', () => {
     const feed = readRepoFile('components/feed/FeedCreatorBlock.tsx');
-    assert.match(feed, /collectionTilePressPath\(moreFromCreator\.collectionId\)/);
+    assert.match(feed, /collectionTilePressPath\(moreFromCreator\.collectionId,/);
     assert.doesNotMatch(feed, /router\.push\(`\/collection\//);
   });
 

@@ -21,7 +21,7 @@ export function isMarketplaceHost(host: string): boolean {
 
 /** Exact PDP paths, including Amazon short links `/d/{id}`. `dp` must precede `d`. */
 export const EXACT_PRODUCT_PATH =
-  /\/(dp|d|gp\/product|product|products|p|pd|item|buy)\/[^/?#]+/i;
+  /\/(dp|d|gp\/product|product|products|p|pdp|pd|item|buy)\/[^/?#]+/i;
 export const EXACT_PRODUCT_HTML = /\/[a-z0-9][a-z0-9-]{4,}\.html$/i;
 
 export function isExactProductBuyingUrl(url: string): boolean {

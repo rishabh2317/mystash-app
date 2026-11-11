@@ -1,7 +1,10 @@
+import type { MerchantPageEvidence } from '../../pipeline/merchantPageEvidence';
 /** Canonical merchant PDP metadata produced by MerchantEnrichmentService. */
 
 export type MerchantProductMetadata = {
   title: string;
+  pageEvidence?: MerchantPageEvidence;
+  pageRead?: 'READ' | 'UNAVAILABLE' | 'NOT_ATTEMPTED';
   brand: string | null;
   /** Primary product image (OG / product / JSON-LD / Tavily). */
   image: string | null;

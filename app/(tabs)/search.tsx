@@ -1,3 +1,5 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -56,6 +58,7 @@ import { typeStyle } from '@/src/theme/typography';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { CreatorViewModel } from '@/src/types/creator';
+import { videosToExploreCollections } from '@/src/mappers/exploreCollectionMapper';
 import { collectionTilePressPath } from '@/src/ui/collectionLayout';
 import { productPagePath } from '@/src/ui/productPage';
 import {
@@ -152,6 +155,7 @@ export default function SearchScreen() {
   const [selectedCategory, setSelectedCategory] = useState<SearchEntityType>('collection');
   const [session, setSession] = useState<SearchSession>(() => emptySearchSession());
   const [discover, setDiscover] = useState<SearchDiscoverLanding>(EMPTY_DISCOVER);
+  const [discoverReels,setDiscoverReels] = useState<CollectionViewModel[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
@@ -182,12 +186,14 @@ export default function SearchScreen() {
     setDiscoverLoading(true);
     try {
       const videos = await fetchVideos();
+      setDiscoverReels(videosToExploreCollections(videos));
       // Progressive paint: sync shelves first, then replace with hydrated data.
       setDiscover(buildSearchDiscoverLanding(videos));
       setDiscoverLoading(false);
       setDiscover(await loadSearchDiscoverLanding(videos));
     } catch {
       setDiscover(EMPTY_DISCOVER);
+      setDiscoverReels([]);
       setDiscoverLoading(false);
     }
   }, []);
@@ -280,7 +286,7 @@ export default function SearchScreen() {
         intent: typeof res.intent === 'string' ? res.intent : null, error: null, loaded: true }));
     } catch (e) {
       if (!searchResponseIsCurrent(sessionRef.current, inputRef.current, query, epoch, queryEpoch.current, request, tabRequestRef.current[category])) return;
-      updateTab(query, category, tab => ({ ...tab, loaded: true, error: e instanceof Error ? e.message : 'Search failed' }));
+      updateTab(query, category, tab => ({ ...tab, loaded: true, error: apiFailureMessage(e) }));
     } finally {
       if (request === tabRequestRef.current[category]) busyRef.current[category] = false;
       if (epoch === queryEpoch.current && request === tabRequestRef.current[category])
@@ -381,9 +387,9 @@ export default function SearchScreen() {
   const onDiscoverCollectionPress = useCallback(
     (collection: CollectionViewModel) => {
       Keyboard.dismiss();
-      router.push(collectionTilePressPath(collection.collectionId) as Href);
+      router.push(collectionTilePressPath(collection.collectionId, {collections:discoverReels}) as Href);
     },
-    [router],
+    [router, discoverReels],
   );
 
   const onProductCollectionPress = useCallback(
@@ -735,6 +741,7 @@ export default function SearchScreen() {
                       <ProductCard
                         product={product}
                         variant="related"
+                        onBuy={product.catalogProductId ? onBuy : undefined}
                         showIndexPrice
                         onPress={onProductPress}
                         onAddToCart={product.catalogProductId ? onAddToCart : undefined}
@@ -782,18 +789,7 @@ export default function SearchScreen() {
             return <SearchMoreSkeleton entityType={selectedCategory} />;
           }
           if (item.kind === 'status') {
-            return (
-              <View style={styles.statusBlock}>
-                <Text style={[typeStyle(tokens, 'bodyMuted'), { textAlign: 'center' }]}>
-                  {item.text}
-                </Text>
-                {item.action ? (
-                  <Pressable onPress={item.action} style={{ padding: tokens.space.sm }}>
-                    <Text style={typeStyle(tokens, 'link')}>Retry</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            );
+            return item.action ? <FailureState error={item.text} variant="inline" onRetry={item.action} /> : <View style={styles.statusBlock}><Text style={[typeStyle(tokens,'bodyMuted'),{textAlign:'center'}]}>{item.text}</Text></View>;
           }
           if (item.kind === 'collection_row') {
             return <View style={{ flexDirection: 'row', gap: GRID_GAP }}>

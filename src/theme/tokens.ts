@@ -29,7 +29,7 @@ export const OUTLINE_BORDER_VARIANT: OutlineBorderVariant = 'crisp';
 export type CardSurfaceVariant = 'outline' | 'raised';
 
 /** Dev switch — change this one constant to revert the card-surface experiment. */
-export const CARD_SURFACE_VARIANT: CardSurfaceVariant = 'outline';
+export const CARD_SURFACE_VARIANT: CardSurfaceVariant = 'raised';
 
 /**
  * Nested semantic aliases for the outline-card language.
@@ -330,7 +330,7 @@ const OUTLINE_BORDER: Record<ThemeModeName, Record<OutlineBorderVariant, string>
    MYSTASH LIGHT THEME EXPERIMENT
    Edit only these values to test alternate palettes.
    Do not scatter experiment colors through the token file.
-   Card shadows also apply to Titanium's outline-card variant.
+   Card shadows apply only to the opaque raised-card variant.
    ========================================================= */
 export const TITANIUM_EXPERIMENT = {
   canvas: '#FFFFFF',
@@ -351,18 +351,18 @@ export const TITANIUM_EXPERIMENT = {
   /** Soft information-card lift on Titanium, independent of card fill. */
   cardShadow: {
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 5,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.035,
+    shadowRadius: 4,
+    elevation: 1,
   },
   /** Keep filled-button chrome on its previous path and values. */
   buttonShadow: {
     shadowColor: '#000000',
-    shadowOffset: { width: 1, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 0,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
 } as const;
 
@@ -470,7 +470,7 @@ const NEBULA_COLOR: ThemeColorTokens = {
   surface: 'rgba(255,255,255,0.08)',
   surfaceRaised: 'rgba(255,255,255,0.12)',
   surfaceSubtle: 'rgba(255,255,255,0.04)',
-  outlineCard: 'rgba(255, 255, 255, 0.07)',
+  outlineCard: 'rgba(255,255,255,0.09)',
   border: 'rgba(255,255,255,0.15)',
   borderStrong: 'rgba(255,255,255,0.25)',
   divider: 'rgba(255,255,255,0.08)',
@@ -505,7 +505,7 @@ export function getThemeTokens(mode: ThemeModeName): ThemeTokens {
 
 /**
  * Information / multi-data card chrome — `outlineCard` fill + quiet outline
- * border. Titanium cards receive a soft shared shadow.
+ * border. Only opaque Titanium raised cards receive a shared shadow.
  * Use for creator suggestion, category, merchant/info, profile info cards.
  * Do not use on media-first cards.
  */
@@ -530,7 +530,10 @@ export function outlineCardChrome(tokens: ThemeTokens): {
 
 /** Card-only shadow for outer wrappers when a card clips its contents. */
 export function informationCardShadow(tokens: ThemeTokens) {
-  return tokens.mode === 'titanium' ? TITANIUM_EXPERIMENT.cardShadow : {};
+  // Native Android shadows can show through transparent card interiors.
+  // The outline variant deliberately has no opaque fill and must stay flat.
+  return tokens.mode === 'titanium' && CARD_SURFACE_VARIANT === 'raised'
+    ? TITANIUM_EXPERIMENT.cardShadow : {};
 }
 
 /** Filled-button shadow in the raised variant; empty on Nebula and outline mode. */
@@ -568,36 +571,99 @@ export function pageCanvasGradient(tokens: ThemeTokens): readonly [string, strin
 export function softCanvasGradient(tokens: ThemeTokens): readonly [string, string] {
   return [tokens.color.canvasSoft, tokens.color.canvasSoftEnd];
 }
-/** Filter controls have their own depth, separate from information cards. */
-export const FILTER_CHIP_DEPTH = {
+/** Find capture actions: edit this palette to experiment without changing screens. */
+export const FIND_CAPTURE_ACTION_COLORS = {
   titanium: {
-    raised: '#FFFFFF', pressed: '#ECECEC',
-    raisedEdge: 'rgba(0,0,0,0.09)', pressedEdge: 'rgba(0,0,0,0.14)',
-    upperLight: 'rgba(255,255,255,0.96)', innerShade: 'rgba(0,0,0,0.10)',
-    lowerLight: 'rgba(255,255,255,0.78)', shadowOpacity: 0.14,
+    surface: '#F0FAF6',
+    pressed: '#E0F3E9',
+    border: '#B5D8CC',
+    pressedBorder: '#4F9B85',
+    icon: '#237C68',
   },
   nebula: {
-    raised: '#1C1C1E', pressed: '#2A2A2D',
-    raisedEdge: 'rgba(255,255,255,0.17)', pressedEdge: 'rgba(255,255,255,0.10)',
-    upperLight: 'rgba(255,255,255,0.20)', innerShade: 'rgba(0,0,0,0.30)',
-    lowerLight: 'rgba(255,255,255,0.10)', shadowOpacity: 0.36,
+    surface: '#0C2421',
+    pressed: '#12392F',
+    border: '#315E55',
+    pressedBorder: '#6AAD99',
+    icon: '#8BDDCB',
   },
 } as const;
 
-/** Native shadow for the raised state; selected controls have an inset edge instead. */
+/** Orb depth relative to the capture accent; 0 keeps the accent, 1 is black.
+ * Change FIND_CAPTURE_ACTION_COLORS[mode].icon to recolor both sets of actions.
+ * Tune these shade weights separately to keep the orb richer than the tiles. */
+export const FIND_ORB_SHADE_MIX = {
+  titanium: { highlight: 0, middle: 0.20, edge: 0.40 },
+  nebula: { highlight: 0.35, middle: 0.55, edge: 0.70 },
+} as const;
+
+export function findOrbPalette(tokens: ThemeTokens) {
+  const accent = FIND_CAPTURE_ACTION_COLORS[tokens.mode].icon;
+  const shade = (weight: number) => '#' + [1, 3, 5].map(offset =>
+    Math.round(Number.parseInt(accent.slice(offset, offset + 2), 16) * (1 - weight))
+      .toString(16).padStart(2, '0')).join('');
+  const mix = FIND_ORB_SHADE_MIX[tokens.mode];
+  return { highlight: shade(mix.highlight), middle: shade(mix.middle), edge: shade(mix.edge) };
+}
+
+/** Filter controls have their own depth, separate from information cards. */
+export const FILTER_CHIP_DEPTH = {
+  titanium: {
+    raised: '#FAFAFA', pressed: '#E5E5E5',
+    raisedRim: ['#FFFFFF', '#F5F5F5', '#DEDEDE'],
+    pressedRim: ['#C9C9C9', '#DFDFDF', '#FAFAFA'],
+    raisedBlend: ['#FFFFFF', '#FAFAFA', '#EFEFEF'],
+    pressedBlend: ['#D5D5D5', '#E3E3E3', '#F0F0F0'],
+    raisedFace: ['#FFFFFF', '#FCFCFC', '#F6F6F6'],
+    pressedFace: ['#E0E0E0', '#E7E7E7', '#EBEBEB'],
+    raisedEdge: 'rgba(0,0,0,0.09)', pressedEdge: 'rgba(0,0,0,0.14)',
+    upperLight: 'rgba(255,255,255,0.96)', innerShade: 'rgba(0,0,0,0.10)',
+    lowerLight: 'rgba(255,255,255,0.78)', shadowOpacity: 0.10, pressedShadowOpacity: 0.015,
+    ambientOpacity: 0.055, pressedAmbientOpacity: 0.025,
+  },
+  nebula: {
+    raised: '#1C1C1E', pressed: '#414145',
+    raisedRim: ['#49494D', '#28282B', '#0C0C0E'],
+    pressedRim: ['#101013', '#67676C', '#85858B'],
+    raisedBlend: ['#353539', '#27272A', '#18181B'],
+    pressedBlend: ['#28282C', '#55555B', '#68686E'],
+    raisedFace: ['#29292C', '#232326', '#1E1E21'],
+    pressedFace: ['#343438', '#414145', '#48484C'],
+    raisedEdge: 'rgba(255,255,255,0.17)', pressedEdge: 'rgba(255,255,255,0.35)',
+    upperLight: 'rgba(255,255,255,0.20)', innerShade: 'rgba(0,0,0,0.30)',
+    lowerLight: 'rgba(255,255,255,0.10)', shadowOpacity: 0.30, pressedShadowOpacity: 0.04,
+    ambientOpacity: 0.16, pressedAmbientOpacity: 0.08,
+  },
+} as const;
+
+/** Soft ambient depth around the capsule; contact shadow stays on a separate surface. */
+export function filterChipAmbientChrome(tokens: ThemeTokens, selected: boolean) {
+  const depth = FILTER_CHIP_DEPTH[tokens.mode];
+  return {
+    backgroundColor: selected ? depth.pressed : depth.raised,
+    borderRadius: tokens.radius.pill,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: selected ? depth.pressedAmbientOpacity : depth.ambientOpacity,
+    shadowRadius: 6,
+    elevation: 1,
+  };
+}
+
+/** Contact shadow below the raised face, reduced while the control is depressed. */
 export function stashFilterChipChrome(tokens: ThemeTokens, selected: boolean) {
   const depth = FILTER_CHIP_DEPTH[tokens.mode];
   return {
     backgroundColor: selected ? depth.pressed : depth.raised,
     borderColor: selected ? depth.pressedEdge : depth.raisedEdge,
-    borderTopColor: selected ? depth.pressedEdge : depth.upperLight,
-    borderBottomColor: selected ? depth.lowerLight : depth.raisedEdge,
-    borderWidth: tokens.stroke.thin,
+    // The nested, clipped gradients draw the curved rim; native per-edge borders
+    // produce flat seams on Android capsules.
+    borderWidth: 0,
     borderRadius: tokens.radius.pill,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: selected ? 0 : depth.shadowOpacity,
-    shadowRadius: 5,
-    elevation: selected ? 0 : 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: selected ? depth.pressedShadowOpacity : depth.shadowOpacity,
+    shadowRadius: 4,
+    elevation: selected ? 0 : 2,
   };
 }

@@ -1,9 +1,12 @@
+import { normalizedPlaceAddress } from './placeMentionDedupe';
+import { isGeographyOnly } from './placeClassification';
 import { normalizeProductIdentityTokens } from '../product-intelligence/normalizer/ProductIdentityCanonicalizer';
 import { NON_DISTINCTIVE_PLACE_NAMES, type PlaceMentionFields } from './placeMaySearch';
 import { placeNameStem } from './placeNameIsSpecific';
 
 export type PlaceSearchCandidate = {
   providerPlaceId: string;
+  types?: string[];
   name: string;
   locality?: string | null;
   city?: string | null;
@@ -72,11 +75,31 @@ function fieldConflicts(stated: string | null | undefined, candidateField: strin
 }
 
 function locationConflicts(hypothesis: PlaceMentionFields, candidate: PlaceSearchCandidate): boolean {
+  const aliasMatch=(field:'locality'|'city'|'region'|'country')=>{
+    const map=hypothesis.evidence?.locationAliases as Record<string,unknown>|undefined;
+    const aliases=map && Array.isArray(map[field])?map[field] as unknown[]:[];
+    return aliases.some(value=>typeof value==='string'&&!fieldConflicts(value,candidate[field]??candidate.formattedAddress));
+  };
+  if(hypothesis.mentionedAddress) {
+    const expectedAddress=normalizedPlaceAddress(hypothesis.mentionedAddress).split(' | ')[0];
+    const numbers=expectedAddress.match(/\b\d+[a-z]?\b/g)??[];
+    if(numbers.length) {
+      if(!candidate.formattedAddress)return true;
+      const actualAddress=normalizedPlaceAddress(candidate.formattedAddress).split(' | ')[0];
+      const actual=new Set(actualAddress.split(' '));
+      if(numbers.some(number=>!actual.has(number)))return true;
+      const context=new Set(normalizedPlaceAddress([hypothesis.name,hypothesis.locality,hypothesis.city,hypothesis.region,hypothesis.country].filter(Boolean).join(' ')).split(' '));
+      const street=expectedAddress.split(' ').filter(token=>token.length>=2&&!/\d/.test(token)&&!context.has(token)&&!['number','road','street','avenue','boulevard','unit','floor','apartment','building','sector'].includes(token));
+      if(street.some(token=>!actual.has(token)))return true;
+    }
+  }
+  const branch=typeof hypothesis.evidence?.branch==='string'?hypothesis.evidence.branch:null;
+  if(branch && (!candidate.formattedAddress&&!candidate.locality || fieldConflicts(branch,candidate.formattedAddress??candidate.locality)))return true;
   return (
-    fieldConflicts(hypothesis.locality, candidate.locality ?? candidate.formattedAddress) ||
-    fieldConflicts(hypothesis.city, candidate.city ?? candidate.formattedAddress) ||
-    fieldConflicts(hypothesis.region, candidate.region ?? candidate.formattedAddress) ||
-    fieldConflicts(hypothesis.country, candidate.country ?? candidate.formattedAddress)
+    !aliasMatch('locality') && fieldConflicts(hypothesis.locality, candidate.locality ?? candidate.formattedAddress) ||
+    !aliasMatch('city') && fieldConflicts(hypothesis.city, candidate.city ?? candidate.formattedAddress) ||
+    !aliasMatch('region') && fieldConflicts(hypothesis.region, candidate.region ?? candidate.formattedAddress) ||
+    !aliasMatch('country') && fieldConflicts(hypothesis.country, candidate.country ?? candidate.formattedAddress)
   );
 }
 
@@ -91,7 +114,7 @@ export function matchPlaceIdentity(
 ): PlaceMatchDecision {
   const unique = new Map<string, PlaceSearchCandidate>();
   for (const candidate of candidates) {
-    if (!candidate.providerPlaceId.trim()) continue;
+    if (!candidate.providerPlaceId.trim() || isGeographyOnly(candidate)) continue;
     if (!unique.has(candidate.providerPlaceId)) unique.set(candidate.providerPlaceId, candidate);
   }
   const named = [...unique.values()].filter((candidate) => nameCompatible(hypothesis.name, candidate.name));

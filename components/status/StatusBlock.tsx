@@ -9,6 +9,7 @@ import {
 
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
 import type { StatusKind } from '@/src/ui/contracts';
+import { FailureState } from './FailureState';
 
 type Props = {
   kind: StatusKind;
@@ -33,16 +34,14 @@ export function StatusBlock({
   fill,
 }: Props) {
   const tokens = useThemeTokens();
+  if (kind === 'error') return <FailureState title={title} message={message} onRetry={onAction} actionLabel={actionLabel} fill={fill} />;
   const accent =
-    kind === 'error'
-      ? tokens.color.danger
-      : kind === 'success'
+    kind === 'success'
         ? tokens.color.success
         : tokens.color.accent;
 
   return (
     <View
-      accessibilityRole={kind === 'error' ? 'alert' : undefined}
       style={[styles.wrap, fill ? styles.fill : null, { gap: tokens.space.sm }]}
     >
       {kind === 'loading' ? <ActivityIndicator size="large" color={accent} /> : null}

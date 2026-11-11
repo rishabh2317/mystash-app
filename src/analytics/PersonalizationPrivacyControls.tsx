@@ -1,5 +1,6 @@
+import {useFailureNotice} from '@/src/ui/useFailureNotice';
 import React, {useCallback,useEffect,useRef,useState,useSyncExternalStore} from 'react';
-import {Alert,AppState} from 'react-native';
+import {Alert,AppState,View} from 'react-native';
 import {SettingsSection} from '@/components/settings/SettingsSection';
 import {SettingsRow} from '@/components/settings/SettingsRow';
 import {ActionButton} from '@/components/ui/ActionButton';
@@ -16,6 +17,7 @@ export function PersonalizationPrivacyControls(){
  const [result,setResult]=useState<{scope:string;settings:PersonalizationSettings}|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(false);
  const [receiptScope,setReceiptScope]=useState<string|null>(null);
  const generation=useRef(0),scope=user?.id;
+ const {showFailure,notice:failureNotice}=useFailureNotice(scope);
  const visible=VISIBLE||!!scope&&receiptScope===scope;
  useEffect(()=>{let alive=true;if(scope&&!VISIBLE)void hasPersonalizationControlReceipt(scope).then(yes=>{if(alive)setReceiptScope(yes?scope:null);}).catch(()=>{});return()=>{alive=false;};},[scope]);
  const invalidate=useCallback(()=>{generation.current++;},[]);
@@ -35,15 +37,18 @@ export function PersonalizationPrivacyControls(){
    else if(enabled){if(!enableAllowed)throw new Error('Enable account activity measurement first');await enablePersonalization(scope,measurement.preferences.revision!);}
    else await personalizationWithdrawals.withdraw(scope);
    if(n===generation.current)await refresh();
-  }catch{if(n===generation.current){setError(true);Alert.alert('Personalization privacy','This change has not been confirmed by the server. Reconnect and try again.');}}
+  }catch{if(n===generation.current){setError(true);showFailure('This change has not been confirmed by the server. Reconnect and try again.');}}
   finally{setBusy(false);}
  };
  return <SettingsSection title="Your interests">
+  {failureNotice}
   <SettingsRow variant="toggle" title="Remember my interests" icon="sparkles-outline"
-   subtitle="Use saved items, follows, and product or collection actions to learn your interests. Recommendations do not change yet."
+   subtitle="Learn your interests from saves, follows and product activity."
    toggleValue={settings?.preferences.enabled===true} disabled={busy||!settings||(!settings.preferences.enabled&&!enableAllowed)}
    onToggle={v=>void change(v)}/>
-  <Text style={typeStyle(tokens,'bodyMuted')}>Your saved items and follows stay in place if you turn this off. Interest activity is kept for up to seven days.</Text>
+  <View style={{paddingHorizontal:tokens.space.md,paddingVertical:tokens.space.sm}}>
+   <Text style={typeStyle(tokens,'caption')}>Turning this off keeps your saves and follows. Interest activity is kept for up to 7 days.</Text>
+  </View>
   {settings?.preferences.enabled?<ActionButton label="Clear learned interests" variant="secondary" disabled={busy} onPress={()=>Alert.alert('Clear learned interests?','Past activity will no longer shape your interests. Your saved items and follows stay in place.',[{text:'Cancel',style:'cancel'},{text:'Clear',onPress:()=>void change(false,true)}])}/>:null}
   {error?<ActionButton label="Try syncing again" variant="quiet" disabled={busy} onPress={()=>void refresh()}/>:null}
  </SettingsSection>;

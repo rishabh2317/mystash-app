@@ -1,3 +1,5 @@
+import { dedupePlaceMentions } from './placeMentionDedupe';
+import { isGeographyOnly } from './placeClassification';
 import { assertImportWorkActive } from '../user-import/workContext';
 import type { ExtractedPlaceMention } from './parseReasonerPayload';
 import { placeNameIsSpecific } from './placeNameIsSpecific';
@@ -20,9 +22,9 @@ export async function persistUnresolvedPlaceLeads(input: {
   imports: Array<{ id: string; userId: string }>;
   mentions: ExtractedPlaceMention[];
 }): Promise<PersistUnresolvedPlaceLeadsResult> {
-  let discarded = 0;
+  let discarded = input.mentions.filter(isGeographyOnly).length;
   const hypotheses: ContentSourcePlaceRecord[] = [];
-  for (const mention of input.mentions) {
+  for (const mention of dedupePlaceMentions(input.mentions)) {
     if (!placeNameIsSpecific(mention.name)) {
       discarded += 1;
       continue;

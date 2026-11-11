@@ -169,7 +169,7 @@ export class CatalogService {
           description: input.description ?? existing.description,
           imageUrl: input.imageUrl ?? existing.imageUrl,
           merchant: input.merchant ?? existing.merchant,
-          merchantUrl: input.merchantUrl ?? existing.merchantUrl,
+          merchantUrl: input.merchantUrl !== undefined ? input.merchantUrl : existing.merchantUrl,
           preferredShoppingUrl:
             input.preferredShoppingUrl !== undefined
               ? input.preferredShoppingUrl

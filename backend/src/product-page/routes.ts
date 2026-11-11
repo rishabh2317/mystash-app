@@ -1,3 +1,4 @@
+import {resolveShoppingRequestCountry} from '../shopping/requestCountry';
 import type { Express, Request, Response } from 'express';
 import { logger } from '../logger';
 import { createSupabaseAdmin } from '../supabase';
@@ -10,7 +11,8 @@ function queryString(value: unknown): string | null {
 }
 
 export function registerProductPageRoutes(app: Express): void {
-  const service = createProductPageService(createSupabaseAdmin());
+  const admin=createSupabaseAdmin();
+  const service = createProductPageService(admin);
 
   app.get('/products/:id/page', async (req: Request, res: Response) => {
     try {
@@ -20,6 +22,7 @@ export function registerProductPageRoutes(app: Express): void {
         return;
       }
       const query: ProductPageQuery = {
+        country:await resolveShoppingRequestCountry(admin,req),
         contentSourceId: queryString(req.query.contentSourceId),
         userImportId: queryString(req.query.userImportId),
       };

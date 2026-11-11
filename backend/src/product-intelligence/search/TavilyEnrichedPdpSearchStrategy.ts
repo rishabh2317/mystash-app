@@ -1,8 +1,11 @@
+import {countrySuitability} from '../../shopping/countrySuitability';
+import type { MerchantEvidenceInput } from '../verification/merchantEvidence';
+import { candidateEvidence, qualifyMerchantEvidenceSet } from '../verification/merchantEvidence';
+import { merchantSkuDiscoveryQuery } from '../verification/merchantIdentity';
 import type { SearchCandidate, SearchResult } from '../domain/types';
 import type { MerchantEnrichmentService } from '../enrichment/MerchantEnrichmentService';
 import { mergeEnrichedCandidates, validPriceValue } from '../enrichment/MetadataMergeService';
-import type { ProductSearchProvider } from '../interfaces/ProductSearchProvider';
-import type { SearchStrategy, SearchStrategyHints } from '../interfaces/ProductSearchProvider';
+import type { ProductSearchProvider, SearchStrategy, SearchStrategyHints } from '../interfaces/ProductSearchProvider';
 import { ingestLog } from '../../pipeline/ingestLog';
 import { getPdpSearchHints, identityExpectationForSearch } from './pdpSearchHints';
 import { classifyPdp } from './PdpClassifier';
@@ -11,7 +14,7 @@ import { decoratePdpCandidates, shortlistPdpCandidates, type ShortlistedCandidat
 import { scoreCandidateDecisions } from '../scoring/CandidateScoring';
 import { isStrongDirectUrlCandidate, merchantUrlsMatch } from './directUrlIdentity';
 import { isExactProductBuyingUrl } from '../../shopping/productUrlIdentity';
-import { isProductIdentityCompatible } from './productIdentityCompatibility';
+import { assessProductIdentityCompatibility, isProductIdentityCompatible } from './productIdentityCompatibility';
 import {
   amazonPreferredSearchQuery,
   mergeSearchCandidates,
@@ -38,9 +41,10 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
   ) {}
 
   async search(query: string, hints?: SearchStrategyHints): Promise<SearchResult> {
+    const merchantEvidence: MerchantEvidenceInput[] = [];
     const userImportExpansion = Boolean(hints?.enrichAllCommerce);
     const seed = hints?.seedMerchantUrl
-      ? await this.enrichSeedUrl(hints.seedMerchantUrl)
+      ? await this.enrichSeedUrl(hints.seedMerchantUrl, merchantEvidence)
       : null;
     const seedRetained = Boolean(seed);
 
@@ -60,7 +64,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
           skippedDiscovery: true,
         });
       }
-      return { kind: 'Succeeded', candidates: [seed], provider: 'direct_url' };
+      return { kind: 'Succeeded', candidates: [seed], merchantEvidence, provider: 'direct_url' };
     }
 
     if (userImportExpansion) {
@@ -91,7 +95,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         });
       }
       return seed
-        ? { kind: 'Succeeded', candidates: [seed], provider: 'direct_url' }
+        ? { kind: 'Succeeded', candidates: [seed], merchantEvidence, provider: 'direct_url' }
         : discovery;
     }
 
@@ -136,6 +140,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       };
     }
 
+    let merchantRaw = discoveryCandidates;
     let pool = decoratePdpCandidates(discoveryCandidates, identityHints);
     const commerceCountry = hints?.commerceCountry ?? null;
     let preferred = pickPreferredMetadataTargets(pool, commerceCountry);
@@ -167,6 +172,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       const extraCandidates = extraResults.flatMap((result) =>
         result.kind === 'Succeeded' ? toDiscoveryCandidates(result.candidates) : [],
       );
+      merchantRaw = mergeSearchCandidates(discoveryCandidates, extraCandidates);
       if (extraCandidates.length) {
         pool = decoratePdpCandidates(
           mergeSearchCandidates(discoveryCandidates, extraCandidates),
@@ -210,7 +216,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
 
     const preferredResults =
       preferred.length > 0
-        ? await Promise.all(preferred.map((best) => this.enrichShortlisted(best, identityHints)))
+        ? await Promise.all(preferred.map((best) => this.enrichShortlisted(best, identityHints, merchantEvidence)))
         : [];
     const preferredEnriched = preferredResults.filter(
       (candidate): candidate is SearchCandidate => candidate !== null,
@@ -248,7 +254,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       });
       const fallbackResults = hints?.lightweightAdditionalMerchants
         ? remaining.map((best) => this.toLightweightCommerceCandidate(best, identityHints))
-        : await Promise.all(remaining.map((best) => this.enrichShortlisted(best, identityHints)));
+        : await Promise.all(remaining.map((best) => this.enrichShortlisted(best, identityHints, merchantEvidence)));
       enrichedCandidates = [
         ...preferredEnriched,
         ...fallbackResults.filter((candidate): candidate is SearchCandidate => candidate !== null),
@@ -314,6 +320,11 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
     return {
       kind: 'Succeeded',
       candidates: merged,
+      merchantEvidence: [
+        ...merchantEvidence,
+        ...merchantRaw.filter(c => !merchantEvidence.some(e => merchantUrlsMatch(e.url, c.merchantUrl)))
+          .map(c => ({ url: c.merchantUrl, discovery: { title: c.title, snippet: c.snippet, provider: this.discovery.name }, pageRead: 'NOT_ATTEMPTED' as const })),
+      ],
       provider: this.discovery.name,
     };
   }
@@ -437,6 +448,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
   private async enrichShortlisted(
     best: ShortlistedCandidate,
     pdpHints: ReturnType<typeof getPdpSearchHints>,
+    evidence: MerchantEvidenceInput[],
   ): Promise<SearchCandidate | null> {
       ingestLog('info', 'metadata.enrichment.started', {
         svc: 'product-intelligence',
@@ -460,6 +472,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         traceId: this.traceId,
       });
       if (enriched.kind === 'failed') {
+        evidence.push({ url: best.merchantUrl, discovery: { title: best.title, snippet: best.snippet, provider: this.discovery.name }, pageRead: 'UNAVAILABLE' });
         ingestLog('info', 'search.pdp.rejected', {
           svc: 'product-intelligence',
           merchantUrl: best.merchantUrl.slice(0, 160),
@@ -469,6 +482,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       }
 
       const m = enriched.metadata;
+      evidence.push(this.pageEvidence(m, { title: best.title, snippet: best.snippet, provider: this.discovery.name }));
       const validPrice = validPriceValue(m.price, m.currency);
       if (m.price && !validPrice) {
         ingestLog('warn', 'metadata.price.rejected', {
@@ -482,6 +496,9 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         title: m.title,
         expectedBrand: pdpHints.brand,
         metadata: {
+          hasProductJsonLd: m.pageEvidence?.hasProductJsonLd,
+          sku: m.pageEvidence?.sku,
+          hasAddToCart: m.pageEvidence?.hasAddToCart,
           hasOffer: Boolean(validPrice),
           price: validPrice,
           productImage: m.primaryImage ?? m.image,
@@ -499,18 +516,18 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         return null;
       }
 
-      if (
-        !isProductIdentityCompatible(pdpHints, {
-          title: m.title,
-          brand: m.brand,
-          merchantUrl: m.merchantUrl,
-          category: m.category,
-        })
-      ) {
+      const identity = assessProductIdentityCompatibility(pdpHints, {
+        title: m.title, brand: m.brand, model: m.pageEvidence?.model,
+        variantContext: m.identitySource === 'merchant_html' ? m.description : null,
+        gtin: m.pageEvidence?.gtin, mpn: m.pageEvidence?.mpn,
+        merchantUrl: m.merchantUrl, category: m.category,
+      });
+      if (!identity.ok) {
         ingestLog('info', 'search.pdp.rejected', {
           svc: 'product-intelligence',
           merchantUrl: best.merchantUrl.slice(0, 160),
           reason: 'identity_incompatible',
+          identityReason: identity.reason,
         });
         return null;
       }
@@ -523,6 +540,10 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         score: Math.min(1, Math.max(0.5, best.pdpScore / 100)),
         snippet: best.snippet,
         brand: m.brand,
+        model: m.pageEvidence?.model,
+        variantContext: m.identitySource === 'merchant_html' ? m.description : null,
+        gtin: m.pageEvidence?.gtin,
+        mpn: m.pageEvidence?.mpn,
         description: m.description,
         price: validPrice,
         currency: m.currency,
@@ -538,7 +559,9 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         shoppingEligible: best.capabilities.commerce && classification.verdict === 'pdp',
         category: m.category,
         enrichmentMeta: {
-          enrichmentProvider: m.provider,
+          merchantPageIdentity: this.pageEvidence(m).page,
+          pageRead: m.pageRead,
+        enrichmentProvider: m.provider,
           short_description: m.shortDescription,
           specifications: m.specifications,
           metadata_completeness: m.metadataCompleteness,
@@ -570,12 +593,37 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         shoppingScore: decisionScores.shoppingScore,
         pdpScore: candidate.pdpScore,
         metadataCompleteness: decisionScores.metadataCompleteness,
+        independentProductSchema: m.pageEvidence?.hasProductJsonLd ?? false,
+        priceAvailable: Boolean(validPrice),
         durationMs: Date.now() - started,
       });
       return candidate;
   }
 
-  private async enrichSeedUrl(seedUrl: string): Promise<SearchCandidate | null> {
+  private pageEvidence(m: import('../enrichment/types').MerchantProductMetadata, discovery?: MerchantEvidenceInput['discovery']): MerchantEvidenceInput {
+    return { url: m.merchantUrl, discovery, countryAvailability:m.pageEvidence?.countryAvailability,
+      pageRead: m.pageRead ?? (m.identitySource === 'merchant_html' || m.pageEvidence?.hasProductJsonLd ? 'READ' : m.identitySource === 'canonical_cache' ? 'NOT_ATTEMPTED' : 'UNAVAILABLE'),
+      page: (m.pageRead === undefined || m.pageRead === 'READ') && (m.identitySource === 'merchant_html' || m.pageEvidence?.hasProductJsonLd) ? {
+        title: m.pageEvidence?.name ?? m.title, brand: m.pageEvidence?.brand ?? m.brand,
+        model: m.pageEvidence?.model, variantContext: m.description,
+        gtin: m.pageEvidence?.gtin, mpn: m.pageEvidence?.mpn,
+      } : undefined };
+  }
+
+  async discoverMerchantEvidence(query: string, country: string, options?: { includeBase?: boolean }): Promise<MerchantEvidenceInput[]> {
+    // Independent merchant-only queries. Never change metadata/image discovery inputs.
+    const queries = [...new Set([...(options?.includeBase ? [merchantSkuDiscoveryQuery(query, getPdpSearchHints().brand)] : []), amazonPreferredSearchQuery(query, country)])];
+    const results = await Promise.all(queries.map(q => this.discovery.search(q).catch(() => null)));
+    const evidence=results.flatMap(result => result?.kind === 'Succeeded'
+      ? result.candidates.slice(0, this.maxCandidates).map(c => ({ ...candidateEvidence(c), discovery: { title: c.title, snippet: c.snippet, provider: result.provider } })) : []);
+    const expected=identityExpectationForSearch(getPdpSearchHints(),query);
+    if(qualifyMerchantEvidenceSet(expected,evidence).some(e=>e.usable&&countrySuitability(e.url,country,e.countryAvailability)===0))return evidence;
+    // One broad regional fallback only after the preferred marketplace has no valid local offer.
+    const fallback=await this.discovery.search(`${merchantSkuDiscoveryQuery(query,getPdpSearchHints().brand)} shipping to ${country}`).catch(()=>null);
+    return [...evidence,...(fallback?.kind==='Succeeded'?fallback.candidates.slice(0,this.maxCandidates).map(c=>({...candidateEvidence(c),discovery:{title:c.title,snippet:c.snippet,provider:fallback.provider}})):[])];
+  }
+
+  private async enrichSeedUrl(seedUrl: string, evidence: MerchantEvidenceInput[]): Promise<SearchCandidate | null> {
     const pdpHints = getPdpSearchHints();
     ingestLog('info', 'metadata.enrichment.started', {
       svc: 'product-intelligence',
@@ -601,6 +649,7 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       return null;
     }
     const m = enriched.metadata;
+    evidence.push(this.pageEvidence(m));
     const identityUrl = m.merchantUrl || seedUrl;
     const validPrice = validPriceValue(m.price, m.currency);
     const pdp = classifyPdp({
@@ -608,6 +657,9 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       title: m.title,
       expectedBrand: pdpHints.brand,
       metadata: {
+        hasProductJsonLd: m.pageEvidence?.hasProductJsonLd,
+        sku: m.pageEvidence?.sku,
+        hasAddToCart: m.pageEvidence?.hasAddToCart,
         hasOffer: Boolean(validPrice),
         price: validPrice,
         productImage: m.primaryImage ?? m.image,
@@ -615,6 +667,8 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
         merchantProductMetadata: m.metadataCompleteness >= 35,
       },
     });
+    if (!isProductIdentityCompatible(pdpHints, { title: m.title, brand: m.brand, model: m.pageEvidence?.model,
+        variantContext: m.identitySource === 'merchant_html' ? m.description : null, gtin: m.pageEvidence?.gtin, mpn: m.pageEvidence?.mpn, merchantUrl: identityUrl, category: m.category })) return null;
     const page = classifyCandidatePage({
       url: identityUrl,
       title: m.title,
@@ -628,6 +682,10 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       image: m.primaryImage ?? m.image,
       score: 1,
       brand: m.brand,
+      model: m.pageEvidence?.model,
+      variantContext: m.identitySource === 'merchant_html' ? m.description : null,
+      gtin: m.pageEvidence?.gtin,
+      mpn: m.pageEvidence?.mpn,
       description: m.description,
       price: validPrice,
       currency: m.currency,
@@ -642,6 +700,8 @@ export class TavilyEnrichedPdpSearchStrategy implements SearchStrategy {
       shoppingEligible: page.capabilities.commerce && pdp.verdict === 'pdp',
       category: m.category,
       enrichmentMeta: {
+        merchantPageIdentity: this.pageEvidence(m).page,
+        pageRead: m.pageRead,
         enrichmentProvider: m.provider,
         short_description: m.shortDescription,
         specifications: m.specifications,

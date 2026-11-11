@@ -75,7 +75,11 @@ describe('creatorMoreReelTarget', () => {
       [row('current'), row('next-one'), row('next-two')],
       'current',
     );
-    assert.deepEqual(target, { collectionId: 'next-one', title: 'next-one' });
+    assert.equal(target?.collectionId, 'next-one');
+    assert.equal(target?.title, 'next-one');
+    assert.equal(target?.creatorId, 'creator-1');
+    assert.deepEqual(target?.collections?.map(c=>c.collectionId), ['current','next-one','next-two']);
+    assert.equal(target?.nextCursor, null);
   });
 
   it('returns null when this is the creator’s only collection', () => {

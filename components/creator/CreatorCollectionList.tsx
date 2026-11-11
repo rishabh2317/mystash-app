@@ -1,8 +1,8 @@
+import { FailureState } from '@/components/status/FailureState';
 import React from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -65,12 +65,7 @@ export function CreatorCollectionList({
     return (
       <View style={styles.centered}>
         {ListHeaderComponent}
-        <Text style={[styles.message, { color: muted }]}>{error}</Text>
-        {onRetry ? (
-          <Pressable onPress={onRetry} style={styles.retry}>
-            <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
-          </Pressable>
-        ) : null}
+        <FailureState error={error} onRetry={onRetry} />
       </View>
     );
   }
@@ -82,7 +77,7 @@ export function CreatorCollectionList({
       numColumns={PROFILE_VIDEO_GRID_COLUMNS}
       columnWrapperStyle={styles.row}
       contentContainerStyle={styles.content}
-      ListHeaderComponent={ListHeaderComponent}
+      ListHeaderComponent={<>{ListHeaderComponent}{error ? <FailureState error={error} variant="inline" onRetry={onRetry} /> : null}</>}
       ListEmptyComponent={
         <Text style={[styles.message, { color: muted, marginTop: 24 }]}>{emptyMessage}</Text>
       }

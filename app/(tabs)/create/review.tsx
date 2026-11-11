@@ -1,3 +1,4 @@
+import { FailureState } from '@/components/status/FailureState';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsFocused } from '@react-navigation/native';
 import {
@@ -37,7 +38,7 @@ import { listLibraryItemProducts } from '@/src/services/creatorLibraryApi';
 import {
   ingestDraftNeedsHydration,
   ingestDraftNeedsProductRetry,
-  reviewVerificationStatus,
+  reviewShoppingLinkStatus,
   selectedProductsCanPublish,
 } from '@/src/services/reviewResolution';
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
@@ -791,7 +792,6 @@ export default function CreateReviewScreen() {
 
   const renderItem = ({ item }: { item: DraftProduct }) => {
     const vm = draftProductToViewModel(item);
-    const displayStatus = reviewVerificationStatus(item);
     return (
       <ReviewProductCard
         product={vm}
@@ -799,7 +799,7 @@ export default function CreateReviewScreen() {
         onToggleInclude={(v) => setSelected((s) => ({ ...s, [item.id]: v }))}
         onOpenDetails={openDetails}
         confidence={item.confidence}
-        extractionHint={displayStatus === 'RESOLVING' ? CREATE_COPY.editorResolvingHint : null}
+        extractionHint={reviewShoppingLinkStatus(item)}
       />
     );
   };
@@ -962,7 +962,7 @@ export default function CreateReviewScreen() {
               <ActionButton label="+ Add another link" variant="quiet" size="compact" onPress={addManualRow} />
             ) : null}
             {manualError ? (
-              <Text style={[typeStyle(tokens, 'tileMeta'), { color: tokens.color.danger }]}>{manualError}</Text>
+              <FailureState error={manualError} variant="inline"/>
             ) : null}
             <ActionButton
               label="Add products"
@@ -1014,7 +1014,7 @@ export default function CreateReviewScreen() {
               />
             ) : null}
             {manualError && !manualComposerOpen ? (
-              <Text style={[typeStyle(tokens, 'tileMeta'), { color: tokens.color.danger }]}>{manualError}</Text>
+              <FailureState error={manualError} variant="inline"/>
             ) : null}
           </View>
         ) : null}

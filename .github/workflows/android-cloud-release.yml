@@ -1,0 +1,92 @@
+name: Android cloud release APK
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      EAS_BUILD_PROFILE: universal-find-qa-core
+      EXPO_PUBLIC_MYSTASH_INGEST_URL: https://mystash-free-test.onrender.com
+      EXPO_PUBLIC_SUPABASE_URL: https://womdeohfpvzmhomgqwig.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_NATIVE_SHARE_ENABLED: "true"
+      EXPO_PUBLIC_SHARE_INTENT_ENABLED: "true"
+      EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED: "true"
+      EXPO_PUBLIC_FIND_MEASUREMENT_ENABLED: "true"
+      EXPO_PUBLIC_NOTIFICATIONS_ENABLED: "true"
+      # FCM credentials are not configured for this existing Expo application.
+      EXPO_PUBLIC_PUSH_ENABLED: "false"
+      EXPO_PUBLIC_ANALYTICS_ENABLED: "true"
+      EXPO_PUBLIC_CREATOR_ANALYTICS_ENABLED: "true"
+      EXPO_PUBLIC_ADMIN_ANALYTICS_ENABLED: "true"
+      EXPO_PUBLIC_PERSONALIZATION_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set incrementing Android version
+        run: echo "MYSTASH_ANDROID_VERSION_CODE=$((2026111100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate native Android project
+        run: |
+          test -n "$EXPO_PUBLIC_SUPABASE_ANON_KEY"
+          npx expo prebuild --platform android --no-install
+          printf '\napply from: "../../scripts/android-release-signing.gradle"\n' >> android/app/build.gradle
+      - name: Restore existing release signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mystash-release.jks"
+      - name: Assemble signed release APK
+        working-directory: android
+        env:
+          ANDROID_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/mystash-release.jks
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --no-daemon
+      - name: Verify release identity and record metadata
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" > signing-certificate.txt
+          grep -qi '944e3a590c54e1d72721b84454060c5de6cc56fce23c03d8dca4608ef1bb33ea' signing-certificate.txt
+          "$BUILD_TOOLS/aapt" dump badging "$APK" > apk-package.txt
+          grep -q "package: name='com.anonymous.Mystash' versionCode='$MYSTASH_ANDROID_VERSION_CODE'" apk-package.txt
+          sha256sum "$APK" > apk.sha256
+          git rev-parse HEAD > source-commit.txt
+          printf '%s\n' "$EXPO_PUBLIC_MYSTASH_INGEST_URL" > backend-endpoint.txt
+          printf '%s\n' "$MYSTASH_ANDROID_VERSION_CODE" > version-code.txt
+      - name: Remove runner signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mystash-release.jks"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mystash-cloud-release-${{ github.run_number }}
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            apk.sha256
+            source-commit.txt
+            backend-endpoint.txt
+            version-code.txt
+            signing-certificate.txt
+            apk-package.txt
+          retention-days: 14
+          if-no-files-found: error

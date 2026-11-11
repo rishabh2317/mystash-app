@@ -16,7 +16,7 @@ import {
 } from './searchReelNavigation';
 import { clearSearchReelSession, getSearchReelSession } from '@/src/state/searchReelSession';
 
-const ROOT = join(import.meta.dirname, '..', '..');
+const ROOT = process.cwd();
 
 function collection(id: string): CollectionViewModel {
   return {
@@ -139,16 +139,16 @@ describe('searchReelNavigation', () => {
   });
 
   it('search reel host passes isActive only to the active row', () => {
-    const src = readFileSync(join(ROOT, 'app/reel/search/[collectionId].tsx'), 'utf8');
+    const src = readFileSync(join(ROOT, 'components/feed/CollectionReelFeed.tsx'), 'utf8');
     assert.match(src, /const active = index === activeIndex/);
     assert.match(src, /isActive=\{active\}/);
-    assert.match(src, /surface: SEARCH_REEL_VIEW_SURFACE/);
+    assert.match(src, /SEARCH_REEL_VIEW_SURFACE/);
     assert.equal(SEARCH_REEL_VIEW_SURFACE, 'search_reel');
   });
 
   it('home feed host is unchanged and separate from search reel', () => {
     const home = readFileSync(join(ROOT, 'app/(tabs)/index.tsx'), 'utf8');
-    const searchReel = readFileSync(join(ROOT, 'app/reel/search/[collectionId].tsx'), 'utf8');
+    const searchReel = readFileSync(join(ROOT, 'components/feed/CollectionReelFeed.tsx'), 'utf8');
     assert.doesNotMatch(home, /searchReelSession|beginSearchReelSession|searchReelPath/);
     assert.match(searchReel, /getSearchReelSession/);
     assert.doesNotMatch(searchReel, /useHomeFeed|globalFeed/);

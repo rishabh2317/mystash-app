@@ -1,3 +1,5 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
 import { useMeasuredOpen } from '@/src/analytics/hooks';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -127,7 +129,7 @@ export default function CreatorProfileScreen() {
         setNotFound(true);
         setProfileError(null);
       } else {
-        setProfileError(e instanceof Error ? e.message : 'Could not load creator');
+        setProfileError(apiFailureMessage(e));
       }
     }
   }, [router, tabParam, user]);
@@ -162,7 +164,7 @@ export default function CreatorProfileScreen() {
         });
         setCollectionsCursor(page.nextCursor);
       } catch (e) {
-        setCollectionsError(e instanceof Error ? e.message : 'Could not load collections');
+        setCollectionsError(apiFailureMessage(e));
       } finally {
         setCollectionsLoading(false);
         setCollectionsLoadingMore(false);
@@ -188,7 +190,7 @@ export default function CreatorProfileScreen() {
         setProductsCursor(page.nextCursor);
         setProductsLoaded(true);
       } catch (e) {
-        setProductsError(e instanceof Error ? e.message : 'Could not load products');
+        setProductsError(apiFailureMessage(e));
       } finally {
         setProductsLoading(false);
         setProductsLoadingMore(false);
@@ -255,9 +257,9 @@ export default function CreatorProfileScreen() {
 
   const onPressCollection = useCallback(
     (collection: CollectionViewModel) => {
-      router.push(collectionTilePressPath(collection.collectionId) as Href);
+      router.push(collectionTilePressPath(collection.collectionId, {collections, source:{kind:'creator',creatorId:creator?.userId??collection.creator.id}, nextCursor:collectionsCursor}) as Href);
     },
-    [router],
+    [router, collections, collectionsCursor, creator?.userId],
   );
 
   const onPressProduct = useCallback(
@@ -279,7 +281,7 @@ export default function CreatorProfileScreen() {
         surface: 'creator_profile',
       });
     } catch (e) {
-      Alert.alert('Share', e instanceof Error ? e.message : 'Could not share profile.');
+      Alert.alert('Share', apiFailureMessage(e));
     }
   }, [creator]);
 
@@ -390,17 +392,10 @@ export default function CreatorProfileScreen() {
           </Pressable>
         </View>
       ) : profileError && !creator ? (
-        <View style={styles.centered}>
-          <Text style={[styles.stateTitle, { color: text }]}>Couldn’t load creator</Text>
-          <Text style={[styles.stateBody, { color: muted }]}>{profileError}</Text>
-          <Pressable
-            onPress={() => usernameParam && void loadProfile(usernameParam)}
-            style={styles.retry}
-          >
-            <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
-          </Pressable>
-        </View>
+        <FailureState error={profileError} title="Couldn’t load creator" onRetry={() => { if(usernameParam) void loadProfile(usernameParam); }} fill />
       ) : creator ? (
+        <>
+        {profileError ? <FailureState error={profileError} variant="inline" onRetry={()=>{if(usernameParam)void loadProfile(usernameParam);}} /> : null}
         <CreatorProfile
           creator={creator}
           collections={collections}
@@ -424,6 +419,7 @@ export default function CreatorProfileScreen() {
           onEndReached={onEndReached}
           onRetry={onRetry}
         />
+        </>
       ) : null}
     </View>
   );

@@ -28,6 +28,22 @@ test('filter changes and account switches fence late responses and clear private
   assert.equal(controller.getState().owner,'other'); assert.deepEqual(controller.getState().items.map(item => item.id),[findFixture(2).id]);
   controller.configure(null,'completed'); assert.deepEqual(controller.getState().items,[]); assert.equal(controller.getState().counts,null);
 });
+test('status switches retain same-source counts while source and owner switches invalidate them', async () => {
+  const pending = deferred<FindOwnedPage>(); let calls = 0;
+  const controller = createFindHistoryController({ list: async () => ++calls === 1 ? page([findFixture(1)]) : pending.promise,
+    batch: async () => ({ items: [], unavailableIds: [] }), refreshLoaded: async rows => rows }, timers());
+  controller.configure('owner', 'completed', 'youtube'); controller.setActive(true); await flush();
+  controller.configure('owner', 'processing', 'youtube');
+  assert.deepEqual(controller.getState().counts, counts);
+  assert.deepEqual(controller.getState().items, []);
+  assert.equal(controller.getState().loaded, false);
+  controller.configure('owner', 'processing', 'image');
+  assert.equal(controller.getState().counts, null);
+  controller.configure('other', 'processing', 'youtube');
+  assert.equal(controller.getState().counts, null);
+  controller.setActive(false); pending.resolve(page([findFixture(2)])); await flush();
+  assert.equal(controller.getState().counts, null);
+});
 test('rapid source and status changes publish only the final scoped page', async () => {
   const youtube = deferred<FindOwnedPage>(), image = deferred<FindOwnedPage>();
   const requests: string[] = [];

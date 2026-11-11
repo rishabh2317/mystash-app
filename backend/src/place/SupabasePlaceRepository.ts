@@ -1,3 +1,4 @@
+import { isGeographyOnly } from './placeClassification';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { placeHypothesisKey } from './domain/hypothesisKey';
 import type {
@@ -240,6 +241,7 @@ export class SupabasePlaceRepository implements PlaceRepository {
   }
 
   async insertPlace(row: InsertPlaceRow): Promise<PlaceRecord> {
+    if (isGeographyOnly(row)) throw new PlaceRepositoryError('Administrative geography is not a place card', 'invalid');
     const { data, error } = await this.admin
       .from('places')
       .insert({
@@ -280,6 +282,7 @@ export class SupabasePlaceRepository implements PlaceRepository {
   }
 
   async insertHypothesis(row: InsertUnresolvedHypothesisRow): Promise<ContentSourcePlaceRecord> {
+    if (isGeographyOnly(row)) throw new PlaceRepositoryError('Administrative geography is not a place card', 'invalid');
     const { data, error } = await this.admin
       .from('content_source_places')
       .insert(this.hypothesisInsert(row))
@@ -316,12 +319,14 @@ export class SupabasePlaceRepository implements PlaceRepository {
   }
 
   async upsertHypothesis(row: InsertUnresolvedHypothesisRow): Promise<ContentSourcePlaceRecord> {
+    if (isGeographyOnly(row)) throw new PlaceRepositoryError('Administrative geography is not a place card', 'invalid');
     const { data, error } = await this.admin.rpc('place_upsert_hypothesis', { p_row: this.hypothesisInsert(row) });
     if (error || !data) throwMapped(error ?? {}, 'place hypothesis conflict');
     return mapHypothesis(data as Row);
   }
 
   async resolveHypothesis(row: InsertUnresolvedHypothesisRow, place: InsertPlaceRow): Promise<ContentSourcePlaceRecord> {
+    if(isGeographyOnly(row)||isGeographyOnly(place))throw new PlaceRepositoryError('Administrative geography is not a place card','invalid');
     const { data, error } = await this.admin.rpc('place_resolve_hypothesis', {
       p_row: this.hypothesisInsert(row),
       p_place: {
@@ -412,6 +417,7 @@ export class SupabasePlaceRepository implements PlaceRepository {
   }
 
   private hypothesisInsert(row: InsertUnresolvedHypothesisRow) {
+    if(isGeographyOnly(row))throw new PlaceRepositoryError('Administrative geography is not a place card','invalid');
     return {
       content_source_id: requireText(row.contentSourceId, 'contentSourceId'),
       extracted_name: requireText(row.extractedName, 'extractedName'),

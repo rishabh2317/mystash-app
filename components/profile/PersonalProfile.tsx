@@ -1,3 +1,5 @@
+import { IllustratedEmptyState } from '@/components/status/IllustratedEmptyState';
+import { EMPTY_STATES } from '@/src/ui/emptyStates';
 import { ActionChoiceRow } from '@/components/ui/ActionChoiceRow';
 import React, { useState } from 'react';
 import { FlatList, LayoutAnimation, Platform, StyleSheet, Text, UIManager, useWindowDimensions, View } from 'react-native';
@@ -40,9 +42,10 @@ type Props = {
   savedLoading?: boolean;
   onEditPress: () => void;
   onSharePress: () => void;
-  onPressCollection: (collection: CollectionViewModel) => void;
+  onPressCollection: (collection: CollectionViewModel, source: 'collections' | 'saved') => void;
   onPressStat: (id: 'collections' | 'following' | 'followers') => void;
   onCreateCollection: () => void;
+  onExploreCreators: () => void;
 };
 
 export function PersonalProfile({
@@ -56,6 +59,7 @@ export function PersonalProfile({
   onPressCollection,
   onPressStat,
   onCreateCollection,
+  onExploreCreators,
 }: Props) {
   const { tokens } = useThemeMode();
   const { width: screenWidth } = useWindowDimensions();
@@ -165,13 +169,9 @@ export function PersonalProfile({
       columnWrapperStyle={rowStyle}
       contentContainerStyle={contentStyle}
       ListHeaderComponent={header}
-      ListEmptyComponent={empty(
-        activeTab === 'collections'
-          ? PERSONAL_PROFILE_COPY.emptyCollections
-          : PERSONAL_PROFILE_COPY.emptySaved,
-      )}
+      ListEmptyComponent={activeTab==='collections'?<View style={{paddingHorizontal:chromeGutter,paddingTop:tokens.space.sm}}><IllustratedEmptyState {...EMPTY_STATES.collections} variant="card" onAction={onCreateCollection} onSecondaryAction={onExploreCreators}/></View>:empty(PERSONAL_PROFILE_COPY.emptySaved)}
       ListFooterComponent={
-        activeTab === 'collections' ? (
+        activeTab === 'collections' && items.length > 0 ? (
           <View style={{ marginTop: tokens.space.md, paddingHorizontal: chromeGutter }}>
             <PersonalCreateCollectionCard onPress={onCreateCollection} />
           </View>
@@ -183,7 +183,7 @@ export function PersonalProfile({
             collection={item}
             aspectRatio={PROFILE_VIDEO_GRID_ASPECT}
             flush
-            onPress={onPressCollection}
+            onPress={collection=>onPressCollection(collection,activeTab)}
           />
         </View>
       )}

@@ -1,3 +1,5 @@
+import {countryOfferRefreshPending,type CountryOfferService} from '../shopping/CountryOfferService';
+import {resolveCountryCode} from '../merchant-pricing/country';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
 import { resolvePersistableCategory } from '../product-intelligence/domain/categoryTaxonomy';
 import type { DiscoveredProductRecord } from '../discovered/domain/types';
@@ -48,7 +50,7 @@ export class ProductPageServiceError extends Error {
 const RELATED_MEDIA_LIMIT = 6;
 
 /**
- * Read-only Product Page projection. Never writes catalog_products.
+ * Shared identity projection. Optional regional discovery updates only shopping-cache metadata.
  */
 export class ProductPageService {
   constructor(
@@ -58,6 +60,7 @@ export class ProductPageService {
     private readonly shop: ProductPageShopPort,
     private readonly relatedMedia: ProductPageRelatedMediaPort,
     private readonly reviews: ProductPageReviewPort = emptyReviewPort,
+    private readonly countryOffers?:Pick<CountryOfferService,'resolve'|'isPending'>|null,
   ) {}
 
   async getPage(productId: string, query: ProductPageQuery = {}): Promise<ProductPageView> {
@@ -81,7 +84,10 @@ export class ProductPageService {
     product: CatalogProduct,
     query: ProductPageQuery,
   ): Promise<ProductPageView> {
-    const offers = projectPageOffers(listStoredShoppingDestinations(catalogShoppingSource(product)), 'buy');
+    const country=resolveCountryCode({explicit:query.country});
+    const metadata=await this.countryOffers?.resolve({...product,kind:'catalog',source:catalogShoppingSource(product)},country)??product.metadata;
+    product={...product,metadata};
+    const offers = projectPageOffers(listStoredShoppingDestinations(catalogShoppingSource(product),country), 'buy');
     const canShop = offers.some((offer) => offer.action !== 'none') || this.shop.canShopCatalog(product);
     const listed = pageLevelPrice(offers, { price: product.price, currency: product.currency });
     const { source, relatedMedia } = await this.resolveMedia({
@@ -110,7 +116,7 @@ export class ProductPageService {
       relatedMedia,
       reviews,
       compareAvailable: true,
-      detailsUpdating: false,
+      detailsUpdating: !!this.countryOffers&&(this.countryOffers.isPending('catalog',product.id,country)||countryOfferRefreshPending(product.metadata,country)),
     };
   }
 
@@ -118,8 +124,11 @@ export class ProductPageService {
     product: DiscoveredProductRecord,
     query: ProductPageQuery,
   ): Promise<ProductPageView> {
+    const country=resolveCountryCode({explicit:query.country});
+    const metadata=await this.countryOffers?.resolve({...product,kind:'discovered',source:discoveredShoppingSource(product)},country)??product.metadata;
+    product={...product,metadata};
     const offers = projectPageOffers(
-      listStoredShoppingDestinations(discoveredShoppingSource(product)),
+      listStoredShoppingDestinations(discoveredShoppingSource(product),country),
       'listing',
     );
     const listed = pageLevelPrice(offers, { price: product.price, currency: product.currency });
@@ -152,7 +161,7 @@ export class ProductPageService {
       relatedMedia,
       reviews,
       compareAvailable: true,
-      detailsUpdating: detailsUpdatingFromMetadata(product.metadata),
+      detailsUpdating: (!!this.countryOffers&&(this.countryOffers.isPending('discovered',product.id,country)||countryOfferRefreshPending(product.metadata,country)))||detailsUpdatingFromMetadata(product.metadata),
     };
   }
 

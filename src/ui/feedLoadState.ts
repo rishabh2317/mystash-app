@@ -1,3 +1,4 @@
+import { API_FAILURE_COPY } from './apiFailure';
 export type FeedFailureKind = 'offline' | 'error';
 
 export type FeedUserCopy = {
@@ -12,17 +13,15 @@ export const FEED_COPY = {
   empty: {
     title: 'No reels yet',
     message: 'Publish from Create, then pull to refresh.',
-    actionLabel: 'Retry',
+    actionLabel: 'Try again',
   } satisfies FeedUserCopy,
   error: {
-    title: 'Couldn’t load your feed',
-    message: 'Something went wrong. Try again in a moment.',
-    actionLabel: 'Retry',
+    ...API_FAILURE_COPY.service,
+    actionLabel: 'Try again',
   } satisfies FeedUserCopy,
   offline: {
-    title: 'You’re offline',
-    message: 'Connect to the internet and try again.',
-    actionLabel: 'Retry',
+    ...API_FAILURE_COPY.connection,
+    actionLabel: 'Try again',
   } satisfies FeedUserCopy,
 } as const;
 

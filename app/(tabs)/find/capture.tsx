@@ -1,3 +1,4 @@
+import { FailureState } from '@/components/status/FailureState';
 import React from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -47,7 +48,7 @@ export default function FindCaptureScreen() {
             onChangeText={capture.setInput} autoCorrect={false} autoCapitalize="none" autoComplete="off" keyboardType="url" returnKeyType="go" maxLength={8192}
             onSubmitEditing={() => { void submit(); }} style={{ minHeight: 56, padding: tokens.space.md, borderRadius: tokens.radius.xl, borderWidth: tokens.stroke.thin, borderColor: error ? tokens.color.danger : tokens.color.border,
               backgroundColor: tokens.color.surface, color: tokens.color.text, fontFamily: tokens.fontFamily.regular, fontSize: tokens.fontSize.body }} />
-          {error ? <Text accessibilityRole="alert" style={[typeStyle(tokens,'bodyMuted'), { color: tokens.color.danger }]}>{error}</Text> : null}
+          {error ? <FailureState error={error} variant="inline"/> : null}
           <ActionButton wrapLabel minTouchHeight={48} label="Find from this link" leadingIcon="sparkles-outline" pending={busy} disabled={!visibleInput.trim()} onPress={() => { void submit(); }} />
           <Text style={typeStyle(tokens,'caption')}>Supported mobile installations queue links securely, even offline. Other installations need a connection and confirm receipt before clearing your text.</Text>
         </>}

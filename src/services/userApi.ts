@@ -15,6 +15,7 @@ export class UserApiError extends Error {
 
 /** Authenticated settings projection from GET /users/me. */
 export type UserSettingsViewModel = CreatorViewModel & {
+  shoppingLocale?: string|null;
   emailMirrored: string | null;
   accountStatus: string;
   country: string | null;
@@ -45,6 +46,7 @@ async function bearerToken(): Promise<string> {
 }
 
 type UserSettingsDto = {
+  shoppingLocale?:string|null;
   id: string;
   username: string;
   displayName: string | null;
@@ -76,6 +78,7 @@ type UserSettingsDto = {
 function mapSettings(user: UserSettingsDto): UserSettingsViewModel {
   return {
     ...mapPublicUserToCreatorViewModel(user),
+    shoppingLocale:user.shoppingLocale,
     emailMirrored: user.emailMirrored,
     accountStatus: user.accountStatus,
     country: user.country,
@@ -142,6 +145,7 @@ export async function updateMyProfile(patch: {
 }
 
 export async function updateMyLocale(patch: {
+  shoppingLocale?:string|null;
   country?: string | null;
   language?: string | null;
   timezone?: string | null;

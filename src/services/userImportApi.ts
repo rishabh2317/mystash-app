@@ -1,6 +1,7 @@
 import { hydrateImportShares, type ImportShare } from '@/src/services/importShareMap';
 import { supabase } from '@/src/services/supabase';
 import { withRequestTimeout } from './requestTimeout';
+import { notifyFindReceived } from './findActivityEvents';
 
 /**
  * User Import API client.
@@ -82,6 +83,7 @@ export async function submitUserImport(sharedInput: string, expectedOwner?: stri
   if (!body.importId) {
     throw new UserImportApiError('Import returned no id', 500);
   }
+  notifyFindReceived({ owner, id: body.importId, sourceUrl: sharedInput, created: Boolean(body.created) });
   return {
     importId: body.importId,
     status: 'RECEIVED',

@@ -7,9 +7,10 @@ import { isExactProductBuyingUrl } from '../../shopping/productUrlIdentity';
 import { normalizeProductIdentityTokens } from '../../product-intelligence/normalizer/ProductIdentityCanonicalizer';
 
 export type SimilarSuggestion = { key: string; title: string; brand: string | null; model: string | null;
+  kind?: 'possible' | 'similar_styles';
   category: string | null; image: string | null; merchantUrl: string; catalogId: string | null;
   score: number; reasonCodes: string[] };
-export type MatchAssessment = { version: 1; policy: 'share-similar-v1'; kind: 'exact' | 'similar' | 'unable_to_identify';
+export type MatchAssessment = { version: 1; policy: 'share-similar-v1'; kind: 'exact' | 'possible' | 'similar' | 'unable_to_identify';
   suggestions: SimilarSuggestion[]; reasonCodes: string[] };
 export type ReviewCandidate = SearchCandidate & { verifiedCatalogId?: string };
 const TYPES = /\b(handbag|bag|dress|shoe|sneaker|phone|smartphone|laptop|headphone|earbud|watch|camera|speaker|perfume|lipstick|jacket|coat|bicycle|bike)s?\b/i;

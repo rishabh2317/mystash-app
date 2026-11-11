@@ -1,3 +1,4 @@
+import { FailureState } from '@/components/status/FailureState';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -66,7 +67,7 @@ export default function ForgotPasswordScreen() {
               ]}
             />
             {error ? (
-              <Text style={{ color: tokens.color.danger, marginTop: 8 }}>{error}</Text>
+              <FailureState error={error} variant="inline" />
             ) : null}
             <View style={{ marginTop: 20 }}>
               <ActionButton

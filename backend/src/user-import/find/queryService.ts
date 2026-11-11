@@ -1,3 +1,6 @@
+import {isGeographyOnly} from '../../place/placeClassification';
+import {samePlaceMention,type PlaceMentionIdentity} from '../../place/placeMentionDedupe';
+import type {FindPlace} from './contract';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ShareError, uuid } from '../share/contracts';
 import { parseHistoryCursor } from '../share/history';
@@ -71,7 +74,8 @@ export class FindQueryService {
     }
     const result = await this.rpc<{ items: FindSourceResultPage['items']; cursor: string | null }>('find_source_results', {
       p_user:userId,p_import:findId(id),p_limit:limit,p_after:after });
-    return { items: result.items,nextCursor:result.cursor ? Buffer.from(JSON.stringify({key:result.cursor})).toString('base64url') : null };
+    const kept=new Set((await this.visiblePlaces(result.items.filter(r=>r.kind==='place').map(r=>r.result as FindPlace))).map(p=>p.id));
+    return { items: result.items.filter(row=>row.kind!=='place'||kept.has(row.result.id)),nextCursor:result.cursor ? Buffer.from(JSON.stringify({key:result.cursor})).toString('base64url') : null };
   }
   async counts(userId: string): Promise<FindCounts> {
     return readFindCounts((await this.rpc<{ counts: FindCounts }>('find_query', { p_user: userId, p_mode: 'counts' })).counts);
@@ -84,7 +88,25 @@ export class FindQueryService {
   }
   async detail(userId: string, id: string): Promise<FindDetail> {
     const result = await this.rpc<FindDetail>('find_detail', { p_user: userId, p_import: findId(id) });
-    return { ...result, ...item(result) };
+    return { ...result, ...item(result),places:await this.visiblePlaces(result.places) };
+  }
+  private async visiblePlaces(rows:FindPlace[]):Promise<FindPlace[]> {
+    if(!rows.length)return rows;
+    const metadata=new Map<string,PlaceMentionIdentity>();
+    // IDs originate exclusively from the user-authorized RPC result.
+    if(typeof this.db.from==='function') {
+      const {data,error}=await this.db.from('content_source_places').select('id,extracted_name,category,locality,city,region,country,mentioned_address,evidence').in('id',rows.map(r=>r.id));
+      if(error)throw new ShareError('find_unavailable',503);
+      for(const row of data??[])metadata.set(row.id,{...row,name:row.extracted_name,mentionedAddress:row.mentioned_address});
+    }
+    const out:FindPlace[]=[];
+    for(const row of rows) {
+      const fields=metadata.get(row.id)??row;
+      if(isGeographyOnly(fields))continue;
+      if(out.some(other=>row.placeId?other.placeId===row.placeId:!other.placeId&&samePlaceMention(metadata.get(other.id)??other,fields)))continue;
+      out.push(row);
+    }
+    return out;
   }
   async resultAction(userId: string, id: string, kind: 'product' | 'place', resultId: string, restore: boolean, expectedIdentity?: unknown, candidateKey?: string): Promise<{ ok: true; saved: boolean }> {
     if (kind === 'product' && (typeof expectedIdentity !== 'string' || !/^[cd]:/.test(expectedIdentity) || !uuid.test(expectedIdentity.slice(2)))) throw new ShareError('invalid_product_identity');

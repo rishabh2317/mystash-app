@@ -1,3 +1,5 @@
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -13,17 +15,19 @@ export default function PersonalFollowingScreen() {
   const { user } = useAuth();
   const [count, setCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [retryVersion,setRetryVersion]=useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
+    setLoading(true);setError(null);
     let cancelled = false;
     void listFollowingIds()
       .then((ids) => {
         if (!cancelled) setCount(ids.length);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : PERSONAL_PROFILE_COPY.emptyFollowing);
+        if (!cancelled) setError(apiFailureMessage(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -31,7 +35,7 @@ export default function PersonalFollowingScreen() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user,retryVersion]);
 
   return (
     <View style={[styles.screen, { backgroundColor: tokens.color.canvas }]}>
@@ -40,7 +44,7 @@ export default function PersonalFollowingScreen() {
         {loading ? (
           <TextBlockSkeleton />
         ) : error ? (
-          <Text style={{ color: tokens.color.textMuted, textAlign: 'center' }}>{error}</Text>
+          <FailureState error={error} onRetry={()=>setRetryVersion(n=>n+1)} />
         ) : count === 0 ? (
           <Text style={{ color: tokens.color.textMuted, textAlign: 'center' }}>
             {PERSONAL_PROFILE_COPY.emptyFollowing}

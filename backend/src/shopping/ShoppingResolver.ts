@@ -1,3 +1,4 @@
+import {countrySuitability} from './countrySuitability';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
 import { merchantUrlsMatch } from '../product-intelligence/search/directUrlIdentity';
 import { logger } from '../logger';
@@ -68,7 +69,7 @@ export class ShoppingResolver {
 
   private resolveDefault(product: CatalogProduct, country?: string | null): ShoppingResolution | null {
     const source = catalogShoppingSource(product);
-    const destinations = listStoredShoppingDestinations(source);
+    const destinations = listStoredShoppingDestinations(source,country);
 
     const resolved = resolveShoppingSelectionForProduct(product.id, product.metadata);
     const configured = validHttpUrl(resolved.selection.configuredBuyingUrl ?? null);
@@ -94,6 +95,11 @@ export class ShoppingResolver {
       });
     }
 
+    const local=destinations[0];
+    if(country && local && countrySuitability(local.url,country,local.countryAvailability,local.regionalUrls)<2) {
+      return this.selected(product,{url:this.regionalUrl(local.url,local.regionalUrls,country),destinationType:local.destinationType,
+        shoppingProvider:local.shoppingProvider,affiliateProvider:null,merchantName:local.merchant});
+    }
     const preferred = validHttpUrl(product.preferredShoppingUrl);
     if (preferred) {
       const match = destinations.find((d) => merchantUrlsMatch(d.url, preferred));

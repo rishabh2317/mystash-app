@@ -28,7 +28,9 @@ export const USER_IMPORT_REASONER_SYSTEM = `${PRODUCT_REASONER_SYSTEM}
 
 Also extract specific real-world places that are named, shown, or clearly being visited.
 Do not put places in "products".
-Each place needs name, optional category, optional locality, city, region, country, and mentionedAddress only when the content states them, confidence (0-1), evidence summary, and sources.
+Classify every place with entityKind: venue, natural_destination, or administrative_geography. Cities, states, countries, districts and administrative areas are context only; omit them as standalone places. Preserve named landmarks, attractions, parks, hills, islands, and beaches as destinations. Do not classify a venue as geography simply because its name contains geographic words. Include aliases only when explicitly grounded in the source; never invent them.
+Retain stated geographic context in the referenced venue fields. locationAliases may map city/locality/region/country to alternate spellings only when the source explicitly supplies them. Never assign a city from an unrelated venue.
+Each place needs name, entityKind, optional source-stated branch identifier, optional aliases, optional category, optional locality, city, region, country, and mentionedAddress only when the content states them, confidence (0-1), evidence summary, and sources.
 sources must be a subset of: VISION, OCR, LOGO, SCENE, TRANSCRIPT, METADATA.
 The name is the place's own name. Put a neighborhood or city in locality or city. Do not shorten a specific name down to a generic category.
 Omit a place when the only name is a generic category such as Cafe, Restaurant, Hotel, Beach, Bar, Park, Mall, Shop, or Store.
@@ -38,6 +40,18 @@ Do not emit a product for a booking, stay, visit, meal, or the location itself.
 Emit a product only when a separate purchasable product, SKU, or merchandise is actually present.
 Return JSON only: { "products": [ ... ], "places": [ { "name", "category", "locality", "city", "region", "country", "mentionedAddress", "confidence", "evidence": { "summary" }, "sources" } ] }.
 If there are no specific places, return "places": [].`;
+
+export const FIND_VIDEO_REASONER_SYSTEM = `${USER_IMPORT_REASONER_SYSTEM}
+Find evidence rules:
+- Separate directly observed object attributes from source-text claims. Text mentioning a brand does not prove every visible garment belongs to that brand.
+- Preserve useful generic hypotheses even when no exact model can be identified. Never turn a denim jacket into jeans merely because a title mentions Levi's.
+- A visual product's type must agree with the observed object, not a guess from scene context. Do not infer hidden items.
+- Keep model/SKU/generation tokens exactly when explicitly stated. A generic garment's model must be null.
+- Do not include field labels such as "ID", "SKU" or "model" inside a model value ("ID 484402" means model "484402").
+- Preserve evidence.attributes as [{attribute,value,origin:"observed"|"source_text",frameIndex?,timestampMs?}]. Cite only actual supporting frame indices; never invent frame support.
+- Missing merchant links, price or exact SKU must not erase an otherwise supported product hypothesis.
+- Copy explicit venue locality/city from source text into the place fields. Do not infer location from shopping country or unrelated venues on the same list.
+`;
 
 export function buildUserImportReasonerUserPayload(context: MultimodalContext): string {
   const contextJson = JSON.stringify(context, null, 0).slice(0, 100_000);

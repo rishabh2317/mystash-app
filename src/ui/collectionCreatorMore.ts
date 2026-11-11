@@ -1,3 +1,4 @@
+import type { CollectionReelRef } from '@/src/state/collectionReelSession';
 import type { CollectionViewModel } from '@/src/types/collection';
 
 export const CREATOR_MORE_COLLECTIONS_PREVIEW = 6;
@@ -25,15 +26,19 @@ export function shouldShowCreatorCollectionsViewAll(input: {
 export type CreatorMoreReelTarget = {
   collectionId: string;
   title: string;
+  creatorId?: string;
+  collections?: CollectionReelRef[];
+  nextCursor?: string | null;
 };
 
 export function creatorMoreReelTarget(
   collections: CollectionViewModel[],
   currentCollectionId: string,
+  nextCursor: string | null = null,
 ): CreatorMoreReelTarget | null {
   const next = filterCreatorCollectionsPreview(collections, currentCollectionId, 1)[0];
   if (!next) return null;
   const title = next.title?.trim() || next.slug.trim();
   if (!next.collectionId.trim() || !title) return null;
-  return { collectionId: next.collectionId, title };
+  return { collectionId: next.collectionId, title, creatorId: next.creator.id, collections: collections.map(c=>({collectionId:c.collectionId,heroThumbnailUrl:c.heroThumbnailUrl})), nextCursor };
 }

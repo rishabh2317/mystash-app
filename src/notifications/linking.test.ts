@@ -24,6 +24,7 @@ describe('notification deep links on tap', () => {
 
   it('accepts every link the server can render, and nothing the server would reject', () => {
     const payload = {
+      campaignId:ID,title:'Test notice',body:'Fixture content',deepLink:'/notifications',
       findId:ID,outcome:'found',
       collectionId: ID,
       ingestId: ID,

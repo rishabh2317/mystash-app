@@ -4,6 +4,8 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getCachedCommerceCountry,
+  setCommerceCountryOwner,
+  getCommerceCountryOwner,
   getCommerceCountry,
   onCommerceCountryAppForeground,
   promptCommerceLocationOnboarding,
@@ -23,27 +25,33 @@ const CommerceCountryContext = createContext<CommerceCountryContextValue | null>
 
 export function CommerceCountryProvider({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  const [snapshot, setSnapshot] = useState<CommerceCountrySnapshot | null>(
-    getCachedCommerceCountry(),
-  );
+  const owner=user?.id??null;
+  setCommerceCountryOwner(owner);
+  const [scoped,setScoped]=useState<{owner:string|null;snapshot:CommerceCountrySnapshot|null}>(()=>({owner,snapshot:getCachedCommerceCountry()}));
+  const snapshot=scoped.owner===owner?scoped.snapshot:null;
+  const setSnapshot=useCallback((next:CommerceCountrySnapshot|null)=>{
+    if(getCommerceCountryOwner()===owner)setScoped({owner,snapshot:next});
+  },[owner]);
 
   const refresh = useCallback(async () => {
     const next = await getCommerceCountry();
     setSnapshot(next);
     return next;
-  }, []);
+  }, [setSnapshot]);
 
   const setManualCountry = useCallback(async (country: string) => {
+    if(getCommerceCountryOwner()!==owner)throw new Error('Account changed. Try again.');
     const next = await setManualCommerceCountry(country);
     setSnapshot(next);
     return next;
-  }, []);
+  }, [setSnapshot,owner]);
 
   const enableAutomaticLocation = useCallback(async () => {
+    if(getCommerceCountryOwner()!==owner)throw new Error('Account changed. Try again.');
     const next = await enableAutomaticCommerceLocation();
     setSnapshot(next);
     return next;
-  }, []);
+  }, [setSnapshot,owner]);
 
   useEffect(() => {
     if (loading) return;
@@ -66,7 +74,7 @@ export function CommerceCountryProvider({ children }: { children: React.ReactNod
     return () => {
       cancelled = true;
     };
-  }, [user, loading]);
+  }, [user, loading,setSnapshot]);
 
   useEffect(() => {
     if (!user) return;
@@ -80,7 +88,7 @@ export function CommerceCountryProvider({ children }: { children: React.ReactNod
     };
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
-  }, [user]);
+  }, [user,setSnapshot]);
 
   const value = useMemo(
     () => ({ snapshot, refresh, setManualCountry, enableAutomaticLocation }),

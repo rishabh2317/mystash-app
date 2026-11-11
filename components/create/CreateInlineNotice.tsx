@@ -4,6 +4,7 @@ import { Text } from '@/components/ui/Text';
 import { typeStyle } from '@/src/theme/typography';
 import { hitSlopToMinTarget } from '@/src/ui/feedA11y';
 import { useThemeTokens } from '@/src/theme/useThemeTokens';
+import { FailureState } from '@/components/status/FailureState';
 
 export type CreateInlineNoticeTone = 'error' | 'info' | 'warning' | 'success';
 
@@ -26,6 +27,7 @@ export function CreateInlineNotice({
   onAction,
 }: Props) {
   const tokens = useThemeTokens();
+  if (tone === 'error') return <FailureState variant="inline" title={title} message={body} onRetry={onAction} actionLabel={actionLabel} />;
   const palette = noticePalette(tone, tokens);
 
   return (

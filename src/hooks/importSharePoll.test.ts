@@ -118,15 +118,17 @@ describe('import share poll lifecycle', () => {
     );
   });
 
-  it('wires Search refresh into the same poller and clears it on blur', () => {
+  it('keeps legacy share polling scoped and uses the dedicated Find activity reader', () => {
     const hook = readFileSync(join(process.cwd(), 'src/hooks/useImportSharesPoll.ts'), 'utf8');
     const search = readFileSync(join(process.cwd(), 'app/(tabs)/search.tsx'), 'utf8');
     assert.match(hook, /createImportSharePoller/);
     assert.match(hook, /poller\.blur\(\)/);
     assert.match(hook, /finishFetch/);
     assert.match(hook, /bagHasInFlightShares/);
-    assert.match(search, /refreshShares\(\)/);
-    assert.match(search, /useImportSharesPoll/);
+    assert.doesNotMatch(search, /useImportSharesPoll/);
+    const find=readFileSync(join(process.cwd(),'app/(tabs)/find/index.tsx'),'utf8');
+    assert.match(find,/useFindActivity/);
+    assert.match(find,/activityReader\.refresh\(\)/);
     assert.doesNotMatch(hook, /supabase\.channel|WebSocket|new QueryClient|zustand/i);
   });
 });

@@ -19,7 +19,7 @@ import { Text } from '@/components/ui/Text';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { listCreatorCollections } from '@/src/services/collectionApi';
 import { loadCollectionRelatedProducts } from '@/src/services/collectionRelatedProducts';
-import { useProductAddToCartHandler } from '@/src/services/productActionOrchestration';
+import { useProductAddToCartHandler, useProductBuyHandler } from '@/src/services/productActionOrchestration';
 import { fetchProductPage } from '@/src/services/productPageApi';
 import { openProductShopping } from '@/src/services/shoppingClick';
 import { softCanvasGradient } from '@/src/theme/tokens';
@@ -90,6 +90,7 @@ export function CollectionScreen({
   const tabBarHeight = useBottomTabBarHeight();
   const { width: screenWidth } = useWindowDimensions();
   const onAddToCart = useProductAddToCartHandler();
+  const onBuy = useProductBuyHandler();
   const [relatedProducts, setRelatedProducts] = useState<CatalogProductViewModel[]>([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [creatorCollections, setCreatorCollections] = useState<CollectionViewModel[]>([]);
@@ -267,9 +268,9 @@ export function CollectionScreen({
 
   const onPressCreatorCollection = useCallback(
     (item: CollectionViewModel) => {
-      router.push(collectionTilePressPath(item.collectionId) as never);
+      router.push(collectionTilePressPath(item.collectionId,{collections:creatorCollections,source:{kind:'creator',creatorId:collection.creator.id},nextCursor:creatorCollectionsNextCursor}) as never);
     },
-    [router],
+    [router, creatorCollections, creatorCollectionsNextCursor, collection.creator.id],
   );
 
   const exploreRows = useMemo<ListRowSpec[]>(() => {
@@ -394,6 +395,7 @@ export function CollectionScreen({
                     <ProductCard
                       product={product}
                       variant="related"
+                      onBuy={product.catalogProductId ? onBuy : undefined}
                       onPress={openProduct}
                       onAddToCart={product.catalogProductId ? onAddToCart : undefined}
                     />

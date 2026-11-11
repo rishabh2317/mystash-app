@@ -24,6 +24,7 @@ export default function SettingsStackLayout() {
       <Stack.Screen name="creator-onboarding" options={{ title: SETTINGS_COPY.becomeCreator }} />
       <Stack.Screen name="notifications" options={{ title: NOTIFICATIONS_COPY.prefsTitle }} />
       <Stack.Screen name="privacy" options={{ title: SETTINGS_COPY.privacy }} />
+      <Stack.Screen name="terms" options={{ title: 'Terms of service' }} />
     </Stack>
   );
 }

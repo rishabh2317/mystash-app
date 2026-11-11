@@ -1,3 +1,5 @@
+import { FailureState } from '@/components/status/FailureState';
+import { apiFailureMessage } from '@/src/ui/apiFailure';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -43,7 +45,7 @@ export default function ImportScreen() {
       setPhase('acknowledged');
     } catch (err) {
       setPhase('rejected');
-      setMessage(err instanceof Error ? err.message : SHARE_IMPORT_COPY.genericError);
+      setMessage(apiFailureMessage(err));
     }
   }, []);
 
@@ -135,16 +137,8 @@ export default function ImportScreen() {
 
       {phase === 'rejected' ? (
         <>
-          <Ionicons name="alert-circle-outline" size={48} color={tokens.color.textMuted} />
-          <Text
-            style={[styles.title, { color: tokens.color.text, fontSize: tokens.fontSize.body }]}
-          >
-            {message ?? SHARE_IMPORT_COPY.genericError}
-          </Text>
+          <FailureState error={message ?? SHARE_IMPORT_COPY.genericError} onRetry={extractSharedLink(sharedText).ok ? retry : undefined} />
           <View style={[styles.actions, { gap: tokens.space.sm }]}>
-            {extractSharedLink(sharedText).ok ? (
-              <ActionButton label={SHARE_IMPORT_COPY.retryAction} onPress={retry} />
-            ) : null}
             <ActionButton
               label={SHARE_IMPORT_COPY.doneAction}
               variant="quiet"

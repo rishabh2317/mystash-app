@@ -50,7 +50,7 @@ export function decoratePdpCandidates(
           merchantUrl: candidate.merchantUrl,
           category: candidate.category,
         },
-        { requireBrandSupport: false },
+        { requireBrandSupport: false, requireVariantSupport: false },
       )
     ) {
       continue;

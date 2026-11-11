@@ -1,3 +1,6 @@
+import {useFailureNotice} from '@/src/ui/useFailureNotice';
+import { apiFailureMessage } from '@/src/ui/apiFailure';
+import { FailureState } from '@/components/status/FailureState';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -86,9 +89,11 @@ export default function ProfileScreen() {
 
   const [creator, setCreator] = useState<CreatorViewModel | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const {showFailure,clearFailure,notice:failureNotice}=useFailureNotice(user?.id);
   const [profileError, setProfileError] = useState<string | null>(null);
 
   const [collections, setCollections] = useState<CollectionViewModel[]>([]);
+  const [collectionsCursor,setCollectionsCursor] = useState<string|null>(null);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
 
   const [saved, setSaved] = useState<CollectionViewModel[]>([]);
@@ -184,7 +189,7 @@ export default function ProfileScreen() {
     } catch (e) {
       if (gen !== loadGen.current) return;
       setProfileLoading(false);
-      setProfileError(e instanceof Error ? e.message : 'Could not load profile');
+      setProfileError(apiFailureMessage(e));
     }
   }, []);
 
@@ -195,6 +200,7 @@ export default function ProfileScreen() {
       const page = await listCreatorCollections(creatorId, { limit: 20 });
       if (gen !== loadGen.current) return;
       setCollections(page.collections);
+      setCollectionsCursor(page.nextCursor);
       setCreator((current) =>
         current
           ? {
@@ -251,10 +257,10 @@ export default function ProfileScreen() {
   }, [user, loading, emailVerified, passwordRecoveryPending, loadProfile, loadCollections, loadSaved]));
 
   const onPressCollection = useCallback(
-    (collection: CollectionViewModel) => {
-      router.push(collectionTilePressPath(collection.collectionId) as Href);
+    (collection: CollectionViewModel, source: 'collections' | 'saved') => {
+      router.push(collectionTilePressPath(collection.collectionId, source==='saved'?{collections:saved,source:{kind:'saved'},nextCursor:'',ownerId:user?.id}:{collections,source:{kind:'creator',creatorId:creator?.userId??collection.creator.id},nextCursor:collectionsCursor}) as Href);
     },
-    [router],
+    [router, saved, user?.id, collections, collectionsCursor, creator?.userId],
   );
 
   const onSharePress = useCallback(async () => {
@@ -267,7 +273,7 @@ export default function ProfileScreen() {
         surface: 'personal_profile',
       });
     } catch (e) {
-      Alert.alert('Share', e instanceof Error ? e.message : 'Could not share profile.');
+      Alert.alert('Share', apiFailureMessage(e));
     }
   }, [creator]);
 
@@ -282,12 +288,12 @@ export default function ProfileScreen() {
         setCreator(next);
         setEditVisible(false);
       } catch (e) {
-        Alert.alert('Couldn’t save profile', e instanceof Error ? e.message : 'Try again.');
+        showFailure(e);
       } finally {
         setEditPending(false);
       }
     },
-    [],
+    [showFailure],
   );
 
   const onSubmitAuth = async () => {
@@ -315,7 +321,7 @@ export default function ProfileScreen() {
     try {
       if (authMode === 'signin') {
         const { error } = await signInWithEmail(email.trim(), password);
-        if (error) Alert.alert('Sign in failed', error);
+        if (error) showFailure(error);
       } else {
         const { error, needsEmailConfirmation } = await signUpWithEmail({
           fullName: name.trim(),
@@ -324,11 +330,9 @@ export default function ProfileScreen() {
           password,
         });
         if (error) {
-          Alert.alert('Sign up failed', error);
+          showFailure(error);
         } else if (needsEmailConfirmation) {
           Alert.alert(AUTH_COPY.pendingTitle, AUTH_COPY.pendingBody);
-        } else {
-          Alert.alert('Welcome', 'Your account is ready. You are signed in.');
         }
       }
     } finally {
@@ -340,7 +344,7 @@ export default function ProfileScreen() {
     setSubmitting(true);
     try {
       const { error } = await resendConfirmationEmail(email.trim() || undefined);
-      if (error) Alert.alert('Could not resend', error);
+      if (error) showFailure(error);
       else Alert.alert(AUTH_COPY.pendingTitle, AUTH_COPY.confirmationSent);
     } finally {
       setSubmitting(false);
@@ -353,7 +357,7 @@ export default function ProfileScreen() {
       const authIntent = parseAuthIntent(params);
       const { error } = await signInWithGoogle({ authIntent });
       if (error && error !== 'Google sign in canceled.') {
-        Alert.alert('Google sign in failed', error);
+        showFailure(error);
       }
     } finally {
       setSubmitting(false);
@@ -411,6 +415,7 @@ export default function ProfileScreen() {
           showBack={authStep === 'form'}
           onBack={() => setAuthStep('welcome')}
         />
+        {failureNotice}
         <ProfileAuthForm
           step={authStep}
           onOpenMode={(mode) => {
@@ -474,6 +479,8 @@ export default function ProfileScreen() {
         }
       />
 
+      {!editVisible ? failureNotice : null}
+      {profileError && creator ? <FailureState error={profileError} variant="inline" onRetry={()=>void loadProfile()} /> : null}
       {profileLoading && !creator ? (
         <View style={{ paddingTop: tokens.space.md, gap: tokens.space.md }}>
           <View style={{ paddingHorizontal: tokens.space.md }}>
@@ -489,13 +496,7 @@ export default function ProfileScreen() {
           </SkeletonGrid>
         </View>
       ) : profileError && !creator ? (
-        <View style={styles.centered}>
-          <Text style={[styles.stateTitle, { color: text }]}>Couldn’t load profile</Text>
-          <Text style={[styles.stateBody, { color: muted }]}>{profileError}</Text>
-          <Pressable onPress={() => void loadProfile()} style={styles.retry}>
-            <Text style={{ color: text, fontWeight: '700' }}>Retry</Text>
-          </Pressable>
-        </View>
+        <FailureState error={profileError} title="Couldn’t load profile" onRetry={() => void loadProfile()} fill />
       ) : creator ? (
         <PersonalProfile
           creator={creator}
@@ -503,11 +504,12 @@ export default function ProfileScreen() {
           saved={saved}
           collectionsLoading={collectionsLoading}
           savedLoading={savedLoading}
-          onEditPress={() => setEditVisible(true)}
+          onEditPress={() => {clearFailure();setEditVisible(true);}}
           onSharePress={() => void onSharePress()}
           onPressCollection={onPressCollection}
           onPressStat={(id) => router.push(`/profile/${id}` as Href)}
           onCreateCollection={() => router.push('/(tabs)/create' as Href)}
+          onExploreCreators={() => router.push('/(tabs)/search' as Href)}
         />
       ) : null}
 
@@ -516,6 +518,7 @@ export default function ProfileScreen() {
           visible={editVisible}
           creator={creator}
           pending={editPending}
+          feedback={failureNotice}
           onClose={() => setEditVisible(false)}
           onSave={(patch) => void onSaveProfile(patch)}
         />

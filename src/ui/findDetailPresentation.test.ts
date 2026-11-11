@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { canRetryFindSaving, findDetailRows, findDetailStatus, findPlaceDestination } from './findDetail';
+import { canRetryFindSaving, findDetailRows, findDetailStatus, findPlaceDestination, findSuggestionCounts } from './findDetail';
 import { feedShopPresentation, shoppableProductOffers } from './feedShop';
 import { findFixture, findDetailFixture } from './findTestFixtures';
 
@@ -56,4 +56,21 @@ test('catalog shopping preserves discovered and similar identities without promo
   assert.equal(discovered.catalogProductId,null);
   detail.products[0]={...detail.products[0],identityKey:null,matchKind:'unable_to_identify'};
   assert.equal(findDetailRows(detail)[0].openProductId,null);
+});
+
+test('possible matches and styles stay separate from confirmed counts and automatic membership',()=>{
+  const detail=findDetailFixture();
+  detail.products=[{...detail.products[0],identityKey:null,catalogProductId:null,discoveredProductId:null,matchKind:'possible',saved:false,removed:false}];
+  const options=[{sourceProductId:detail.products[0].id,title:'Denim jacket',assessment:{kind:'possible' as const,suggestions:[{key:'style',title:'Blue denim jacket',image:null,score:0.9,kind:'similar_styles' as const}]},reviews:[]}];
+  const rows=findDetailRows(detail,options);
+  assert.equal(rows[0].matchLabel,'Possible match');assert.equal(rows[0].membership,undefined);assert.equal(rows[0].openProductId,null);
+  assert.equal(rows.find(r=>r.candidate)?.matchLabel,'Similar styles');
+  assert.match(rows.find(r=>r.candidate)!.subtitle,/not confirmed in this video/);
+  assert.deepEqual(findSuggestionCounts(detail,options),{confirmed:0,selected:detail.savedSuggestions.length,possible:1,styles:1});
+  assert.equal(findSuggestionCounts(detail,[{...options[0],reviews:[{candidate_key:'style',state:'accepted',product_id:'catalog'}]}]).styles,0);
+});
+
+test('unresolved places never request canonical photography even if an inconsistent row carries an ID',()=>{
+  const detail=findDetailFixture();detail.places=detail.places.map(p=>({...p,resolution:'unresolved',placeId:'untrusted-stale-id'}));
+  assert.ok(findDetailRows(detail).filter(r=>r.key.startsWith('place:')).every(r=>r.placeId===null));
 });
