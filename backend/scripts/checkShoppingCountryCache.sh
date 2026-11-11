@@ -10,12 +10,14 @@ psql -X --host="$task_dir" --port=55439 --dbname=postgres --set=ON_ERROR_STOP=1 
 CREATE ROLE anon;
 CREATE ROLE authenticated;
 CREATE ROLE service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
 CREATE TABLE public.catalog_products(id uuid PRIMARY KEY,metadata jsonb,name text);
 CREATE TABLE public.discovered_products(id uuid PRIMARY KEY,metadata jsonb);
 INSERT INTO catalog_products(id,metadata) VALUES ('00000000-0000-4000-8000-000000000001','{"original":"preserved"}');
 INSERT INTO discovered_products VALUES ('00000000-0000-4000-8000-000000000002','{}');
 SQL
 psql -X --host="$task_dir" --port=55439 --dbname=postgres --set=ON_ERROR_STOP=1 --file="$repo_root/supabase/migrations/20261111150000_shopping_country_offer_cache.sql"
+psql -X --host="$task_dir" --port=55439 --dbname=postgres --set=ON_ERROR_STOP=1 --file="$repo_root/supabase/migrations/20261111160000_shopping_cache_trigger_permissions.sql"
 psql -X --host="$task_dir" --port=55439 --dbname=postgres --set=ON_ERROR_STOP=1 <<'SQL'
 DO $$
 DECLARE a jsonb;b jsonb;token uuid;fixture_id uuid:='00000000-0000-4000-8000-000000000001';
@@ -43,6 +45,8 @@ BEGIN
  SELECT metadata INTO b FROM catalog_products WHERE catalog_products.id=fixture_id;
  ASSERT NOT b ? 'shopping_country_offers','identity changes invalidate country cache';
  ASSERT NOT has_function_privilege('anon','shopping_country_offer_cache(text,uuid,text,jsonb,uuid)','EXECUTE'),'anonymous cannot populate cache';
+ ASSERT NOT has_function_privilege('anon','shopping_preserve_country_offer_cache()','EXECUTE'),'anonymous cannot call trigger helper';
+ ASSERT NOT has_function_privilege('authenticated','shopping_preserve_country_offer_cache()','EXECUTE'),'client cannot call trigger helper';
  ASSERT NOT has_function_privilege('authenticated','shopping_country_offer_cache(text,uuid,text,jsonb,uuid)','EXECUTE'),'client cannot inject merchant URLs';
  ASSERT has_function_privilege('service_role','shopping_country_offer_cache(text,uuid,text,jsonb,uuid)','EXECUTE'),'only backend executes cache';
  a:=shopping_country_offer_cache('discovered','00000000-0000-4000-8000-000000000002','IN');
