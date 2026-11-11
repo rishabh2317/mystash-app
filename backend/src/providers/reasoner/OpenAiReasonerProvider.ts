@@ -1,3 +1,4 @@
+import { activeChatParameters, recordOpenAiCompletion } from '../../pipeline/openaiCompletion';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getPipelineConfig } from '../../config/pipelineConfig';
 import type { EvidenceSource } from '../../domain/types';
@@ -24,8 +25,7 @@ export class OpenAiReasonerProvider implements ReasonerProvider {
         client.chat.completions.create({
           model: cfg.openaiReasonerModel,
           response_format: { type: 'json_object' },
-          temperature: 0.2,
-          max_tokens: 4096,
+          ...activeChatParameters(cfg.openaiReasonerModel, 4096, 0.2),
           messages: [
             {
               role: 'system',
@@ -44,6 +44,8 @@ This is ONE PRIVATE STILL IMAGE. There is no video, transcript or temporal evide
         }),
     );
 
+    const tokenUsage = recordOpenAiCompletion(input, 'reasoner', cfg.openaiReasonerModel, completion, Math.round(performance.now() - t0));
+
     const raw = completion.choices[0]?.message?.content?.trim() ?? '';
     const split = splitReasonerPayload(raw);
     const products = split.products.map((p) => ({
@@ -52,7 +54,6 @@ This is ONE PRIVATE STILL IMAGE. There is no video, transcript or temporal evide
     }));
     const places: ExtractedPlaceMention[] | undefined = input.includePlaces ? split.places : undefined;
 
-    const usage = completion.usage;
     return {
       products,
       places,
@@ -61,11 +62,7 @@ This is ONE PRIVATE STILL IMAGE. There is no video, transcript or temporal evide
         provider: this.name,
         model: completion.model,
         durationMs: Math.round(performance.now() - t0),
-        tokenUsage: {
-          promptTokens: usage?.prompt_tokens,
-          completionTokens: usage?.completion_tokens,
-          totalTokens: usage?.total_tokens,
-        },
+        tokenUsage,
       },
     };
   }

@@ -149,6 +149,9 @@ export type TokenUsage = {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  /** Included in completionTokens; do not add again when comparing totals. */
+  reasoningTokens?: number;
+  cachedTokens?: number;
 };
 
 export type ProviderCallMeta = {

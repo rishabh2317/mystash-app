@@ -1,3 +1,4 @@
+import { activeChatParameters, recordOpenAiCompletion } from '../../pipeline/openaiCompletion';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ChatCompletionContentPart } from 'openai/resources/chat/completions';
 import { getPipelineConfig } from '../../config/pipelineConfig';
@@ -72,14 +73,15 @@ export class OpenAiVisionProvider implements VisionProvider {
         client.chat.completions.create({
           model: cfg.openaiVisionModel,
           response_format: { type: 'json_object' },
-          temperature: 0.1,
-          max_tokens: 2000,
+          ...activeChatParameters(cfg.openaiVisionModel, 2000, 0.1),
           messages: [
             { role: 'system', content: this.structuredFindFacts ? FIND_VISUAL_FACTS_SYSTEM : SYSTEM },
             { role: 'user', content: parts },
           ],
         }),
     );
+
+    const tokenUsage = recordOpenAiCompletion(input, 'vision', cfg.openaiVisionModel, completion, Math.round(performance.now() - t0));
 
     const raw = completion.choices[0]?.message?.content?.trim() ?? '{}';
     let objects: DetectedObject[] = [];
@@ -97,11 +99,7 @@ export class OpenAiVisionProvider implements VisionProvider {
         provider: this.name,
         model: completion.model,
         durationMs: Math.round(performance.now() - t0),
-        tokenUsage: {
-          totalTokens: completion.usage?.total_tokens,
-          promptTokens: completion.usage?.prompt_tokens,
-          completionTokens: completion.usage?.completion_tokens,
-        },
+        tokenUsage,
       },
     };
   }

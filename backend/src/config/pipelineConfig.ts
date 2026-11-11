@@ -30,6 +30,7 @@ export type PipelineConfig = {
   maxProductsPerImport: number;
   openaiReasonerModel: string;
   openaiVisionModel: string;
+  openaiMerchantModel: string;
   redisUrl: string;
   gcpVisionEnabled: boolean;
   frameCountLt10s: number;
@@ -51,12 +52,14 @@ let cached: PipelineConfig | null = null;
 export function getPipelineConfig(): PipelineConfig {
   if (cached) return cached;
 
-  const reasonerModel = str('OPENAI_REASONER_MODEL', str('OPENAI_MODEL', 'gpt-4o-mini'));
+  // Active integrations have independent defaults; OPENAI_MODEL remains legacy-only.
+  const reasonerModel = str('OPENAI_REASONER_MODEL', 'gpt-6-luna');
   const visionModel = str('OPENAI_VISION_MODEL', reasonerModel);
+  const merchantModel = str('OPENAI_MERCHANT_MODEL', 'gpt-6-luna');
   const pipelineVersion = str('PIPELINE_VERSION', 'v6-youtube-metadata');
   const providerVersion = str(
     'PROVIDER_VERSION',
-    `reasoner-${reasonerModel}+mu-openai-gcp-v1`,
+    `reasoner-${reasonerModel}${/^gpt-6-luna(?:-|$)/.test(reasonerModel) ? '-low' : ''}+vision-${visionModel}${/^gpt-6-luna(?:-|$)/.test(visionModel) ? '-low' : ''}+mu-openai-gcp-v1`,
   );
 
   cached = {
@@ -71,6 +74,7 @@ export function getPipelineConfig(): PipelineConfig {
     maxProductsPerImport: Math.max(1, num('MAX_PRODUCTS_PER_IMPORT', 3)),
     openaiReasonerModel: reasonerModel,
     openaiVisionModel: visionModel,
+    openaiMerchantModel: merchantModel,
     redisUrl: str('REDIS_URL', 'redis://127.0.0.1:6379'),
     gcpVisionEnabled: str('GCP_VISION_ENABLED', 'true').toLowerCase() !== 'false',
     frameCountLt10s: num('FRAME_COUNT_LT_10S', 3),

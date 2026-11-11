@@ -51,7 +51,10 @@ export async function recordStageArtifact(
 }
 
 /** Rough OpenAI gpt-4o-mini cost estimate from total tokens (USD). */
-export function estimateTokenCostUsd(totalTokens?: number | null): number | null {
+export function estimateTokenCostUsd(totalTokens?: number | null, model = 'gpt-4o-mini'): number | null {
+  // This legacy estimate is not a Luna price. Token telemetry supports comparison
+  // without silently applying the old model's blended rate to the new model.
+  if (!/^gpt-4o-mini(?:-|$)/.test(model)) return null;
   if (totalTokens == null || !Number.isFinite(totalTokens) || totalTokens <= 0) return null;
   // ~$0.15 / 1M input + $0.60 / 1M output — use blended mid for logging only
   return Math.round(totalTokens * 0.0000003 * 1e6) / 1e6;

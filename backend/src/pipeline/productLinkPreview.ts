@@ -1,3 +1,5 @@
+import { getPipelineConfig } from '../config/pipelineConfig';
+import { activeChatParameters, recordOpenAiCompletion } from './openaiCompletion';
 import { readMerchantPageEvidence, type MerchantPageEvidence } from './merchantPageEvidence';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getEnv } from '../env';
@@ -533,6 +535,8 @@ async function extractCommerceFromTavilyWithGpt(
   const tavilyImagesBlock = imageList.length > 0 ? imageList.join('\n') : '(none)';
 
   const client = createOpenAIClient();
+  const model = getPipelineConfig().openaiMerchantModel;
+  const started = performance.now();
   const userPrompt =
     'You are an expert commerce data entry agent. I have extracted the following raw content from a product page:\n' +
     tavilyContent +
@@ -551,7 +555,7 @@ async function extractCommerceFromTavilyWithGpt(
   try {
     const completion = await openaiCompletionWithRateLimit(admin, ctx, () =>
       client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model,
         response_format: { type: 'json_object' },
         messages: [
           {
@@ -561,11 +565,11 @@ async function extractCommerceFromTavilyWithGpt(
           },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.1,
-        max_tokens: 600,
+        ...activeChatParameters(model, 600, 0.1),
       }),
     );
 
+    recordOpenAiCompletion(ctx, 'merchant', model, completion, Math.round(performance.now() - started));
     const raw = completion.choices[0]?.message?.content?.trim();
     if (!raw) return null;
     return parseAiJson(raw);
@@ -724,7 +728,7 @@ async function runTavilyCommerceFallback(
 }
 
 /**
- * High-reliability product link preview: canonical cache → manual HTML scrape → Tavily Extract (advanced) + gpt-4o-mini → graceful placeholders.
+ * High-reliability product link preview: canonical cache → manual HTML scrape → Tavily Extract (advanced) + configured OpenAI model → graceful placeholders.
  */
 export async function previewProductLink(
   admin: SupabaseClient,

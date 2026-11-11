@@ -1,3 +1,4 @@
+import { activeChatParameters, recordOpenAiCompletion } from '../../pipeline/openaiCompletion';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ChatCompletionContentPart } from 'openai/resources/chat/completions';
 import { getPipelineConfig } from '../../config/pipelineConfig';
@@ -44,14 +45,15 @@ export class OpenAiSceneProvider implements SceneProvider {
         client.chat.completions.create({
           model: cfg.openaiVisionModel,
           response_format: { type: 'json_object' },
-          temperature: 0.1,
-          max_tokens: 800,
+          ...activeChatParameters(cfg.openaiVisionModel, 800, 0.1),
           messages: [
             { role: 'system', content: SYSTEM },
             { role: 'user', content: parts },
           ],
         }),
     );
+
+    const tokenUsage = recordOpenAiCompletion(input, 'scene', cfg.openaiVisionModel, completion, Math.round(performance.now() - t0));
 
     const raw = completion.choices[0]?.message?.content?.trim() ?? '{}';
     let scene: SceneInfo = { label: 'unknown', confidence: 0 };
@@ -69,8 +71,9 @@ export class OpenAiSceneProvider implements SceneProvider {
       activities,
       meta: {
         provider: this.name,
+        model: completion.model,
         durationMs: Math.round(performance.now() - t0),
-        tokenUsage: { totalTokens: completion.usage?.total_tokens },
+        tokenUsage,
       },
     };
   }

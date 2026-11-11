@@ -236,7 +236,7 @@ async function reasonValidateRank(
     provider: reasoned.meta.provider,
     durationMs: reasoned.meta.durationMs,
     tokenUsage: reasoned.meta.tokenUsage ?? {},
-    costUsd: estimateTokenCostUsd(tokens),
+    costUsd: estimateTokenCostUsd(tokens, reasoned.meta.model ?? getPipelineConfig().openaiReasonerModel),
     payload: {
       inputSummary: {
         hasMedia: !!ctx.media,
