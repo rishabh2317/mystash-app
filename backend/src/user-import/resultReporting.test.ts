@@ -22,7 +22,7 @@ const mention: ExtractedPlaceMention = {
   mentionedAddress: null, category: null, confidence: 0.9, evidence: {}, sources: ['METADATA'],
 };
 
-function harness(options: { products?: boolean; places?: boolean; productGate?: () => Promise<void>; placeGate?: () => Promise<void> } = {}) {
+function harness(options: { persistedCheck?:()=>Promise<boolean>; productName?:string; products?: boolean; places?: boolean; productGate?: () => Promise<void>; placeGate?: () => Promise<void> } = {}) {
   const sources = new InMemoryContentSourceRepository();
   const imports = new InMemoryUserImportRepository();
   const places = new InMemoryPlaceRepository();
@@ -43,10 +43,10 @@ function harness(options: { products?: boolean; places?: boolean; productGate?: 
       { progress, places: id => places.countByUserImport(id), now: () => clock }), syncPlaces: (row) => syncImportPlaces(places, row),
   }, () => clock);
   const processor = new ContentSourceProcessor({
-    sources, userImports: imports, places, progress,
+    sources, userImports: imports, places, progress, hasPersistedResults:options.persistedCheck,
     video: { extract: async () => {
       extractionCalls++;
-      return { products: options.products ? [{ name: 'Fixture camera' }] : [], places: options.places ? [mention] : [],
+      return { products: options.products ? [{ name: options.productName ?? 'Fixture camera' }] : [], places: options.places ? [mention] : [],
         extractionMethod: 'cache', cacheHit: true, empty: !options.products, finalStage: 'cache' };
     } },
     web: { enrich: async () => { throw new Error('No web calls allowed'); } },
@@ -109,7 +109,7 @@ it('reports place completion while products run, then preserves places on produc
   assert.equal(partial.state, 'ready');
   assert.equal(partial.hasInFlight, true);
   reject(new Error('fixture product failure'));
-  await assert.rejects(processing, /fixture product failure/);
+  await processing;
   failed = true;
   release();
   const [failure] = await h.service.listRecent(USER);
@@ -245,24 +245,37 @@ it('completion racing the progress request cannot return COMPLETE with a stale z
   assert.equal(result.hasInFlight, false);
 });
 
-it('keeps polling through automatic retry backoff and does not repeat successful Places work', async () => {
+it('completes useful place results after the first optional product failure; manual retry reuses Places', async () => {
   let fails = true;
   const h = harness({ products: true, places: true, productGate: async () => {
     if (fails) throw new Error('retryable fixture');
   } });
   const { record } = await h.service.submit(USER, { rawInput: URL });
-  await assert.rejects(h.process(record, 0), /retryable fixture/);
-  const [waiting] = await h.service.listRecent(USER);
-  assert.equal(waiting.productStatus, 'running');
-  assert.equal(waiting.placeStatus, 'complete');
-  assert.equal(waiting.hasInFlight, true);
-  assert.equal(waiting.canRetry, false);
+  await h.process(record, 0);
+  const [done] = await h.service.listRecent(USER);
+  assert.equal(done.productStatus, 'failed');
+  assert.equal(done.placeStatus, 'complete');
+  assert.equal(done.hasInFlight, false);
+  assert.equal(done.findOutcome.category, 'completed');
+  assert.equal(done.canRetry, true);
+  assert.deepEqual(h.calls(),{extractionCalls:1,productCalls:1,searchCalls:1});
   fails = false;
-  await h.process(record, 1);
-  const [ready] = await h.service.listRecent(USER);
-  assert.equal(ready.hasInFlight, false);
-  assert.equal(ready.resultProductCount, 1);
+  await h.service.retry(USER, record.id);
+  await h.process(record, 0);
+  assert.equal((await h.service.listRecent(USER))[0].resultProductCount, 1);
   assert.deepEqual(h.calls(), { extractionCalls: 1, productCalls: 2, searchCalls: 1 });
+});
+it('a processing failure without useful results preserves automatic retries',async()=>{
+ const h=harness({products:true,productName:'Unknown',places:false,productGate:async()=>{throw new Error('transient');}});
+ const {record}=await h.service.submit(USER,{rawInput:URL});
+ await assert.rejects(h.process(record,0),/transient/);
+ assert.equal((await h.service.listRecent(USER))[0].hasInFlight,true);
+});
+it('successful empty analysis is terminal and duplicate delivery makes no provider calls',async()=>{
+ const h=harness();const {record}=await h.service.submit(USER,{rawInput:URL});
+ await h.process(record,0);await h.process(record,1);
+ const [done]=await h.service.listRecent(USER);assert.equal(done.findOutcome.category,'completed');assert.equal(done.findOutcome.result,'empty');assert.equal(done.canRetry,false);
+ assert.deepEqual(h.calls(),{extractionCalls:1,productCalls:1,searchCalls:0});
 });
 
 it('early branch completion cannot stop polling before shared evidence is final', async () => {
@@ -275,4 +288,22 @@ it('early branch completion cannot stop polling before shared evidence is final'
   assert.equal((await h.service.listRecent(USER))[0].hasInFlight, true);
   await h.progress.completeEvidence(record.contentSourceId!, early.attemptId);
   assert.equal((await h.service.listRecent(USER))[0].hasInFlight, true); // Source owner has not finished yet.
+});
+
+it('a useful persisted description completes with a search suggestion, without inventing a confirmed product',async()=>{
+ const h=harness({products:true,productName:'Black mini dress',productGate:async()=>{throw new Error('Exact identity unavailable');}});
+ const {record}=await h.service.submit(USER,{rawInput:URL});await h.process(record,0);await h.process(record,1);
+ const [done]=await h.service.listRecent(USER);
+ assert.equal(done.findOutcome.category,'completed');assert.equal(done.findOutcome.result,'partial');
+ assert.equal(done.findOutcome.discoveryProducts,1);assert.equal(done.findOutcome.foundProducts,0);assert.equal(done.findOutcome.savedProducts,0);
+ assert.equal((await h.sources.findById(record.contentSourceId!))?.processingStatus,'READY');
+ assert.deepEqual(h.calls(),{extractionCalls:1,productCalls:1,searchCalls:0});
+});
+
+it('persistence uncertainty never suppresses recovery despite a saved-looking place',async()=>{
+ const h=harness({products:false,places:true,persistedCheck:async()=>{throw new Error('Storage unavailable');},productGate:async()=>{throw new Error('branch unavailable');}});
+ const {record}=await h.service.submit(USER,{rawInput:URL});
+ await assert.rejects(h.process(record,0),/branch unavailable/);
+ assert.equal((await h.sources.findById(record.contentSourceId!))?.processingStatus,'PROCESSING');
+ assert.equal((await h.service.listRecent(USER))[0].hasInFlight,true);
 });

@@ -103,3 +103,11 @@ test('Activity detail rejects a different account before and after the response'
   account='A';await assert.rejects(client.detail('one','A'),FindApiError);
   assert.equal(calls,1);
 });
+
+test('detail uses the current account shopping country and changes it without reusing prior URLs',async()=>{
+ let country='IN';const requests:string[]=[];
+ const client=createFindClient({baseURL:()=> 'https://fixture.invalid',session:async()=>({userId:'owner',accessToken:'fixture'}),shoppingCountry:owner=>{assert.equal(owner,'owner');return country;},
+ fetch:async url=>{requests.push(String(url));return Response.json({...item('find',false),products:[],places:[],savedSuggestions:[],capabilities:{intent:false,suggestions:false}});}});
+ await client.detail('find','owner');country='US';await client.detail('find','owner');
+ assert.match(requests[0],/country=IN$/);assert.match(requests[1],/country=US$/);
+});

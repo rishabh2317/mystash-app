@@ -74,3 +74,18 @@ test('unresolved places never request canonical photography even if an inconsist
   const detail=findDetailFixture();detail.places=detail.places.map(p=>({...p,resolution:'unresolved',placeId:'untrusted-stale-id'}));
   assert.ok(findDetailRows(detail).filter(r=>r.key.startsWith('place:')).every(r=>r.placeId===null));
 });
+
+test('discovery actions stay separate from confirmed buying and preserve affiliate product paths',()=>{
+ const detail=findDetailFixture();const base=detail.products[0];
+ const discovery={kind:'official_search' as const,label:'Search ZARA',url:'https://www.zara.com/in/en/search?searchTerm=black+dress',query:'black dress',country:'IN'};
+ detail.products=[{...base,identityKey:null,catalogProductId:null,discoveredProductId:null,matchKind:'possible',saved:false,discovery}];
+ const row=findDetailRows(detail)[0];assert.equal(row.discovery?.label,'Search ZARA');assert.equal(row.openProductId,null);assert.equal(row.membership,undefined);
+ detail.products=[{...base,discovery}];assert.equal(findDetailRows(detail)[0].discovery,null);assert.equal(findDetailRows(detail)[0].openProductId,base.catalogProductId??base.discoveredProductId);
+ detail.outcome={...detail.outcome,category:'completed',result:'partial',extractionActive:false,foundProducts:0,foundPlaces:0,savedProducts:0,savedPlaces:0,discoveryProducts:1,stashSync:'complete'};
+ assert.equal(findDetailStatus(detail).tone,'success');assert.match(findDetailStatus(detail).message,/exact item could not be confirmed/i);
+});
+
+test('partial extraction awaiting automatic saving is processing rather than an attention state',()=>{
+ const detail=findDetailFixture();detail.outcome={...detail.outcome,category:'processing',result:'partial',extractionActive:false,stashSync:'pending'};
+ assert.equal(findDetailStatus(detail).tone,'working');assert.match(findDetailStatus(detail).message,/Finishing automatic saving/);
+});

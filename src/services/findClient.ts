@@ -26,6 +26,7 @@ export function createFindClient(deps: {
   baseURL: () => string | undefined;
   session: () => Promise<Session | null>;
   fetch: typeof fetch;
+  shoppingCountry?:(owner:string)=>string|undefined;
   measurementHeaders?:()=>Record<string,string>;
 }) {
   async function owner(expected?: string): Promise<Session> {
@@ -77,7 +78,9 @@ export function createFindClient(deps: {
       return request<FindSourceResultPage>(`/${encodeURIComponent(id)}/source-results?${query}`, 'GET', undefined, expectedOwner);
     },
     async detail(id: string, expectedOwner?: string): Promise<FindScreenDetail> {
-      const result = await request<FindScreenDetail>(`/${encodeURIComponent(id)}`, 'GET', undefined, expectedOwner);
+      const session=await owner(expectedOwner), country=deps.shoppingCountry?.(session.userId);
+      const suffix=country?`?country=${encodeURIComponent(country)}`:'';
+      const result = await request<FindScreenDetail>(`/${encodeURIComponent(id)}${suffix}`, 'GET', undefined, session.userId);
       if (!result.capabilities || typeof result.capabilities.intent !== 'boolean' || typeof result.capabilities.suggestions !== 'boolean') throw new FindApiError('Find capabilities unavailable.', 503);
       return { ...result, ...readItem(result) };
     },

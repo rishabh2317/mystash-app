@@ -43,7 +43,7 @@ const db = { rpc(name: string, args: Record<string, unknown>) {
 const user = '55555555-5555-4555-8555-555555555555', imported = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const routes = new Map<string, (req: Request, res: Response) => Promise<void>>();
 const app = Object.fromEntries(['get','post','patch','delete'].map(method => [method, (path: string, handler: (req: Request, res: Response) => Promise<void>) => routes.set(`${method} ${path}`, handler)])) as unknown as Express;
-const deps: FindRouteDependencies = { authenticate: async req => req.headers.authorization === 'owner' ? { userId: user }
+const deps: FindRouteDependencies = { shoppingCountry:async()=> 'IN', authenticate: async req => req.headers.authorization === 'owner' ? { userId: user }
   : req.headers.authorization === 'other' ? { userId: '22222222-2222-4222-8222-222222222222' } : null,
   queries: new FindQueryService(db), imports: { retry: async () => { throw new Error('No extraction in this integration'); }, delete: async () => { throw new Error('No history deletion in this integration'); } },
   intents: { updateIntent: async () => { throw new Error('No intent writes in this integration'); } },

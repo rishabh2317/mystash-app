@@ -16,7 +16,7 @@ export function testSnapshots(imports: UserImportRepository, sources: Pick<UserI
       const products = row.contentSourceId ? await sources.listProducts(row.contentSourceId) : [];
       const count = new Set(products.map(p => p.catalogProductId ?? p.discoveredProductId).filter(Boolean)).size;
       const places = await options.places?.(id) ?? 0;
-      const membership: FindMembershipSnapshot = { foundProducts: count, foundPlaces: places, resolvedPlaces: 0, unverifiedPlaces: places, savedProducts: count, savedPlaces: places,
+      const membership: FindMembershipSnapshot = { discoveryProducts:products.filter(p=>!p.catalogProductId&&!p.discoveredProductId&&p.evidence.discoveryEligible===true).length, foundProducts: count, foundPlaces: places, resolvedPlaces: 0, unverifiedPlaces: places, savedProducts: count, savedPlaces: places,
         missingProducts: 0, missingPlaces: 0,
         snapshot: { source, progress, syncState: 'complete', syncAttemptId: progress?.attemptId ?? null,
           startedAt: row.attemptStartedAt ?? row.createdAt } };

@@ -1,3 +1,4 @@
+import { artLayout } from '@/src/ui/artwork';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
@@ -42,26 +43,6 @@ const FORM_ART = {
   visWidth: 1025,
   visHeight: 1019,
 } as const;
-
-function artLayout(
-  art: {
-    width: number;
-    height: number;
-    visLeft: number;
-    visTop: number;
-    visWidth: number;
-    visHeight: number;
-  },
-  visBox: { width: number; height: number },
-) {
-  const scale = Math.min(visBox.width / art.visWidth, visBox.height / art.visHeight);
-  return {
-    width: art.width * scale,
-    height: art.height * scale,
-    marginLeft: -art.visLeft * scale + (visBox.width - art.visWidth * scale) / 2,
-    marginTop: -art.visTop * scale + (visBox.height - art.visHeight * scale) / 2,
-  };
-}
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);

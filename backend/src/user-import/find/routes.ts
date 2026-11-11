@@ -1,3 +1,4 @@
+import {resolveShoppingRequestCountry} from '../../shopping/requestCountry';
 import type { Express, Request, Response } from 'express';
 import { sendAuthError } from '../../auth/requireAuth';
 import { createSupabaseAdmin } from '../../supabase';
@@ -13,6 +14,7 @@ import {recordFindResultAction} from '../../analytics/serverEvents';
 
 export type FindRouteDependencies = {
   authenticate: UserImportAuthenticator;
+  shoppingCountry?:(req:Request)=>Promise<string>;
   queries: Pick<FindQueryService, 'list' | 'counts' | 'batch' | 'detail' | 'resultAction' | 'sourceSummaries' | 'sourceResults'>;
   imports: Pick<UserImportService, 'retry' | 'delete'>;
   intents: Pick<ShareAcceptanceStore, 'updateIntent'>;
@@ -51,7 +53,7 @@ export function registerFindHandlers(app: Pick<Express, 'get' | 'post' | 'patch'
   app.get('/finds/:findId/source-results', route((user, req) => deps.queries.sourceResults(user, findId(req.params.findId), req.query)));
   app.post('/finds/batch', route((user, req) => deps.queries.batch(user, body(req, ['ids']).ids)));
   app.get('/finds/:findId', route(async (user, req) => {
-    const detail=await deps.queries.detail(user, findId(req.params.findId));
+    const detail=await deps.queries.detail(user, findId(req.params.findId), deps.shoppingCountry ? ()=>deps.shoppingCountry!(req) : undefined);
     return {...detail,capabilities:{intent:deps.intentEnabled(),suggestions:deps.suggestionsEnabled()&&detail.sourceType!=='image'}};
   }));
   app.delete('/finds/:findId', route(async (user, req) => {
@@ -96,7 +98,7 @@ export function registerFindHandlers(app: Pick<Express, 'get' | 'post' | 'patch'
 }
 export function registerFindRoutes(app: Express): void {
   const db = createSupabaseAdmin();
-  registerFindHandlers(app, { authenticate: supabaseUserImportAuthenticator(), queries: new FindQueryService(db),
+  registerFindHandlers(app, { shoppingCountry:req=>resolveShoppingRequestCountry(db,req), authenticate: supabaseUserImportAuthenticator(), queries: new FindQueryService(db),
     imports: createUserImportService(db), intents: shareAcceptanceStore(db), suggestions: createShareReviewService(db),
     suggestionsEnabled: () => getEnv('SHARE_SUGGESTIONS_ENABLED') === 'true',
     intentEnabled: () => getEnv('SHARE_INTENT_ENABLED') === 'true',measureAction:(user,req,id,kind,restore)=>recordFindResultAction(db,req,user,id,kind,restore) });

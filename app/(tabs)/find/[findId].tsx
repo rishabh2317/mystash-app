@@ -34,6 +34,7 @@ export default function FindDetailScreen() {
     <TopBar mode="page" title="Find" showBack onBack={() => router.canGoBack() ? router.back() : router.replace(FIND_ROUTES.home as Href)} />
     {!user && !loading ? <View style={{ padding: tokens.space.lg, gap: tokens.space.md }}><Text style={typeStyle(tokens,'body')}>Sign in to open your Find.</Text><ActionButton wrapLabel minTouchHeight={48} label="Sign in" onPress={() => router.push(FIND_ROUTES.profile)} /></View> : <FindDetailView
       data={detail.data} loading={loading || !detail.loaded} refreshing={detail.refreshing} error={detail.error} actionError={detail.actionError} pending={detail.pending}
+      onDiscovery={url=>{ const target=safeFindUrl(url); if(target)void Linking.openURL(target).catch(()=>Alert.alert('Couldn’t open search','Please try again.')); }}
       onRefresh={() => { void detail.refresh(); }} onOriginal={() => { const url = safeFindUrl(detail.data?.sourceUrl); if (url) void Linking.openURL(url).catch(() => Alert.alert('Couldn’t open the original link', 'Try again when your connection is available.')); }}
       onStash={segment => router.push(segment === 'places' ? '/stash?segment=places' : '/(tabs)/stash')}
       onProduct={productId => router.push(productPagePath(productId, { contentSourceId: detail.data?.contentSourceId ?? undefined, userImportId: id }) as Href)}

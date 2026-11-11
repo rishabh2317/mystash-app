@@ -7,18 +7,21 @@ export const FIND_COPY = { title: 'Your Finds', subtitle: 'Capture anything. Fin
 export function findMatchesFilter(item: FindItem, filter: FindViewFilter) { return filter === 'all' || item.outcome.category === filter; }
 export function findSourceLabel(source: FindItem['sourceType']) { return source==='image'?'Your image':source === 'instagram' ? 'Instagram Reel' : source === 'youtube' ? 'YouTube Short' : 'Shared link'; }
 export function findResultLabel(item: FindItem) {
-  const o = item.outcome, parts = [o.foundProducts ? `${o.foundProducts} product${o.foundProducts === 1 ? '' : 's'}` : '', o.foundPlaces ? `${o.foundPlaces} place${o.foundPlaces === 1 ? '' : 's'}` : ''].filter(Boolean);
+  const o = item.outcome, parts = [o.foundProducts ? `${o.foundProducts} product${o.foundProducts === 1 ? '' : 's'}` : '', o.foundPlaces ? `${o.foundPlaces} place${o.foundPlaces === 1 ? '' : 's'}` : '', o.discoveryProducts ? `${o.discoveryProducts} search suggestion${o.discoveryProducts===1?'':'s'}`:''].filter(Boolean);
   return parts.length ? `${parts.join(' · ')} found` : o.extractionActive ? 'Finding products and places…' : o.result === 'empty' ? 'No products or places identified' : 'No identified results yet';
 }
 export function findStatus(item: FindItem): { label: string; message: string } {
   const o = item.outcome;
   if (o.delayed) return { label: 'Taking longer', message: 'This is taking longer than expected. You can leave and check back later.' };
-  if (o.stashSync === 'failed') return { label: 'Saving needs attention', message: 'Your results are here, but automatic saving needs another try.' };
   if (o.extractionActive) return { label: 'Processing', message: 'Finding products and places in the background. Available results appear below.' };
-  if (o.result === 'partial') return { label: 'Partial results', message: 'Some results were found. Part of this find could not finish.' };
+  if (o.stashSync === 'failed') return { label: 'Saving needs attention', message: 'Your results are here, but automatic saving needs another try.' };
+  if (o.category==='processing' && o.stashSync==='pending' && o.result!=='pending') return {label:'Saving to My Stash',message:'Finishing automatic saving. Available results remain below.'};
+  if (o.result === 'partial' && o.category === 'completed') return { label: 'Completed', message: o.foundProducts+o.foundPlaces>0?'Available results are saved. An optional check could not finish.':'Search options are ready. The exact item could not be confirmed.' };
+  if (o.result === 'partial') return {label:'Needs attention',message:'Some results are available. Finishing this Find needs attention.'};
   if (o.result === 'failed' || o.stashSync === 'unavailable') return { label: 'Needs Attention', message: 'We couldn’t finish this find. Any available results are still here.' };
   if (o.stashSync === 'pending') return { label: 'Saving to My Stash', message: 'Your results are ready. Finishing automatic saving…' };
-  return { label: 'Completed', message: o.result === 'empty' ? 'We couldn’t identify products or places this time. The original link is still here.' : FIND_COPY.automatic };
+  if ((o.discoveryProducts??0)>0 && o.foundProducts+o.foundPlaces===0 && o.stashSync==='complete') return {label:'Completed',message:'Search options are ready. Exact items are not confirmed.'};
+  return { label: o.result === 'empty' ? 'Completed — Nothing found' : 'Completed', message: o.result === 'empty' ? 'We couldn’t identify products or places this time. The original link is still here.' : FIND_COPY.automatic };
 }
 export function safeFindUrl(value: string | null | undefined): string | null {
   if (!value) return null;

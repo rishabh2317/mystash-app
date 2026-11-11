@@ -11,6 +11,7 @@ export type FindReportSnapshot = {
   startedAt: string;
 };
 export type FindMembershipSnapshot = {
+  discoveryProducts?: number;
   foundProducts: number; foundPlaces: number; resolvedPlaces: number; unverifiedPlaces: number; savedProducts: number; savedPlaces: number;
   missingProducts: number; missingPlaces: number;
   /** Status and counts must come from the same database statement snapshot. */
@@ -20,7 +21,7 @@ export type FindMembershipCounts = FindMembershipSnapshot & { outcome: FindOutco
 
 /** Incomplete pre-foundation rows stay visible, but are never automatically backfilled. */
 function incompleteOutcome(membership: FindMembershipSnapshot): FindOutcome {
-  return { version: 1, category: 'attention', result: 'failed', products: 'unknown', places: 'unknown',
+  return { version: 1, discoveryProducts: membership.discoveryProducts ?? 0, category: 'attention', result: 'failed', products: 'unknown', places: 'unknown',
     foundProducts: membership.foundProducts, foundPlaces: membership.foundPlaces, resolvedPlaces: membership.resolvedPlaces, unverifiedPlaces: membership.unverifiedPlaces,
     savedProducts: membership.savedProducts, savedPlaces: membership.savedPlaces,
     stashSync: 'unavailable', canRetryExtraction: Boolean(membership.snapshot.source &&
@@ -39,7 +40,7 @@ export function projectFindOutcome(membership: FindMembershipSnapshot, nowMs = D
   const fallback = source.processingStatus === 'FAILED' ? 'failed' : terminal ? 'complete' : 'running';
   const products = progress?.products ?? fallback;
   const places = progress?.places ?? (source.mediaKind === 'WEB_PAGE' ? 'complete' : fallback);
-  const found = membership.foundProducts + membership.foundPlaces > 0;
+  const found = membership.foundProducts + membership.foundPlaces + (membership.discoveryProducts ?? 0) > 0;
   const failed = products === 'failed' || places === 'failed' || source.processingStatus === 'FAILED';
   const running = !terminal || products === 'running' || places === 'running';
   const staleSync = progress && report.syncAttemptId !== progress.attemptId;
@@ -50,9 +51,9 @@ export function projectFindOutcome(membership: FindMembershipSnapshot, nowMs = D
     .filter((v): v is string => Boolean(v)).map(Date.parse));
   const delayed = running && Number.isFinite(startedMs) && nowMs - startedMs >= 10 * 60 * 1000;
   return {
-    version: 1,
-    category: running ? delayed ? 'attention' : 'processing'
-      : failed || stashSync === 'failed' ? 'attention' : stashSync !== 'complete' ? 'processing' : 'completed',
+    version: 1, discoveryProducts: membership.discoveryProducts ?? 0,
+    category: running ? 'processing'
+      : stashSync === 'failed' || (failed && !found) ? 'attention' : stashSync !== 'complete' ? 'processing' : 'completed',
     result: found ? failed ? 'partial' : 'found' : running ? 'pending' : failed ? 'failed' : 'empty',
     products, places, foundProducts: membership.foundProducts, foundPlaces: membership.foundPlaces, resolvedPlaces: membership.resolvedPlaces, unverifiedPlaces: membership.unverifiedPlaces,
     savedProducts: membership.savedProducts, savedPlaces: membership.savedPlaces, stashSync, extractionActive: running, delayed,

@@ -1,3 +1,6 @@
+import {discoveryDestination} from '../../shopping/discoveryDestination';
+import {resolveCountryCode} from '../../merchant-pricing/country';
+import {SupabaseUserRepository} from '../../user/SupabaseUserRepository';
 import {isGeographyOnly} from '../../place/placeClassification';
 import {samePlaceMention,type PlaceMentionIdentity} from '../../place/placeMentionDedupe';
 import type {FindPlace} from './contract';
@@ -86,9 +89,16 @@ export class FindQueryService {
     const items = result.items.map(item), found = new Set(items.map(row => row.id));
     return { items, unavailableIds: ids.filter(id => !found.has(id)) };
   }
-  async detail(userId: string, id: string): Promise<FindDetail> {
-    const result = await this.rpc<FindDetail>('find_detail', { p_user: userId, p_import: findId(id) });
-    return { ...result, ...item(result),places:await this.visiblePlaces(result.places) };
+  async detail(userId: string, id: string, country?: string | (()=>Promise<string>)): Promise<FindDetail> {
+    const result = await this.rpc<Omit<FindDetail,'products'> & {products:Array<FindDetail['products'][number] & {discoverySeed?:{brand?:string;attributes?:unknown[]}}>}>('find_detail', { p_user: userId, p_import: findId(id) });
+    const unresolved = result.products.filter(p => !p.identityKey);
+    const destinations = new Map<string, ReturnType<typeof discoveryDestination>>();
+    if (unresolved.length) {
+      const user = country ? null : await new SupabaseUserRepository(this.db).getById(userId);
+      const shoppingCountry = (typeof country==='function'?await country():country) ?? resolveCountryCode({profile:user?.country,deviceLocale:typeof user?.extensions?.shoppingLocale==='string'?user.extensions.shoppingLocale:user?.language});
+      for (const product of unresolved) destinations.set(product.id,discoveryDestination({name:product.title,brand:product.discoverySeed?.brand,evidence:{attributes:product.discoverySeed?.attributes??[]},country:shoppingCountry}));
+    }
+    return { ...result, ...item(result),products:result.products.map(({discoverySeed: _seed,...p})=>({...p,discovery:p.identityKey?null:destinations.get(p.id)??null})),places:await this.visiblePlaces(result.places) };
   }
   private async visiblePlaces(rows:FindPlace[]):Promise<FindPlace[]> {
     if(!rows.length)return rows;

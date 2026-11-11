@@ -8,12 +8,12 @@ const {renderToStaticMarkup} = require('react-dom/server');
 const web = require('react-native-web');
 const ts = require('typescript');
 const root = path.dirname(require.resolve('../package.json')), cache = new Map();
-let tokens, scale = 1, actions = [], surfaces = [], tab='collections';
+let tokens, scale = 1, viewportWidth=390, viewportHeight=844, actions = [], surfaces = [], tab='collections';
 const react={...React,useState(initial){const real=React.useState(initial);return initial==='collections'?[tab,v=>{tab=v;}]:real;}};
 const native = {...web,
   FlatList: props=>React.createElement(web.View,null,props.ListHeaderComponent,props.data.length?props.data.map((item,index)=>React.createElement(React.Fragment,{key:index},props.renderItem({item,index}))):props.ListEmptyComponent,props.ListFooterComponent),
-  useWindowDimensions:()=>({width:390,height:844,fontScale:scale}),
-  Image: props => {surfaces.push(props);return React.createElement('img',{src:props.source,alt:'',style:web.StyleSheet.flatten(props.style)});},
+  useWindowDimensions:()=>({width:viewportWidth,height:viewportHeight,fontScale:scale}),
+  Image: props => {surfaces.push(props);const png=fs.readFileSync(props.source);const intrinsic={width:png.readUInt32BE(16),height:png.readUInt32BE(20)};return React.createElement('img',{src:'data:image/png;base64,'+png.toString('base64'),alt:'',style:{...intrinsic,...web.StyleSheet.flatten(props.style)}});},
   View: props => {surfaces.push(props);return React.createElement(web.View,props);},
   Text: props => {const style=web.StyleSheet.flatten(props.style)??{};return React.createElement(web.Text,{...props,style:[style,{fontSize:style.fontSize*scale,lineHeight:style.lineHeight*scale}]});},
   Pressable: props => {actions.push(props);return React.createElement(web.Pressable,props);},
@@ -48,7 +48,8 @@ const {SignedOutSettings}=load(path.join(root,'components/settings/SignedOutSett
 const {getThemeTokens}=load(path.join(root,'src/theme/tokens'));
 const {EMPTY_STATES}=load(path.join(root,'src/ui/emptyStates'));
 let checks=0;
-for(const theme of ['titanium','nebula'])for(const width of [320,390,430])for(scale of [1,2]) {
+for(const theme of ['titanium','nebula'])for(const width of [320,390,430])for(scale of [1,2])for(const height of [640,844]) {
+  viewportWidth=width;viewportHeight=height;
   tokens=getThemeTokens(theme);
   for(const key of ['find','collections','settings']) {
     actions=[];surfaces=[];let primary=0,secondary=0;
@@ -64,6 +65,15 @@ for(const theme of ['titanium','nebula'])for(const width of [320,390,430])for(sc
     const image=surfaces.find(p=>p.source===copy.artwork);
     assert.ok(image&&image.resizeMode==='contain'&&image.accessible===false);
     assert.ok(fs.existsSync(copy.artwork));
+    const style=web.StyleSheet.flatten(image.style);
+    assert.ok(Number.isFinite(style.width)&&Number.isFinite(style.height),'explicit dimensions override native PNG intrinsic size');
+    const box=surfaces.find(p=>p.style?.overflow==='hidden'&&p.style?.flexShrink===0).style;
+    assert.ok(box.height<=Math.min(height*0.28,key==='collections'?164:240));
+    assert.ok(box.width<=width-32);
+    const art=copy.artworkBounds,scaleX=style.width/art.width,scaleY=style.height/art.height;
+    assert.ok(Math.abs(scaleX-scaleY)<1e-9,'the artwork is never distorted');
+    const left=style.marginLeft+art.visLeft*scaleX,top=style.marginTop+art.visTop*scaleY;
+    assert.ok(left>=-0.01&&top>=-0.01&&left+art.visWidth*scaleX<=box.width+0.01&&top+art.visHeight*scaleY<=box.height+0.01,'visible art fits its bounded box');
     assert.equal(surfaces[0].style.height,undefined,'content can grow for large text');checks++;
   }
   actions=[];let signIn=0,privacy=0,terms=0;
@@ -88,4 +98,4 @@ for(const theme of ['titanium','nebula']){
   tab='collections';html=renderToStaticMarkup(React.createElement(PersonalProfile,{...props,collections:[{collectionId:'loaded-collection'}]}));
   assert.ok(html.includes('loaded-collection')&&!html.includes('Your story starts here'));checks++;
 }
-console.log(JSON.stringify({passed:true,checks,themes:2,widths:[320,390,430],fontScales:[1,2],nativeExecution:false}));
+console.log(JSON.stringify({passed:true,checks,themes:2,widths:[320,390,430],heights:[640,844],fontScales:[1,2],nativeExecution:false}));

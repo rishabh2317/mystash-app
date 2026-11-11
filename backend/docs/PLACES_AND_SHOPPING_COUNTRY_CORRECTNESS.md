@@ -131,3 +131,17 @@ ordinary metadata writes and identity invalidation.
   interaction checks passed. These are offline adapters, not native Android QA.
 - Backend and client TypeScript checks passed; focused client lint passed.
 - The disposable PostgreSQL integration passed. No production database was used.
+
+## Find discovery actions and result-first completion (11 November 2026)
+
+Find detail now projects a discovery destination for a meaningful unconfirmed product description. The resolver is pure and performs no AI, Serper, Tavily or merchant requests. Grounded brand evidence plus an explicitly registered storefront selects official search, then official homepage; other descriptions use an encoded Google query with the resolved shopping-country hint. Initial verified coverage is Zara search and Apple storefronts for IN, US and GB. Unsupported brands/countries use Google; domains, regional paths and search parameters are never inferred. Templates live in `backend/src/shopping/discoveryDestination.ts` and must be verified on the official site before expansion. Zara IN/US/UK search pages and Apple regional homepages were checked during implementation.
+
+Confirmed identities retain the existing product/offer/affiliate paths. Discovery cards expose no fabricated product identity, price, stock or availability. Only brand attributes needed for this projection are returned by the service-only detail RPC; the API strips that internal seed, and never returns raw evidence or private frame data. The requesting account's current shopping country is resolved on detail reads. No country-specific discovery URL is saved into shared extraction evidence.
+
+Newly mapped source hypotheses receive a deterministic `evidence.discoveryEligible` flag. Eligible, persisted descriptions are counted separately as `discoveryProducts`, never as confirmed/saved catalogue products. They remain in Find without manufacturing Cart membership. No historical source is reprocessed or backfilled.
+
+The central SQL projection and its TypeScript parity reference classify terminal, synchronized useful results as Completed, including place-only success and search-only descriptions. Optional branch errors remain visible with manual retry. Active delayed work remains in Processing, with a delay warning rather than a Needs attention classification. Empty successful analysis completes without automatic retries. No usable result plus a relevant error, or failed saving, requires attention. Explicit removals retain completion history and never resurrect memberships.
+
+Workers stop automatic retries after verifying useful persisted results for every affected importer. Such a source becomes READY with failed optional branch diagnostics preserved in progress; re-importing it reuses results. Genuine failures without useful results retain the existing bounded queue attempts/backoff. Storage uncertainty does not suppress recovery. Explicit retry remains available for failed optional branches.
+
+Deployment prerequisite: review/apply `20261111170000_find_useful_completion.sql` before deploying the matching API/workers and rebuilding the APK. It replaces four service-only functions (`find_project_outcome`, `find_outcome_memberships`, `find_detail`, `find_schema_version`), adds no tables/columns, and changes no historical rows. Backend startup now requires Find schema 5. Local SQL checks validate grants, owner isolation, notification delivery, evidence privacy and SQL/reference parity. No cloud migration or deployment is performed by this implementation task.

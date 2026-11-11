@@ -1,3 +1,4 @@
+import {readFindMemberships} from '../../user-import/find/membershipQuery';
 import {resolveCountryCode} from '../../merchant-pricing/country';
 import { SupabaseImportProgressRepository } from '../../user-import/ImportProgressRepository';
 import { createReviewAssessment } from '../../user-import/share/assessment';
@@ -58,6 +59,15 @@ export function createResolvingContentSourceProcessor(
   const places = new SupabasePlaceRepository(admin);
   return new ContentSourceProcessor({
     progress: new SupabaseImportProgressRepository(admin),
+    async hasPersistedResults(imports) {
+      if (!imports.length) return false;
+      for (const userId of new Set(imports.map(i=>i.userId))) {
+        const ids=imports.filter(i=>i.userId===userId).map(i=>i.id);
+        const snapshots=await readFindMemberships(admin,userId,ids);
+        if (ids.some(id=>{const m=snapshots.get(id);return !m || m.missingProducts+m.missingPlaces>0 || m.foundProducts+m.foundPlaces+(m.discoveryProducts??0)===0;})) return false;
+      }
+      return true;
+    },
     sources,
     userImports,
     video: createVideoExtractionAdapter(admin),

@@ -47,12 +47,12 @@ export function findActivityPreviews(detail:FindScreenDetail):FindActivityPrevie
 
 export function findActivityRevision(item:FindItem):string {
   const o=item.outcome;
-  return [o.foundProducts,o.foundPlaces,o.savedProducts,o.savedPlaces,o.result,o.stashSync,o.finishedAt].join(':');
+  return [o.discoveryProducts??0,o.foundProducts,o.foundPlaces,o.savedProducts,o.savedPlaces,o.result,o.stashSync,o.finishedAt].join(':');
 }
 
 export function findActivityProgress(item:FindItem):string[] {
   const label=(kind:'Products'|'Places',state:FindItem['outcome']['products'],count:number)=>
-    state==='running'?`${kind}: ${count?`${count} found, still looking`:'looking'}`:state==='failed'?`${kind}: needs attention`:state==='unknown'?`${kind}: unavailable`:
+    state==='running'?`${kind}: ${count?`${count} found, still looking`:'looking'}`:state==='failed'?`${kind}: ${item.outcome.category==='completed'?'optional check unavailable':'needs attention'}`:state==='unknown'?`${kind}: unavailable`:
       `${kind}: ${count?`${count} found`:'checked'}`;
   return [label('Products',item.outcome.products,item.outcome.foundProducts),
     label('Places',item.outcome.places,item.outcome.foundPlaces)];

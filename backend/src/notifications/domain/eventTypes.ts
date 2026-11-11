@@ -76,7 +76,7 @@ export const NOTIFICATION_TYPES: Record<NotificationEventType, NotificationTypeD
       const outcome=payload.outcome;
       if(typeof outcome!=='string'||!['found','partial','empty'].includes(outcome))throw new InvalidNotificationPayloadError('Invalid Find outcome');
       return {title:'Your Find is complete',body:outcome==='empty'?'No products or places were identified. Open your Find to see the outcome.'
-        :outcome==='partial'?'Some results are ready. Open your Find to see what was found.':'Your results are ready. Open your Find to see products and places.',deepLink:findLink(findId),data:{findId,outcome}};
+        :outcome==='partial'?'Some results are ready. Open your Find to see what was found.':'Your results are ready. Open your Find to explore them.',deepLink:findLink(findId),data:{findId,outcome}};
     },
   },
   'find.failed': {

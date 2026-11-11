@@ -7,9 +7,10 @@ for (const mediaKind of ['VIDEO','WEB_PAGE'] as const)
 for (const branch of [null,'running','complete','failed','stale'] as const)
 for (const sync of [null,'pending','complete','failed'] as const)
 for (const missing of [0,1])
+for (const discovery of [0,1])
 for (const found of [0,1])
 for (const late of [false,true]) {
-  const snapshot: FindMembershipSnapshot = { foundProducts: found, foundPlaces: found, resolvedPlaces: 0, unverifiedPlaces: found,
+  const snapshot: FindMembershipSnapshot = { discoveryProducts:discovery, foundProducts: found, foundPlaces: found, resolvedPlaces: 0, unverifiedPlaces: found,
     savedProducts: missing ? 0 : found, savedPlaces: 0, missingProducts: missing, missingPlaces: 0,
     snapshot: { source: status ? { processingStatus: status, mediaKind, queuedAt: start } : null,
       progress: branch ? { attemptId: 'attempt', startedAt: branch === 'stale' ? '2026-11-02T00:00:00Z' : start,
@@ -19,7 +20,7 @@ for (const late of [false,true]) {
       syncState: sync, syncAttemptId: sync === 'failed' ? 'old' : 'attempt', startedAt: start },
   };
   const now = new Date(Date.parse(start) + (late ? 900_000 : 60_000)).toISOString();
-  cases.push({ row: { found_products: snapshot.foundProducts, found_places: snapshot.foundPlaces, resolved_places: snapshot.resolvedPlaces,
+  cases.push({ row: { discovery_products:discovery, found_products: snapshot.foundProducts, found_places: snapshot.foundPlaces, resolved_places: snapshot.resolvedPlaces,
     unverified_places: snapshot.unverifiedPlaces, saved_products: snapshot.savedProducts, saved_places: snapshot.savedPlaces,
     missing_products: snapshot.missingProducts, missing_places: snapshot.missingPlaces, report: snapshot.snapshot },
     now, expected: projectFindOutcome(snapshot, Date.parse(now)) });

@@ -14,7 +14,7 @@ test('discovery counts and current saved counts remain distinct after removal', 
 });
 test('partial branch failure retains results and permits extraction retry', () => {
   const value = projectFindOutcome({ ...base, snapshot: { ...base.snapshot, progress: { ...progress, places: 'failed' } } });
-  assert.equal(value.category, 'attention'); assert.equal(value.result, 'partial'); assert.equal(value.canRetryExtraction, true);
+  assert.equal(value.category, 'completed'); assert.equal(value.result, 'partial'); assert.equal(value.canRetryExtraction, true);
 });
 test('empty completion and failed extraction remain distinct', () => {
   const empty = { ...base, foundProducts: 0, savedProducts: 0 };
@@ -27,7 +27,7 @@ test('delayed active work cannot be retried and late completion wins without a p
   const running = { ...base, snapshot: { ...base.snapshot, source: { ...source, processingStatus: 'PROCESSING' as const },
     progress: { ...progress, places: 'running' as const } } };
   const delayed = projectFindOutcome(running, Date.parse(progress.startedAt) + 600_000);
-  assert.equal(delayed.category, 'attention'); assert.equal(delayed.delayed, true); assert.equal(delayed.canRetryExtraction, false);
+  assert.equal(delayed.category, 'processing'); assert.equal(delayed.delayed, true); assert.equal(delayed.canRetryExtraction, false);
   const done = projectFindOutcome(base, Date.parse(progress.startedAt) + 900_000);
   assert.equal(done.delayed, false); assert.equal(done.category, 'completed');
 });
@@ -46,4 +46,11 @@ test('requeued work ignores stale branch completion and resets its delay clock',
   assert.equal(value.products, 'running'); assert.equal(value.finishedAt, null); assert.equal(value.delayed, false);
   const web = projectFindOutcome({ ...base, snapshot: { ...base.snapshot, progress: null, source: { ...source, mediaKind: 'WEB_PAGE' } } });
   assert.equal(web.places, 'complete'); assert.equal(web.category, 'completed');
+});
+
+test('place-only persisted success completes despite a product failure; failed saving still needs attention',()=>{
+ const row={...base,foundProducts:0,savedProducts:0,foundPlaces:1,savedPlaces:1,unverifiedPlaces:1,snapshot:{...base.snapshot,source:{...source,processingStatus:'FAILED' as const},progress:{...progress,products:'failed' as const}}};
+ assert.equal(projectFindOutcome(row).category,'completed');
+ assert.equal(projectFindOutcome(row).result,'partial');
+ assert.equal(projectFindOutcome({...row,missingPlaces:1,savedPlaces:0,snapshot:{...row.snapshot,syncState:'failed'}}).category,'attention');
 });

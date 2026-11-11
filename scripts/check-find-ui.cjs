@@ -8,7 +8,7 @@ let tokens,platform='ios',dimensions={width:390,height:844,fontScale:1,scale:1},
 let stashCart={items:[],itemCount:0,status:'ready',refresh:async()=>{},removeItem:async()=>{}};
 let signedIn=true,authLoading=false,history,detail,capture,params={},imageSupported=true,imageResult=null;
 const adapter={...React,useState(initial){const pair=React.useState(initial),index=stateIndex++;return overrideStates&&index<overrideStates.length?[overrideStates[index],value=>stateWrites.push({index,value})]:pair;}};
-const native={...web,useWindowDimensions:()=>dimensions,Platform:{...web.Platform,OS:platform,select:choices=>choices[platform]??choices.default},
+const native={...web,Linking:{openURL:async url=>{apiCalls.push(['openURL',url]);}},useWindowDimensions:()=>dimensions,Platform:{...web.Platform,OS:platform,select:choices=>choices[platform]??choices.default},
  Pressable:props=>{actions.push(props);return React.createElement(web.Pressable,props);},
  FlatList:props=>{lists.push(props);return React.createElement(web.FlatList,props);},
  Text:props=>{const flat=web.StyleSheet.flatten(props.style)??{};return React.createElement(web.Text,{...props,style:[props.style,props.allowFontScaling===false?null:{fontSize:flat.fontSize?flat.fontSize*dimensions.fontScale:undefined,lineHeight:flat.lineHeight?flat.lineHeight*dimensions.fontScale:undefined}]});},
@@ -23,7 +23,11 @@ function load(file){
  if(cache.has(filename))return cache.get(filename).exports;
  const mod=new Module(filename,module);mod.filename=filename;cache.set(filename,mod);
  mod.require=id=>{
-  if(id.endsWith('.png'))return{uri:'file:///official-branding-fixture.png'};
+  if(id.endsWith('.png')){
+    const local=id.startsWith('@/')?path.join(root,id.slice(2)):path.resolve(path.dirname(filename),id);
+    if(fs.existsSync(local)){const bytes=fs.readFileSync(local);return {uri:'data:image/png;base64,'+bytes.toString('base64'),width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20)};}
+    return {uri:'file:///official-branding-fixture.png'};
+  }
   if(id==='react')return adapter;
   if(id==='react-native')return native;
   if(id==='@/contexts/ThemeContext'||id==='@/src/theme/useThemeTokens')return{useThemeMode:()=>({tokens}),useThemeTokens:()=>tokens};
@@ -136,6 +140,7 @@ async function main(){
    if(variant==='empty')assert.ok(html.includes('Your next find starts here'));
    if(variant==='error')assert.ok(html.includes('Try again')&&html.includes('A weekend'));
    if(variant==='signed-out'){
+    save(`dashboard-signed-out-${theme}-${os}`,render(Dashboard,{},true));
     assert.ok(html.includes('Sign in to Find')&&html.includes('Save what inspires you')&&!html.includes('A weekend'));
     actions.find(a=>a.accessibilityLabel==='Sign in to Find').onPress();assert.deepEqual(navigation.at(-1),['push','/(tabs)/profile']);
     actions.find(a=>a.accessibilityLabel==='Explore Mystash').onPress();assert.deepEqual(navigation.at(-1),['push','/(tabs)/search']);checks+=2;
@@ -164,6 +169,17 @@ async function main(){
   checks+=4;save(`detail-${theme}-${os}`,html);
   reset();detail.data.products[0]={...detail.data.products[0],identityKey:null,catalogProductId:null,discoveredProductId:null,matchKind:'possible',saved:false,removed:false};params={findId:detail.data.id};
   html=render(Detail);assert.ok(html.includes('Possible match'));assert.ok(html.includes('Not automatically saved'));assert.ok(html.includes('possible matches'));assert.ok(!actions.some(a=>a.accessibilityLabel==='Buy now, Everyday camera'));save(`detail-possible-${theme}-${os}`,html);checks++;
+  for(const width of [320,390])for(const scale of [1,2]){
+   reset();dimensions={width,height:844,fontScale:scale,scale:1};params={findId:detail.data.id};
+   detail.data.products=[{...detail.data.products[0],title:'Black mini dress',identityKey:null,catalogProductId:null,discoveredProductId:null,matchKind:'possible',saved:false,removed:false,discovery:{kind:'official_search',label:'Search ZARA',url:'https://www.zara.com/in/en/search?searchTerm=Black+mini+dress',query:'Black mini dress',country:'IN'}}];
+   detail.data.places=[];detail.data.savedSuggestions=[];
+   detail.data.outcome={...detail.data.outcome,category:'completed',result:'partial',products:'failed',extractionActive:false,foundProducts:0,foundPlaces:0,savedProducts:0,savedPlaces:0,discoveryProducts:1,stashSync:'complete'};
+   html=render(Detail,{},true);assert.ok(html.includes('Brand identified')&&html.includes('Exact item not confirmed')&&html.includes('Search ZARA'));
+   assert.ok(!actions.some(a=>/Buy now|View product Black|Remove Black/.test(a.accessibilityLabel??'')));
+   actions.find(a=>a.accessibilityLabel==='Search ZARA').onPress();await Promise.resolve();assert.equal(apiCalls.at(-1)[1],detail.data.products[0].discovery.url);
+   save(`detail-discovery-${width}-${scale}-${theme}-${os}`,html);checks+=3;
+  }
+  dimensions={width:390,height:932,fontScale:1,scale:1};
   for(const variant of ['processing','delayed','partial','empty','save-pending','save-failure','error','missing']){
   reset();params={findId:detail.data.id};
    if(variant==='processing')detail.data.outcome={...findFixture(2,'processing').outcome};

@@ -34,6 +34,7 @@ export type ContentSourceProcessContext = {
 
 export type ContentSourceProcessorDeps = {
   sources: ContentSourceRepository;
+  hasPersistedResults?:(imports:Array<{id:string;userId:string}>)=>Promise<boolean>;
   progress?: ImportProgressRepository;
   userImports: UserImportLookupPort;
   video: VideoExtractionPort;
@@ -253,13 +254,29 @@ export class ContentSourceProcessor {
       if (work && this.deps.progress?.isCurrent && !(await importWorkContext.exit(() =>
         this.deps.progress!.isCurrent!(claimed.id, work.attemptId)))) throw new StaleImportWorkError();
       const finalize = async () => {
+        // A completed useful branch is durable success. Optional failures remain
+        // visible/manual-retryable, but must not rerun a successful Find automatically.
+        const latestProgress = await this.deps.progress?.get(claimed.id);
+        let optionalFailure = false;
+        if (!(err instanceof ContentSourceTerminalError) && latestProgress) {
+          try {
+            const persisted = await this.deps.sources.listProducts(claimed.id);
+            optionalFailure = (latestProgress.products !== 'complete' || latestProgress.places !== 'complete') && persisted.some(p=>!p.catalogProductId&&!p.discoveredProductId&&p.evidence.discoveryEligible===true);
+            optionalFailure ||= latestProgress.products === 'complete' && latestProgress.places !== 'complete' &&
+              persisted.some(p=>p.catalogProductId || p.discoveredProductId);
+            if (!optionalFailure && latestProgress.places === 'complete' && latestProgress.products !== 'complete' && this.deps.places && imports.length) {
+              optionalFailure = (await Promise.all(imports.map(i=>this.deps.places!.countByUserImport(i.id)))).every(count=>count>0);
+            }
+            if (optionalFailure && this.deps.hasPersistedResults) optionalFailure = await this.deps.hasPersistedResults(imports);
+          } catch { optionalFailure = false; /* An uncertain persistence read preserves the normal retry policy. */ }
+        }
         if (reporting) {
           const latest = await this.deps.progress?.get(claimed.id);
-          const status = !(err instanceof ContentSourceTerminalError) && ctx.attemptsMade + 1 < ctx.maxAttempts ? 'running' : 'failed';
+          const status = !optionalFailure && !(err instanceof ContentSourceTerminalError) && ctx.attemptsMade + 1 < ctx.maxAttempts ? 'running' : 'failed';
           await Promise.all((['products', 'places'] as const).map((branch) => latest?.[branch] === 'complete'
             ? Promise.resolve() : this.deps.progress?.finish(claimed.id, reporting!.attemptId, branch, status)));
         }
-        await this.handleFailure(claimed, ctx, err, started, base);
+        await this.handleFailure(claimed, ctx, err, started, base, optionalFailure);
       };
       if (work?.signal.aborted) {
         await importWorkContext.run({ ...work, signal: AbortSignal.timeout(10_000) }, finalize);
@@ -509,8 +526,18 @@ export class ContentSourceProcessor {
       jobId: string;
       importCount: number;
     },
+    optionalFailure = false,
   ): Promise<void> {
     const message = privateImageContext.getStore() ? 'Private image processing failed' : err instanceof Error ? err.message.slice(0, 200) : 'processing_failed';
+    if (optionalFailure) {
+      const products = await this.deps.sources.listProducts(source.id);
+      const candidateCount = products.filter(p=>p.catalogProductId || p.discoveredProductId).length;
+      await this.deps.sources.markReady(source.id,{lastProcessedAt:this.now().toISOString(),candidateCount});
+      logger.warn({contentSourceId:source.id,reason:message},'content_source.optional_branch_failed');
+      emitContentSourceEvent('ContentSourceProcessingCompleted',buildContentSourceEventPayload({
+        ...base,processingStatus:'READY',candidateCount,durationMs:Date.now()-started.getTime(),reason:'optional_branch_failed'}));
+      return;
+    }
     const terminal = err instanceof ContentSourceTerminalError;
     const lastAttempt = ctx.attemptsMade + 1 >= ctx.maxAttempts;
     const durationMs = Date.now() - started.getTime();

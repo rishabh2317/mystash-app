@@ -88,13 +88,14 @@ INSERT INTO cart_items(user_id,catalog_product_id) VALUES('11111111-1111-4111-81
             sql('ALTER TABLE content_sources ADD COLUMN title text, ADD COLUMN thumbnail_url text;')
             for migration in ('20261102120000_share_acceptance.sql', '20261102130000_share_intent.sql', '20261102140000_share_reviews.sql', '20261103130000_find_queries.sql'):
                 sql((root / 'supabase/migrations' / migration).read_text())
+            print(sql((root / 'backend/scripts/sql/find_queries_checks.sql').read_text()))
+            sql((root / 'supabase/migrations/20261111170000_find_useful_completion.sql').read_text())
             corpus = subprocess.run(['node', '--import', './backend/node_modules/tsx/dist/loader.mjs',
                                      'backend/src/user-import/find/outcomeParityFixtures.ts'], cwd=root, text=True,
                                     capture_output=True, check=True, timeout=30).stdout
             mismatch = sql("SELECT count(*) FROM jsonb_array_elements($fixtures$" + corpus + "$fixtures$::jsonb) c WHERE find_project_outcome(c->'row',(c->>'now')::timestamptz) IS DISTINCT FROM c->'expected';")
             assert mismatch == '0', f'Outcome parity mismatches: {mismatch}'
             print(f'PASS {len(json.loads(corpus))} SQL/reference outcome parity cases')
-            print(sql((root / 'backend/scripts/sql/find_queries_checks.sql').read_text()))
             owner = '55555555-5555-4555-8555-555555555555'
             imported = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
             source = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
@@ -227,6 +228,13 @@ INSERT INTO users(id) SELECT id FROM auth.users;
                                     f"SELECT analytics_set_preferences('{owner}',false,false);"]))
             print(sql(f"SELECT find_test_assert(NOT EXISTS(SELECT 1 FROM analytics_events WHERE actor_id='{owner}') AND (SELECT find_measurement_revision IS NULL FROM user_imports WHERE id='dddddddd-8888-4888-8888-888888888888'),'concurrent withdrawal fences operational measurement');"))
             print('PASS concurrent consent withdrawal and terminal reconciliation')
+
+        if verify_queries:
+            # Later historical phase migrations replace the schema marker; reapply the release
+            # projection after all prerequisites and verify idempotency/permissions.
+            sql((root / 'supabase/migrations/20261111170000_find_useful_completion.sql').read_text())
+            assert sql('SELECT find_schema_version();') == '5'
+            print(sql((root / 'backend/scripts/sql/find_useful_completion_checks.sql').read_text()))
 
         if verify_readiness:
             assert verify_queries and verify_images and verify_delivery

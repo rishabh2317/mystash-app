@@ -1,3 +1,4 @@
+import {meaningfulDiscoveryDescription} from '../../shopping/discoveryDestination';
 import type {
   ContentExtractionMethod,
   InsertContentSourceProductRow,
@@ -76,6 +77,7 @@ export function mapExtractedProducts(params: {
       sources: Array.isArray(product.sources) ? product.sources : [],
       evidence: asEvidence(product.evidence, {
         sourceMetadata: params.sourceMetadata ?? null,
+        discoveryEligible: meaningfulDiscoveryDescription(name, product.brand),
       }),
       processorVersion: params.processorVersion,
     });
