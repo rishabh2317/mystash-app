@@ -10,7 +10,9 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { PlaceSourceVideoModal } from '@/components/place/PlaceSourceVideoModal';
+import { placeSourcePreview } from '@/src/ui/placeSourceVideo';
+import type { PlaceSourceVideo } from '@/src/types/placeStash';
 
 import { AiReviewSheet } from '@/components/commerce/AiReviewSheet';
 import { ProductAiReviewCard } from '@/components/commerce/ProductAiReviewCard';
@@ -26,21 +28,21 @@ import { fetchLivePrices } from '@/src/services/livePricesApi';
 import { searchBlended } from '@/src/services/searchApi';
 import { openProductShopping } from '@/src/services/shoppingClick';
 import { getCommerceCountry } from '@/src/services/commerceCountry';
-import { IMMERSIVE_TOKENS, outlineCardChrome } from '@/src/theme/tokens';
+import { outlineCardChrome } from '@/src/theme/tokens';
 import { typeStyle } from '@/src/theme/typography';
 import type { LivePriceResult } from '@/src/types/livePrices';
 import type { CatalogProductViewModel } from '@/src/types/catalogProduct';
 import type { CollectionViewModel } from '@/src/types/collection';
 import type { ProductPageOffer, ProductPageRelatedMedia, ProductPageView } from '@/src/types/productPage';
 import { pickRelatedProducts } from '@/src/ui/collectionRelatedProducts';
-import { COLLECTION_YOUTUBE_CROP_SCALE, collectionTilePressPath } from '@/src/ui/collectionLayout';
+import { collectionTilePressPath } from '@/src/ui/collectionLayout';
 import { BAG_COPY } from '@/src/ui/contracts';
 import {
   PRODUCT_PAGE_COPY,
   catalogViewFromProductPage,
   collectionViewFromRelatedMedia,
   featuredMediaFromPage,
-  featuredSourceCanPlayInline,
+  featuredCollectionPath,
   productAiReviewFromPage,
   productPageAvailabilityLabel,
   productPageBestPriceLabel,
@@ -51,18 +53,11 @@ import {
   productPagePriceLabel,
   productPagePricesFromLabel,
   productPageSections,
-  relatedMediaPath,
   similarProductsQuery,
 } from '@/src/ui/productPage';
 import { comparePath } from '@/src/ui/productCompare';
 import { railCardWidth } from '@/src/ui/rail';
-import { buildInstagramEmbedHtml } from '@/src/utils/instagramWebViewEmbed';
-import { getVideoUrlInfo } from '@/src/utils/videoUtils';
-import {
-  buildYoutubeWebHtml,
-  extractYoutubeVideoIdFromUrl,
-  resolveYoutubeParentOrigin,
-} from '@/src/utils/youtubeWebViewEmbed';
+
 
 type Props = {
   page: ProductPageView;
@@ -142,7 +137,7 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
 
   const [similar, setSimilar] = useState<CatalogProductViewModel[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [playingFeaturedId, setPlayingFeaturedId] = useState<string | null>(null);
+  const [playingSource, setPlayingSource] = useState<PlaceSourceVideo | null>(null);
   const [liveByOfferId, setLiveByOfferId] = useState<Record<string, LivePriceResult>>({});
   const [pricesLoading, setPricesLoading] = useState(page.offers.length > 0);
   const [countryCtx, setCountryCtx] = useState<{
@@ -252,15 +247,15 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
     collection: CollectionViewModel,
     media: ProductPageRelatedMedia,
   ) => {
-    const path = relatedMediaPath(media);
+    const path = featuredCollectionPath(media, page.source);
     if (path) {
       router.push(collectionTilePressPath(collection.collectionId, {
-        collections: featuredCollections.filter(item => Boolean(relatedMediaPath(item.media))).map(item => item.collection),
+        collections: featuredCollections.filter(item => Boolean(featuredCollectionPath(item.media, page.source))).map(item => item.collection),
       }) as Href);
       return;
     }
-    if (featuredSourceCanPlayInline(media)) {
-      setPlayingFeaturedId(media.id);
+    if (placeSourcePreview(media)) {
+      setPlayingSource({ url: media.url, thumbnailUrl: media.thumbnailUrl });
     }
   };
 
@@ -435,14 +430,10 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
                 ) : (
                   <View style={{ height: tokens.lineHeight.micro }} />
                 )}
-                {playingFeaturedId === media.id ? (
-                  <FeaturedSourcePlayer url={media.url} />
-                ) : (
-                  <PublicCollectionTile
-                    collection={collection}
-                    onPress={(next) => onFeaturedPress(next, media)}
-                  />
-                )}
+                <PublicCollectionTile
+                  collection={collection}
+                  onPress={(next) => onFeaturedPress(next, media)}
+                />
               </View>
             ))}
           </ContentRail>
@@ -499,48 +490,8 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
         preloaded={reviewResult}
         hideInternalStatus
       />
+      {playingSource ? <PlaceSourceVideoModal key={playingSource.url} source={playingSource} onClose={() => setPlayingSource(null)} /> : null}
     </ScrollView>
-  );
-}
-
-function FeaturedSourcePlayer({ url }: { url: string }) {
-  const { tokens } = useThemeMode();
-  const info = getVideoUrlInfo(url);
-  const parentOrigin = resolveYoutubeParentOrigin();
-  const youtubeId = extractYoutubeVideoIdFromUrl(url);
-  const youtubeHtml = youtubeId
-    ? buildYoutubeWebHtml(youtubeId, parentOrigin, COLLECTION_YOUTUBE_CROP_SCALE, { loop: true })
-    : null;
-  const instagramHtml =
-    info.platform === 'instagram' ? buildInstagramEmbedHtml(url, { crop: 'collection' }) : null;
-  const html = info.platform === 'youtube' ? youtubeHtml : instagramHtml;
-  const baseUrl = info.platform === 'youtube' ? `${parentOrigin}/` : 'https://www.instagram.com';
-  return (
-    <View
-      style={{
-        width: '100%',
-        aspectRatio: 9 / 14,
-        borderRadius: tokens.radius.md,
-        overflow: 'hidden',
-        backgroundColor: IMMERSIVE_TOKENS.stage,
-      }}
-    >
-      {html ? (
-        <WebView
-          source={{ html, baseUrl }}
-          style={StyleSheet.absoluteFill}
-          originWhitelist={['*']}
-          javaScriptEnabled
-          domStorageEnabled
-          allowsInlineMediaPlayback
-          mediaPlaybackRequiresUserAction={false}
-          allowsFullscreenVideo={false}
-          scrollEnabled={false}
-          bounces={false}
-          androidLayerType="hardware"
-        />
-      ) : null}
-    </View>
   );
 }
 

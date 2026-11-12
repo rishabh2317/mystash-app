@@ -9,9 +9,11 @@ describe('third-party players stay outside analytics',()=>{
    assert.doesNotMatch(source,/analytics\/|useWatchMeasurement|youtubeMeasurementScript|getCurrentTime|mystash\.watch|mystashMeasure/);
   }
  });
- it('keeps the product page embed free of measurement',()=>{
+ it('uses the existing source player without adding embed measurement',()=>{
   const source=readFileSync(resolve('components/product/ProductPage.tsx'),'utf8');
-  const player=source.slice(source.indexOf('function FeaturedSourcePlayer'),source.indexOf('const styles ='));
+  assert.match(source,/PlaceSourceVideoModal/);
+  assert.doesNotMatch(source,/FeaturedSourcePlayer|WebView/);
+  const player=readFileSync(resolve('components/place/PlaceSourceVideoModal.tsx'),'utf8');
   assert.doesNotMatch(player,/analytics|onMessage|setInterval|getCurrentTime|measureInWindow/);
  });
 });

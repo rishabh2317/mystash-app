@@ -17,9 +17,9 @@ import { FindFilterBar, type FindFilter } from './FindFilterBar';
 export type FindDashboardProps = {
   state: FindHistoryState; activity:FindItem|null; activityOwner:string|null; activityBusy:boolean; activityError:string|null; onRetryActivity(kind:'extraction'|'saving'):void;
   signedIn: boolean; authLoading?: boolean; onFilter(filter: FindViewFilter): void; onSource(source: FindSourceFilter):void;
-  onOpen(id: string): void; onCapture(): void; onSignIn(): void; onRefresh(): void; onLoadMore(): void; onExplore?: () => void; pending?: React.ReactNode;
+  onOpen(id: string): void; onCapture(): void; onSignIn(): void; onRefresh(): void; onLoadMore(): void; onExplore?: () => void;
 };
-export function FindDashboard({ state,activity,activityOwner,activityBusy,activityError,onRetryActivity,signedIn,authLoading,onFilter,onSource,onOpen,onCapture,onSignIn,onRefresh,onLoadMore,onExplore,pending }: FindDashboardProps) {
+export function FindDashboard({ state,activity,activityOwner,activityBusy,activityError,onRetryActivity,signedIn,authLoading,onFilter,onSource,onOpen,onCapture,onSignIn,onRefresh,onLoadMore,onExplore }: FindDashboardProps) {
   const { tokens } = useThemeMode();
   const source=state.source;
   const loading=Boolean(authLoading || (signedIn && !state.loaded));
@@ -28,7 +28,6 @@ export function FindDashboard({ state,activity,activityOwner,activityBusy,activi
     {id:'attention',label:'Needs Attention',icon:'alert-circle-outline',count:state.counts?.attention??null}];
   const sources: {id:FindSourceFilter;label:string}[]=[{id:'all',label:'All'},{id:'image',label:'Images'},{id:'youtube',label:'YouTube'},{id:'instagram',label:'Instagram'},{id:'web',label:'Web'}];
   const header=<View style={{gap:tokens.space.md}}>
-    {pending}
     {signedIn&&activity?<View style={{gap:tokens.space.sm}}><Text accessibilityRole="header" style={typeStyle(tokens,'sectionTitle')}>Your Activity</Text><FindActivity key={`${activityOwner}:${activity.id}`} owner={activityOwner} item={activity} onOpen={()=>onOpen(activity.id)} onRetry={onRetryActivity} busy={activityBusy} error={activityError}/></View>:null}
     {signedIn?<View style={{gap:tokens.space.xs}}><View style={{flexDirection:'row',alignItems:'center'}}><Text accessibilityRole="header" style={[typeStyle(tokens,'sectionTitle'),{flex:1}]}>All Finds</Text>{state.filter!=='all'?<Pressable accessibilityRole="button" onPress={()=>onFilter('all')} style={{minHeight:44,justifyContent:'center'}}><Text style={typeStyle(tokens,'link')}>All captures</Text></Pressable>:null}</View>
       <FindFilterBar filters={filters} selected={state.filter} onSelect={onFilter}/>

@@ -54,7 +54,7 @@ function load(file){
   if(id==='expo-modules-core')return{requireOptionalNativeModule:()=>clipboardSupported?({getStringAsync:async()=>{clipboardReads++;return 'https://example.com/item';}}):null};
   if(id==='@/src/analytics/hooks')return{useQualifiedExposure:()=>({current:null}),useMeasuredOpen(){}};
   if(id==='@/src/services/supabase'||id==='./supabase')return{supabase:{auth:{getSession:async()=>({data:{session:{user:{id:transportOwner},access_token:'dummy'}}})}}};
-  if(id==='@/components/search/NativePendingShares')return{NativePendingShares:()=>null};
+  if(id==='@/src/ui/useAppToast')return{useAppToast:()=>({showToast(){},clearToast(){}})};
   if(id==='@/components/feed/FeedProductSheet')return{FeedProductSheet:()=>null};
   if(id==='@/components/place/PlaceSourceVideoModal'||id==='./PlaceSourceVideoModal')return{PlaceSourceVideoModal:()=>null};
   if(id==='expo-linear-gradient')return{LinearGradient:props=>React.createElement(web.View,{pointerEvents:props.pointerEvents,style:[props.style,{backgroundImage:`linear-gradient(180deg, ${props.colors.map((color,i)=>`${color} ${(props.locations?.[i]??i/(props.colors.length-1))*100}%`).join(', ')})`}]},props.children)};
@@ -224,6 +224,10 @@ async function main(){
    checks++;
    if(variant==='input')save(`capture-${theme}-${os}`,html);
   }
+  reset();imageResult={queued:true,message:'Securely queued on this device. We’ll send it when you’re connected.',settings:false};
+  html=render(Dashboard,{},true);
+  assert.ok(!html.includes('Images on this device')&&!html.includes('On this device')&&!html.includes('Try sending pending')&&!html.includes('Securely queued on this device'));
+  assert.ok(html.includes('Your Activity')&&html.includes('All Finds'));checks+=2;
   imageResult=null;
   reset();detail.data.sourceType='image';detail.data.sourceUrl=null;detail.data.privateMedia={state:'available',original:'/finds/fixture/media/original',thumbnail:'/finds/fixture/media/thumbnail'};params={findId:detail.data.id};html=render(Detail);
   assert.ok(html.includes('View original')&&!html.includes('Open original link'));assert.ok(images.some(image=>image.cachePolicy==='none'&&image.source.headers?.Authorization==='Bearer FIXTURE_PRIVATE_TOKEN'));checks+=2;

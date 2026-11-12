@@ -258,6 +258,15 @@ export function relatedMediaPath(item: Pick<ProductPageRelatedMedia, 'collection
   return `/reel/${collectionId}`;
 }
 
+/** A Find's original source is evidence, even if the same URL has a Collection. */
+export function featuredCollectionPath(
+  item: ProductPageRelatedMedia,
+  source: ProductPageSource | null,
+): string | null {
+  if (item.fromDiscovery && source?.userImportId) return null;
+  return relatedMediaPath(item);
+}
+
 /** User-import / unbound source URL can play in-app when it is YT or IG. */
 export function featuredSourceCanPlayInline(item: {
   url: string;
@@ -318,6 +327,9 @@ export function featuredMediaFromPage(page: ProductPageView): ProductPageRelated
 }
 
 function mediaUrlKey(url: string): string {
+  const video = getVideoUrlInfo(url);
+  const identity = video.videoId || video.postId;
+  if (video.isValid && identity) return `${video.platform}:${identity}`;
   try {
     const parsed = new URL(url);
     parsed.hash = '';

@@ -12,6 +12,7 @@ import {
   discoverySourcePath,
   discoveryWatchLabel,
   featuredMediaFromPage,
+  featuredCollectionPath,
   featuredSourceCanPlayInline,
   productAiReviewFromPage,
   productPageBestPriceLabel,
@@ -298,7 +299,7 @@ describe('product page presentation', () => {
     assert.match(screen, /variant="standalone"/);
     assert.match(screen, /PublicCollectionTile/);
     assert.doesNotMatch(screen, /variant="creatorRail"/);
-    assert.match(screen, /relatedMediaPath/);
+    assert.match(screen, /featuredCollectionPath/);
     assert.match(screen, /hideInternalStatus/);
     assert.match(screen, /comparePath/);
     assert.doesNotMatch(screen, /ProductSourceMedia/);
@@ -318,8 +319,8 @@ describe('product page presentation', () => {
       }),
       true,
     );
-    assert.match(screen, /FeaturedSourcePlayer/);
-    assert.match(screen, /WebView/);
+    assert.match(screen, /PlaceSourceVideoModal/);
+    assert.doesNotMatch(screen, /FeaturedSourcePlayer|WebView|playingFeaturedId/);
   });
 
   it('puts discovery inside Featured and keeps AI Review available for discovered ids', () => {
@@ -359,6 +360,8 @@ describe('product page presentation', () => {
     const featured = featuredMediaFromPage(page!);
     assert.equal(featured[0]?.fromDiscovery, true);
     assert.equal(featured[0]?.collectionId, 'col-1');
+    assert.equal(featuredCollectionPath(featured[0], page!.source), null, 'Find source uses source player even when a matching Collection exists');
+    assert.equal(featuredCollectionPath(featured[1], page!.source), '/reel/col-2', 'actual featured Collections retain feed playback');
     assert.equal(featured.length, 2);
     assert.equal(productPageSections(page!).featured, true);
     assert.equal(catalogViewFromProductPage(page!).catalogProductId, 'disc-1');
@@ -406,5 +409,22 @@ describe('product page presentation', () => {
       '/reel/col-pixel',
     );
     assert.equal(discoveryWatchLabel({ kind: 'short', collectionId: null }), 'Watch on YT');
+  });
+
+  it('keeps different YouTube watch videos in Featured and distinguishes Find from Collection playback', () => {
+    const page = hydrateProductPage({ productId:'fixture-product',title:'Shoes',offers:[],canShop:false,specifications:{},
+      source:{contentSourceId:'source',userImportId:'find',kind:'video',label:'Source video',url:'https://www.youtube.com/watch?v=dQw4w9WgXcQ',collectionId:'source-collection'},
+      relatedMedia:[
+        {id:'same',kind:'short',label:'Same source',url:'https://youtu.be/dQw4w9WgXcQ',collectionId:'same-video-collection'},
+        {id:'other',kind:'video',label:'Other Collection',url:'https://www.youtube.com/watch?v=abcdefghijk',collectionId:'other-collection'},
+      ] });
+    assert.ok(page);
+    const items=featuredMediaFromPage(page!);
+    assert.equal(items.length,2);
+    assert.equal(items[0].fromDiscovery,true);
+    assert.equal(items[1].id,'other');
+    assert.equal(featuredCollectionPath(items[0],page!.source),null);
+    assert.equal(featuredCollectionPath(items[1],page!.source),'/reel/other-collection');
+    assert.equal(featuredCollectionPath(items[0],{...page!.source!,userImportId:null}),'/reel/source-collection');
   });
 });
