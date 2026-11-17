@@ -4,14 +4,14 @@ import {Image} from 'expo-image';
 import {Ionicons} from '@expo/vector-icons';
 import {Text} from '@/components/ui/Text';
 import {useThemeMode} from '@/contexts/ThemeContext';
-import {useVisibleResource} from '@/src/ui/useVisibleResource';
+import {usePublicPhotoDemand} from '@/src/public-stash/usePublicPhotoDemand';
 import {queuePublicPhoto} from '@/src/public-stash/photoQueue';
 import {placeImageSize,schedulePlaceImage} from '@/src/services/placeImageMemory';
 import {publicStashRequest} from '@/src/services/publicStashApi';
 import {readPlaceImageResource} from '@/backend/src/place/photos/contract';
 import type {PlaceImageResource} from '@/backend/src/place/photos/contract';
 export function PublicPlaceImage({stash,id,name,preview=false,style}:{stash:string;id:string;name:string;preview?:boolean;style:StyleProp<ViewStyle>}){
- const {tokens}=useThemeMode(),visible=useVisibleResource(true),[photo,setPhoto]=useState<{key:string;value:PlaceImageResource|null}|null>(null);
+ const {tokens}=useThemeMode(),visible=usePublicPhotoDemand(),[photo,setPhoto]=useState<{key:string;value:PlaceImageResource|null}|null>(null);
  const [width,setWidth]=useState<128|256|640>(640),[retry,setRetry]=useState(0);
  const key=`${stash}:${id}:${preview}:${width}`;
  useEffect(()=>{if(!visible.visible){const clear=setTimeout(()=>setPhoto(null),600);return()=>clearTimeout(clear);}let alive=true,release:(()=>void)|undefined,timer:ReturnType<typeof setTimeout>|undefined;const controller=new AbortController();
