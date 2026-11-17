@@ -69,3 +69,9 @@ __pycache__/
 
 # Ignored dependency symlink used by this isolated worktree
 /backend/node_modules
+
+# Local-only Public Stash compatibility proof artifacts
+.public-stash-proof/
+
+# Exported public web assets; the source remains in public-web/app
+public-web/dist/

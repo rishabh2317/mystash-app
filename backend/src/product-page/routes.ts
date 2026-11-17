@@ -1,3 +1,4 @@
+import {optionalVerifiedUserId} from '../auth/requireAuth';
 import {resolveShoppingRequestCountry} from '../shopping/requestCountry';
 import type { Express, Request, Response } from 'express';
 import { logger } from '../logger';
@@ -21,7 +22,14 @@ export function registerProductPageRoutes(app: Express): void {
         res.status(400).json({ error: 'Product id is required' });
         return;
       }
+      const actor=await optionalVerifiedUserId(req);
+      const sourceId=queryString(req.query.contentSourceId),importId=queryString(req.query.userImportId);
+      let ownedSource:string|undefined;
+      if(actor&&sourceId&&importId){const owned=await admin.from('user_imports').select('id').eq('id',importId).eq('user_id',actor).eq('content_source_id',sourceId).is('hidden_at',null).maybeSingle();if(!owned.error&&owned.data)ownedSource=sourceId;}
       const query: ProductPageQuery = {
+        publicRead: !actor,
+        publicMediaOnly: !ownedSource,
+        ownedContentSourceId: ownedSource,
         country:await resolveShoppingRequestCountry(admin,req),
         contentSourceId: queryString(req.query.contentSourceId),
         userImportId: queryString(req.query.userImportId),

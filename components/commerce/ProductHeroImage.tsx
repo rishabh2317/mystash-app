@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { CATALOG_IMAGE_PLACEHOLDER } from '@/src/types/catalogProduct';
 
 type Props = {
+  allowPlaceholder?: boolean;
   productId: string;
   uri: string | null | undefined;
   alt: string;
@@ -11,18 +12,18 @@ type Props = {
   contentFit?: 'cover' | 'contain';
 };
 
-export function ProductHeroImage({ productId, uri, alt, style, contentFit = 'cover' }: Props) {
-  const source = uri && uri.startsWith('http') ? uri : CATALOG_IMAGE_PLACEHOLDER;
+export function ProductHeroImage({ productId, uri, alt, style, allowPlaceholder=true, contentFit = 'cover' }: Props) {
+  const source = uri && uri.startsWith('http') ? uri : allowPlaceholder ? CATALOG_IMAGE_PLACEHOLDER : null;
   return (
     <View style={[styles.wrap, style]}>
-      <Image
+      {source ? <Image
         source={{ uri: source }}
         style={StyleSheet.absoluteFill}
         contentFit={contentFit}
         recyclingKey={`${productId}:${source}`}
         accessibilityLabel={alt}
         transition={200}
-      />
+      /> : null}
     </View>
   );
 }

@@ -105,13 +105,14 @@ function mapHypothesis(row: Row): ContentSourcePlaceRecord {
 
 function mapSave(row: Row): UserPlaceSaveRecord {
   return {
+    saveOrigin: row.save_origin === 'direct' ? 'direct' : 'import',
     removedAt: (row.removed_at as string) ?? null, explicitActionAt: (row.explicit_action_at as string) ?? null,
     id: String(row.id),
     userId: String(row.user_id),
-    contentSourcePlaceId: String(row.content_source_place_id),
+    contentSourcePlaceId: typeof row.content_source_place_id === 'string' ? row.content_source_place_id : null,
     placeId: (row.place_id as string) ?? null,
-    contentSourceId: String(row.content_source_id),
-    userImportId: String(row.user_import_id),
+    contentSourceId: typeof row.content_source_id === 'string' ? row.content_source_id : null,
+    userImportId: typeof row.user_import_id === 'string' ? row.user_import_id : null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     schemaVersion: Number(row.schema_version ?? 1),
@@ -189,9 +190,9 @@ export class SupabasePlaceRepository implements PlaceRepository {
       return rows;
     };
     const [hypotheses, places, media] = await Promise.all([
-      readIds('content_source_places', saves.map(s => s.contentSourcePlaceId)),
+      readIds('content_source_places', saves.flatMap(s => s.contentSourcePlaceId ? [s.contentSourcePlaceId] : [])),
       readIds('places', saves.flatMap(s => s.placeId ? [s.placeId] : [])),
-      this.findSourceMediaBatch([...saves.map(s => s.contentSourceId), ...sources.map(s => s.contentSourceId)]),
+      this.findSourceMediaBatch([...saves.flatMap(s => s.contentSourceId ? [s.contentSourceId] : []), ...sources.map(s => s.contentSourceId)]),
     ]);
     const imageSources=await imageAttributions(this.admin,userId,[...media].filter(([,value])=>value.privateImage).map(([id])=>id));
     imageSources.forEach((imageAttribution,id)=>media.set(id,{sourceUrl:null,sourceThumbnailUrl:null,frameUrl:null,imageAttribution}));

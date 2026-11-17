@@ -18,28 +18,32 @@ import { PlaceImage } from './PlaceImage';
 
 type Props = {
   item: PlaceStashItem;
+  media?: React.ReactNode;
+  onPress?:()=>void;
+  publicRead?:boolean;
   onSearch: (url: string) => void;
   onOpenSource?: (source: PlaceSourceVideo, sources?: PlaceSourceVideo[]) => void;
   onRemove?: () => void;
 };
 
 /** Product discovery-card geometry; no invented venue photos or destinations. */
-export function PlaceCard({ item, onSearch, onOpenSource, onRemove }: Props) {
+export function PlaceCard({ item, media, onPress, publicRead=false, onSearch, onOpenSource, onRemove }: Props) {
   const entityType=item.kind==='resolved'?'place':'place_save';
-  const exposureRef=useQualifiedExposure('place.impression',entityType,item.id);
+  const exposureRef=useQualifiedExposure('place.impression',entityType,publicRead?undefined:item.id);
   const { tokens } = useThemeMode();
   const view = placeCardView(item);
   const sources = placeSourceVideos(item);
   const destinations = [{ id: 'search', label: view.ctaLabel, url: view.searchUrl }];
 
+  const Card=onPress?Pressable:View;
   return (
-    <View ref={exposureRef} collapsable={false} style={[styles.card, outlineCardChrome(tokens), {
+    <Card {...(onPress?{onPress,accessibilityRole:'button' as const,accessibilityLabel:`Open ${item.name}`}:{})} ref={exposureRef} collapsable={false} style={[styles.card, outlineCardChrome(tokens), {
       borderRadius: tokens.radius.lg, padding: PRODUCT_CARD_LAYOUT.relatedInset,
     }]}>
-      <View style={[styles.media, { borderRadius: tokens.radius.md, backgroundColor: tokens.color.surfaceSubtle }]}>
-        <PlaceImage placeId={item.kind==='resolved'?item.id:null} name={view.name} style={StyleSheet.absoluteFill}/>
+      {media ?? <View style={[styles.media, { borderRadius: tokens.radius.md, backgroundColor: tokens.color.surfaceSubtle }]}>
+        <PlaceImage placeId={item.kind==='resolved'?item.id:null} leadId={item.kind==='unresolved'?item.sources?.[0]?.contentSourcePlaceId:null} name={view.name} style={StyleSheet.absoluteFill}/>
         <CardMediaActions title={view.name} onPlay={sources.length && onOpenSource ? () => onOpenSource(sources[0], sources) : undefined} onRemove={onRemove} />
-      </View>
+      </View>}
       <View style={{ paddingTop: tokens.space.xs, paddingHorizontal: tokens.space.xxs / 2, gap: tokens.space.xxs / 2 }}>
         <Text accessibilityRole="header" style={typeStyle(tokens, 'tileTitle')} numberOfLines={2}>{view.name}</Text>
         {view.location ? <Text style={typeStyle(tokens, 'tileMeta')} numberOfLines={2}>{view.location}</Text> : null}
@@ -47,8 +51,9 @@ export function PlaceCard({ item, onSearch, onOpenSource, onRemove }: Props) {
         {/* Presentation slot is destination-neutral; Google Search is the only supported action. */}
         {destinations.map(destination => <Pressable key={destination.id} accessibilityRole="button"
           accessibilityLabel={`${destination.label}, ${view.name}`}
-          onPress={() => {
-            enqueueObservation('place.outbound_requested',entityType,item.id,'stash',{destination_kind:'search'});
+          onPress={event => {
+            event?.stopPropagation();
+            if(!publicRead)enqueueObservation('place.outbound_requested',entityType,item.id,'stash',{destination_kind:'search'});
             onSearch(view.searchUrl);
           }}
           style={({ pressed }) => [styles.destination, { gap: tokens.space.xxs,
@@ -57,7 +62,7 @@ export function PlaceCard({ item, onSearch, onOpenSource, onRemove }: Props) {
           <Ionicons accessible={false} name="open-outline" size={12} color={tokens.color.primary} />
         </Pressable>)}
       </View>
-    </View>
+    </Card>
   );
 }
 

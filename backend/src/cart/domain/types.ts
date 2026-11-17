@@ -5,7 +5,8 @@ export type CartSourceSurface =
   | 'SEARCH'
   | 'PRODUCT_DETAILS'
   | 'OTHER'
-  | 'USER_IMPORT';
+  | 'USER_IMPORT'
+  | 'PUBLIC_STASH';
 
 export type CartItemSource = {
   image?: import('../../user-import/media/attribution').ImageAttribution;

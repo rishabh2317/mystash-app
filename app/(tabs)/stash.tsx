@@ -1,3 +1,5 @@
+import {usePublicStashOwner} from '@/src/public-stash/usePublicStashOwner';
+import {PublicStashControls,PublicationMenu} from '@/components/public-stash/PublicStashControls';
 import { FailureState } from '@/components/status/FailureState';
 import { createPlacesRequestScope } from '@/src/ui/placesRequestScope';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -60,6 +62,7 @@ const GUTTER = 16;
 const GRID_GAP = 12;
 
 export default function StashScreen() {
+  const publicOwner=usePublicStashOwner();
   const router = useRouter();
   const { segment } = useLocalSearchParams<{ segment?: string }>();
   const { tokens } = useThemeMode();
@@ -188,7 +191,7 @@ export default function StashScreen() {
     (item: BagItemView) => {
       const owner = user?.id;
       if (!owner) return;
-      Alert.alert(BAG_COPY.removeFromBag, `Remove ${item.title} from your Stash?`, [
+      Alert.alert(BAG_COPY.removeFromBag, `Remove ${item.title} from your Stash?${publicOwner.settings?.products.some(p=>p.membershipId===item.cartItemId&&p.published)?" This also removes it from Public Stash.":""}`, [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Remove',
@@ -196,21 +199,21 @@ export default function StashScreen() {
           onPress: () => {
             if (accountRef.current !== owner) return;
             setActionError(null);
-            void removeItem(item.productId, 'user_remove').catch(() => {
+            void removeItem(item.productId, 'user_remove').then(()=>publicOwner.refresh()).catch(() => {
               if (accountRef.current === owner) setActionError(BAG_COPY.removeError);
             });
           },
         },
       ]);
     },
-    [removeItem, user?.id],
+    [removeItem, user?.id, publicOwner.settings, publicOwner.refresh],
   );
 
   const onRemovePlace = (item: PlaceStashItem) => {
     const owner = user?.id;
     const ids = [...new Set(item.groupedSaveIds?.length ? item.groupedSaveIds : item.saveId ? [item.saveId] : [])];
     if (!owner || !ids.length || removingPlace.current) return;
-    Alert.alert('Remove from My Stash?', `Remove ${item.name} from your Stash?`, [
+    Alert.alert('Remove from My Stash?', `Remove ${item.name} from your Stash?${publicOwner.settings?.places.some(p=>ids.includes(p.membershipId)&&p.published)?" This also removes it from Public Stash.":""}`, [
       { text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { void (async () => {
         if (accountRef.current !== owner || removingPlace.current) return;
         removingPlace.current = true; setActionError(null);
@@ -218,7 +221,7 @@ export default function StashScreen() {
         catch { if (accountRef.current === owner) setActionError('Couldn’t remove this place. Please try again.'); }
         finally {
           removingPlace.current = false;
-          if (accountRef.current === owner) { setSourceRevision(n => n + 1); await loadPlaces('refresh'); }
+          if (accountRef.current === owner) { setSourceRevision(n => n + 1); await loadPlaces('refresh'); await publicOwner.refresh(); }
         }
       })(); } },
     ]);
@@ -288,6 +291,7 @@ export default function StashScreen() {
             <ProductCard product={item.product} variant="related" showIndexPrice onPress={() => onOpenProduct(item)}
               onRemove={() => onRemove(item)} onOpenSource={source ? () => setSelectedSources([source]) : undefined}
               onBuy={() => setShopping({ id: item.productId, name: item.title, image: item.imageUrl ?? '', price: item.product.price ?? '' })} />
+            <PublicationMenu owner={publicOwner} kind="product" publication={publicOwner.settings?.products.find(p=>p.membershipId===item.cartItemId)} />
             {item.source?.matchKind === 'similar' ? <Text style={typeStyle(tokens, 'caption')}>Similar product</Text> : null}
           </View>;
         })}
@@ -327,6 +331,7 @@ export default function StashScreen() {
           onRetry={() => void loadPlaces(placeItems.length ? 'refresh' : 'initial')}
           onSearch={onPlaceSearch}
           onRemove={onRemovePlace}
+          renderPublication={publicOwner.enabled?item=><PublicationMenu owner={publicOwner} kind="place" publication={publicOwner.settings?.places.find(p=>p.membershipId===item.saveId)}/>:undefined}
         />
       );
     }
@@ -432,6 +437,7 @@ export default function StashScreen() {
       <TopBar
         mode="page"
         title={topTitle}
+        trailing={publicOwner.enabled?<PublicStashControls owner={publicOwner}/>:undefined}
         showBack={Boolean(selectedCategoryKey)}
         showBag={false}
         onBack={onBack}

@@ -21,6 +21,8 @@ jobs:
       EXPO_PUBLIC_SHARE_INTENT_ENABLED: "true"
       EXPO_PUBLIC_SHARE_SUGGESTIONS_ENABLED: "true"
       EXPO_PUBLIC_FIND_MEASUREMENT_ENABLED: "true"
+      EXPO_PUBLIC_PUBLIC_STASH_ENABLED: "true"
+      MYSTASH_APP_LINKS_ENABLED: "true"
       EXPO_PUBLIC_NOTIFICATIONS_ENABLED: "true"
       # FCM credentials are not configured for this existing Expo application.
       EXPO_PUBLIC_PUSH_ENABLED: "false"

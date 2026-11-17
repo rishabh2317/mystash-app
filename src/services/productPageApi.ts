@@ -1,3 +1,4 @@
+import {supabase} from './supabase';
 import {getCommerceCountry,getCommerceCountryOwner} from '@/src/services/commerceCountry';
 import { hydrateProductPage } from '@/src/services/productPageMap';
 import type { ProductPageView } from '@/src/types/productPage';
@@ -34,9 +35,11 @@ export async function fetchProductPage(
   if (attrs?.contentSourceId?.trim()) query.set('contentSourceId', attrs.contentSourceId.trim());
   if (attrs?.userImportId?.trim()) query.set('userImportId', attrs.userImportId.trim());
   const suffix = query.toString();
+  const {data:sessionData}=await supabase.auth.getSession();
+  const token=sessionData.session?.access_token;
   const res = await fetch(
     `${apiBase()}/products/${encodeURIComponent(id)}/page${suffix ? `?${suffix}` : ''}`,
-    { headers: { Accept: 'application/json' } },
+    { headers: { Accept: 'application/json',...(token?{Authorization:`Bearer ${token}`}:{}) } },
   );
   if (!res.ok) {
     throw new ProductPageApiError(

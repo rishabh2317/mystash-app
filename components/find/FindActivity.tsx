@@ -23,7 +23,7 @@ export function FindActivityPreviewRows({rows,onOpen}:{rows:FindActivityPreview[
   return <>{rows.map(row=>{
     const content=(image:React.ReactNode,attribution?:React.ReactNode)=><>{image}<View style={{flex:1,minWidth:0}}><Text numberOfLines={1} style={typeStyle(tokens,'tileTitle')}>{row.title}</Text><Text numberOfLines={1} style={typeStyle(tokens,'tileMeta')}>{row.note}</Text>{attribution}</View></>;
     return <Pressable key={row.key} accessibilityRole="button" accessibilityLabel={`View ${row.title} in Find`} onPress={onOpen} style={{flexDirection:'row',alignItems:'center',gap:tokens.space.sm,minHeight:48}}>
-      {row.kind==='place'?<PlaceImage placeId={row.placeId??null} importId={row.importId} name={row.title} width={128} style={{width:42,height:42,borderRadius:tokens.radius.sm}}>
+      {row.kind==='place'?<PlaceImage placeId={row.placeId??null} leadId={row.photoLeadId} importId={row.importId} name={row.title} width={128} style={{width:42,height:42,borderRadius:tokens.radius.sm}}>
         {({image,attribution})=>content(image,attribution)}
       </PlaceImage>:content(<FindImage url={row.imageUrl} cacheKey={row.key} placeholder="cube-outline" style={{width:42,height:42,borderRadius:tokens.radius.sm}}/>)}
     </Pressable>;

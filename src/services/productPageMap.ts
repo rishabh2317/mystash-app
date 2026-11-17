@@ -137,6 +137,8 @@ export function hydrateProductPage(raw: unknown): ProductPageView | null {
   }
 
   return {
+    ...(row.discovery && typeof row.discovery==='object' && ['official_search','official_storefront','google_search'].includes(String((row.discovery as Record<string,unknown>).kind)) ? {discovery:row.discovery as ProductPageView['discovery']} : {}),
+    viewerSaved: row.viewerSaved===true,
     productId,
     shoppingProductId: asString(row.shoppingProductId),
     title,

@@ -18,7 +18,13 @@
     "supabase:db-push": "npx supabase db push --yes",
     "db:reset:local": "bash scripts/supabase-db-reset-local.sh",
     "supabase:secrets:list": "npx supabase secrets list --project-ref womdeohfpvzmhomgqwig",
-    "typecheck:client": "tsc --noEmit -p tsconfig.client.json"
+    "typecheck:client": "tsc --noEmit -p tsconfig.client.json",
+    "public-stash:proof:export": "node scripts/public-stash-proof.cjs export",
+    "public-stash:proof:serve": "node scripts/public-stash-proof.cjs serve",
+    "public-stash:proof:stage": "node scripts/public-stash-proof.cjs stage",
+    "public-stash:web:export": "node scripts/export-public-stash-web.cjs",
+    "public-stash:test:sql": "python3 backend/scripts/publicStashSqlScratch.py",
+    "public-stash:test:ui": "node scripts/check-public-product-page.cjs"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",

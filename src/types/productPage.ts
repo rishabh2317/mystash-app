@@ -60,6 +60,8 @@ export type ProductPageReviews = {
 };
 
 export type ProductPageView = {
+  viewerSaved?: boolean;
+  discovery?: import('../../backend/src/shopping/discoveryContract').DiscoveryDestination | null;
   productId: string;
   shoppingProductId: string | null;
   title: string;

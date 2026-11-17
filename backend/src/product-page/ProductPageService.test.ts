@@ -767,3 +767,26 @@ describe('ProductPageService', () => {
     );
   });
 });
+
+
+describe('public stored-data Product Page policy',()=>{
+ it('preserves all stored buying options and country ordering without refresh or source traversal',async()=>{
+  const product=baseProduct({id:CATALOG_ID,name:'Headphones',status:'ACTIVE',merchantUrl:'https://merchant.example/product',preferredShoppingUrl:'https://merchant.example/product',metadata:{shopping_candidates:[{url:'https://www.amazon.in/dp/B012345678',merchant:'Amazon India'},{url:'https://www.amazon.com/dp/B012345678',merchant:'Amazon US'}]}});
+  let refreshes=0,sourceReads=0;
+  const svc=new ProductPageService({resolveActiveProduct:async()=>product},{getById:async()=>null},
+   {getById:async()=>{sourceReads++;return null;},listBoundSourceIds:async()=>{sourceReads++;return[];}},{canShopCatalog:()=>true},
+   {listForCatalogProduct:async()=>[],listMatchingUrls:async()=>[]},undefined,
+   {resolve:async()=>{refreshes++;return product.metadata;},isPending:()=>false});
+  for(const country of ['IN','US','GB']){
+   const publicPage=await svc.getPage(CATALOG_ID,{country,publicRead:true});
+   assert.equal(refreshes,country==='IN'?0:country==='US'?1:2);assert.equal(publicPage.detailsUpdating,false);assert.equal(publicPage.source,null);
+   const standard=await svc.getPage(CATALOG_ID,{country});assert.deepEqual(publicPage.offers,standard.offers);assert.equal(publicPage.canShop,standard.canShop);
+  }
+  assert.equal(refreshes,3);assert.equal(sourceReads,3);
+ });
+ it('filters signed private images from the public projection',async()=>{
+  const {service,catalogRepo}=createHarness();
+  await catalogRepo.update(CATALOG_ID,{imageUrl:'https://x.supabase.co/storage/v1/object/sign/find-private-images/a?token=canary'});
+  const page=await service.getPage(CATALOG_ID,{publicRead:true});assert.equal(page.heroImage,null);assert.deepEqual(page.galleryImages,[]);assert.doesNotMatch(JSON.stringify(page),/token=canary/);
+ });
+});

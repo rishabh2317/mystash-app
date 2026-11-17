@@ -1,0 +1,20 @@
+/** Local UI validation only. No database, authentication, providers or paid work. */
+const express=require('../backend/node_modules/express');
+const path=require('node:path');
+const fs=require('node:fs');
+const app=express(),directory=path.resolve(__dirname,'../.public-stash-proof/production');
+const stash='11111111-1111-4111-8111-111111111111',product='22222222-2222-4222-8222-222222222222',place='44444444-4444-4444-8444-444444444444';
+const metrics={photos:0,discovery:0},base=`/public-stashes/${stash}`;
+let privateMode=false;
+app.use(express.json());
+app.get('/fixture/metrics',(_q,r)=>r.json(metrics));
+app.post('/fixture/private',(q,r)=>{privateMode=q.body.private===true;r.json({ok:true});});
+app.use('/public-stashes',(_q,r,next)=>{r.set('Cache-Control','private, no-store');if(privateMode)r.status(404).json({error:'Stash unavailable'});else next();});
+app.get(base,(q,r)=>r.json({schemaVersion:1,publicId:stash,curator:{username:'public_fixture',avatarUrl:null},counts:{products:1,places:1},tab:q.query.tab??'products',items:q.query.tab==='places'?[{id:place,title:'Fixture cafe',category:'Cafe',city:'Mumbai',country:'India'}]:[{id:product,title:'Stored product fixture',brand:'Mystash',namespace:'catalog',image:null}],nextCursor:null}));
+app.get(`${base}/products/catalog/${product}/page`,(_q,r)=>r.json({productId:product,shoppingProductId:product,commerceCountry:'IN',title:'Stored product fixture',brand:'Mystash',category:'Home',heroImage:null,galleryImages:[],description:'Stored product information. No discovery or extraction is performed.',specifications:{Material:'Ceramic'},offers:[{id:'stored-offer',merchant:'Stored merchant',price:'120',currency:'INR',availability:'in_stock',action:'buy'}],price:'120',currency:'INR',merchant:'Stored merchant',canShop:true,source:null,relatedMedia:[],reviews:null,compareAvailable:false,detailsUpdating:false,viewerSaved:false,discovery:{kind:'google_search',label:'Search Google',url:'https://www.google.com/search?q=mug',query:'mug',country:'IN'}}));
+app.get(`${base}/places/${place}`,(_q,r)=>r.json({id:place,name:'Fixture cafe',category:'Cafe',city:'Mumbai',country:'India',region:null,locality:null,formattedAddress:'Fixture address, Mumbai',latitude:19.076,longitude:72.8777,mapsUrl:null,provider:'google',viewerSaved:false}));
+app.get(`${base}/places/${place}/photo`,(_q,r)=>{metrics.photos++;r.json({image:null});});
+app.get('/analytics/config',(_q,r)=>r.json({enabled:false,policy_version:1}));
+app.use(express.static(directory,{index:false}));
+app.get('*',(_q,r)=>r.set('Cache-Control','private, no-store').type('html').send(fs.readFileSync(path.join(directory,'index.html'),'utf8')));
+app.listen(8796,'127.0.0.1',()=>process.stdout.write(`Local UI fixture: http://127.0.0.1:8796/stash/${stash}\n`));

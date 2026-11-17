@@ -23,7 +23,7 @@ export function placePresentationGroups(
   const byId = new Map(hypotheses.map(h => [h.id, h]));
   const clusters = new Map<string, { save: UserPlaceSaveRecord; hypothesis: ContentSourcePlaceRecord }[]>();
   for (const save of saves) {
-    const hypothesis = byId.get(save.contentSourcePlaceId);
+    const hypothesis = byId.get(save.contentSourcePlaceId ?? '');
     if (save.placeId || !hypothesis || hypothesis.resolutionState !== 'unresolved') continue;
     if (!fold(hypothesis.city) || !fold(hypothesis.country)) continue;
     const key = JSON.stringify([save.userId, save.contentSourceId, fold(hypothesis.extractedName), fold(hypothesis.category)]);
@@ -52,7 +52,7 @@ export function placePresentationGroups(
   // differently. Require pairwise agreement: a sparse row cannot bridge branches.
   const exactClusters: {save:UserPlaceSaveRecord;row:ContentSourcePlaceRecord}[][]=[];
   for(const save of saves) {
-    const row=byId.get(save.contentSourcePlaceId);
+    const row=byId.get(save.contentSourcePlaceId ?? '');
     if(!row || save.placeId || !row.mentionedAddress)continue;
     const compatible=(other:{save:UserPlaceSaveRecord;row:ContentSourcePlaceRecord})=>other.save.userId===save.userId && other.save.contentSourceId===save.contentSourceId
       && samePlaceMention({...other.row,name:other.row.extractedName},{...row,name:row.extractedName});

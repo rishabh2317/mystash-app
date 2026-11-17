@@ -9,6 +9,7 @@ const SURFACES = new Set<CartSourceSurface>([
   'PRODUCT_DETAILS',
   'OTHER',
   'USER_IMPORT',
+  'PUBLIC_STASH',
 ]);
 
 export function isValidCatalogProductId(id: string): boolean {

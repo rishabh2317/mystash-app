@@ -113,3 +113,19 @@ it('twenty repeat views consume one cold API request and one byte download, with
   assert.deepEqual(counts(),{api:1,downloads:1});assert.equal(client.metrics().hits,19);assert.equal(client.metrics().avoidedApiRequests,19);
   assert.equal(client.metrics().cancelled,0);assert.ok(client.metrics().estimatedBytes>0);
 });
+
+it('keeps lead-photo requests separate from canonical IDs and sends the owner-scoped Find context',async()=>{
+  const urls:string[]=[];
+  const {client}=fixture({fetch:async input=>{
+    const url=String(input);
+    if(url.startsWith('https://api.example')){urls.push(url);return metadata();}
+    return bytes();
+  }});
+  const lead=client.acquire('a','same-id',128,'owned-find','lead');
+  await lead.promise;lead.release();
+  assert.equal(new URL(urls[0]).searchParams.get('kind'),'lead');
+  assert.equal(new URL(urls[0]).searchParams.get('importId'),'owned-find');
+  await view(client,'same-id',128);
+  assert.equal(urls.length,2,'lead and canonical aliases cannot authorize each other');
+  assert.equal(new URL(urls[1]).searchParams.has('kind'),false);
+});

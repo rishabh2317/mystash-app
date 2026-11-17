@@ -28,7 +28,9 @@
     "search:bootstrap": "tsx scripts/bootstrapSearchIndex.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "worker:analytics": "tsx watch src/analyticsWorker.ts",
-    "start:worker:analytics": "node dist/analyticsWorker.js"
+    "start:worker:analytics": "node dist/analyticsWorker.js",
+    "test:public-stash": "tsx --test src/public-stash/*.test.ts src/product-page/ProductPageService.test.ts",
+    "test:public-stash:sql": "python3 scripts/publicStashSqlScratch.py"
   },
   "dependencies": {
     "@google-cloud/vision": "^4.3.2",

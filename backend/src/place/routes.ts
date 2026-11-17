@@ -1,3 +1,5 @@
+import { PlaceLeadPhotoService, supabaseOwnedPhotoLead } from './photos/PlaceLeadPhotoService';
+import { GooglePlacesTextSearchProvider } from './GooglePlacesTextSearchProvider';
 import type { Express, Request, Response } from 'express';
 import { rethrowUnverifiedEmail, sendAuthError } from '../auth/requireAuth';
 import { assertEmailVerified } from '../auth/emailVerification';
@@ -73,7 +75,10 @@ export function registerPlaceRoutes(app: Express): void {
   const admin = createSupabaseAdmin();
   const photos = new GooglePlacePhotoProvider({apiKey:getEnv('GOOGLE_PLACES_API_KEY')});
   const photoService = new PlacePhotoService(supabaseOwnedPhotoPlace(admin), photos);
+  const leadPhotos = new PlaceLeadPhotoService(supabaseOwnedPhotoLead(admin),
+    new GooglePlacesTextSearchProvider({ apiKey: getEnv('GOOGLE_PLACES_API_KEY') }), photos);
   app.get('/places/:placeId/photo', createPlacePhotoHandler({ authenticate: supabasePlaceAuthenticator(),
+    leadService: leadPhotos,
     service: { async read(...args) { try { return await photoService.read(...args); }
       finally { logger.debug(photos.metrics(), 'place.photo_counters'); } } } }));
   app.get(

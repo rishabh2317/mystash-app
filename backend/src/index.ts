@@ -1,3 +1,5 @@
+import {registerPublicStashWeb} from './public-stash/web';
+import {registerPublicStashRoutes} from './public-stash/routes';
 import { registerFindRoutes } from './user-import/find/routes';
 import { registerPrivateImageRoutes } from './user-import/media/routes';
 import { assertFindSchema } from './user-import/find/schema';
@@ -62,6 +64,8 @@ app.use(cors({ origin: true }));
 app.use(express.json({ limit: '512kb' }));
 app.use(analyticsContextMiddleware);
 registerAnalyticsRoutes(app);
+registerPublicStashRoutes(app);
+registerPublicStashWeb(app);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });

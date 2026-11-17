@@ -30,7 +30,7 @@ import {
   type AuthIntent,
   appendAuthIntentToRedirectUrl,
 } from '@/src/navigation/authIntent';
-import { unlinkPushBeforeSignOut } from '@/src/notifications/pushRegistration';
+import { unlinkPushBeforeSignOut } from '@/src/notifications/authPushUnlink';
 import { supabase } from '@/src/services/supabase';
 
 WebBrowser.maybeCompleteAuthSession();

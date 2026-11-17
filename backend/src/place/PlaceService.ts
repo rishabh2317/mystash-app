@@ -33,7 +33,7 @@ export type PlaceListItem = PlaceListAttribution & (
       name: string;
       category: string | null;
       addedAt: string;
-      source: { contentSourceId: string; userImportId: string };
+      source: { contentSourceId: string; userImportId: string } | null;
       placeId: string;
       localityLabel: string | null;
       destination: PlaceSearchDestination;
@@ -47,7 +47,7 @@ export type PlaceListItem = PlaceListAttribution & (
       name: string;
       category: string | null;
       addedAt: string;
-      source: { contentSourceId: string; userImportId: string };
+      source: { contentSourceId: string; userImportId: string } | null;
       leadId: string;
       locationContext: string | null;
       uncertainty: PlaceUncertainty;
@@ -94,6 +94,15 @@ export class PlaceService {
       sourcesBySave.set(row.saveId, list);
     }
     for (const save of saves) {
+      if (save.saveOrigin === 'direct' && save.placeId) {
+        const place = places.get(save.placeId);
+        if (!place || isGeographyOnly(place)) continue;
+        items.push({kind:'resolved',saveId:save.id,sources:[],resolutionStatus:'resolved',name:place.name,category:place.category,
+          addedAt:save.createdAt,source:null,placeId:place.id,localityLabel:placeLocationLabel(place),destination:resolvePlaceDestination(place),
+          formattedAddress:place.formattedAddress,latitude:place.latitude,longitude:place.longitude,image:null});
+        continue;
+      }
+      if (!save.contentSourcePlaceId || !save.contentSourceId || !save.userImportId) continue;
       const hypothesis = hypotheses.get(save.contentSourcePlaceId);
       if (!hypothesis || hypothesis.retiredAt || isGeographyOnly(hypothesis)) continue;
       const source = {

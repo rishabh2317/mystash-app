@@ -1,4 +1,5 @@
 export const EVENT_NAMES = [
+  'stash.opened','stash.item_saved','place.opened',
   'find.opened','find.capture_action_chosen','find.capture_submitted','find.capture_cancelled','find.results_opened',
   'find.result_removed','find.result_restored','find.ingestion_accepted','find.processing_started','find.processing_completed','find.processing_failed','find.stash_synchronized',
   'session.started', 'collection.impression', 'collection.opened', 'product.impression', 'product.opened',
@@ -14,22 +15,24 @@ export type AnalyticsEvent = {
   collection_id?: string; properties: Record<string, unknown>;
 };
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const surfaces = new Set(['app','watch','collection','product','search','stash','creator','other','find']);
+const surfaces = new Set(['app','watch','collection','product','search','stash','creator','other','find','public_stash']);
 const ids = ['event_id','session_id','entity_id','collection_id'] as const;
 const propertyKeys: Record<EventName, readonly string[]> = {
+  'stash.opened':['public_stash_id'],'stash.item_saved':['public_stash_id'],'place.opened':['public_stash_id'],
   'find.opened':[],'find.capture_action_chosen':['capture_origin'],'find.capture_submitted':['capture_origin'],'find.capture_cancelled':['capture_origin'],
   'find.results_opened':[],'find.result_removed':['result_type'],'find.result_restored':['result_type'],
   'find.ingestion_accepted':['capture_origin'],'find.processing_started':['capture_origin'],
   'find.processing_completed':['capture_origin','outcome','count_bucket'],'find.processing_failed':['capture_origin','outcome','failure_class'],
   'find.stash_synchronized':['capture_origin','count_bucket'],
   'session.started': [], 'collection.impression': [], 'collection.opened': [],
-  'product.impression': [], 'product.opened': [], 'place.impression': [],
+  'product.impression': [], 'product.opened': ['public_stash_id'], 'place.impression': [],
   'place.outbound_requested': ['destination_kind'], 'creator.profile_opened': [],
   'search.results_served': ['matching_count','fallback_count','latency_ms','query_length_bucket','filter_keys','retrieval_mode'],
   'search.result_clicked': ['request_id','result_type','rank'],
-  'merchant.outbound_resolved': ['destination_kind','affiliate','request_id'],
+  'merchant.outbound_resolved': ['destination_kind','affiliate','request_id','public_stash_id'],
 };
 const entityFor: Record<EventName, readonly EntityType[]> = {
+  'stash.opened':['app'],'stash.item_saved':['product','place'],'place.opened':['place'],
   'find.opened':['app'],'find.capture_action_chosen':['app'],'find.capture_submitted':['app'],'find.capture_cancelled':['app'],
   'find.results_opened':['find'],'find.result_removed':['find'],'find.result_restored':['find'],'find.ingestion_accepted':['find'],
   'find.processing_started':['find'],'find.processing_completed':['find'],'find.processing_failed':['find'],'find.stash_synchronized':['find'],
@@ -60,6 +63,10 @@ export function validateEvent(raw: unknown, source: 'client' | 'server', now = D
     e.event_name.startsWith('find.')&&!['find.opened','find.capture_action_chosen','find.capture_submitted','find.capture_cancelled','find.results_opened'].includes(e.event_name))) throw new Error('server_event_only');
   if (e.entity_type==='product' && !['catalog','discovered','auto'].includes(e.namespace??'')) throw new Error('product_namespace_required');
   const p=e.properties;
+  if (e.surface==='public_stash') {
+    if(!UUID.test(String(p.public_stash_id)) || !['stash.opened','stash.item_saved','product.opened','place.opened','merchant.outbound_resolved'].includes(e.event_name) || e.collection_id!==undefined)throw new Error('invalid_stash_context');
+  } else if(p.public_stash_id!==undefined || e.event_name.startsWith('stash.') || e.event_name==='place.opened')throw new Error('invalid_stash_context');
+  if(source==='client'&&e.event_name==='stash.item_saved')throw new Error('server_event_only');
   if(e.event_name.startsWith('find.')){
     if(e.surface!=='find'||e.collection_id!==undefined||e.namespace!==undefined)throw new Error('invalid_find_context');
     if(propertyKeys[e.event_name].some(key=>p[key]===undefined))throw new Error('invalid_find_properties');
@@ -78,6 +85,6 @@ export function validateEvent(raw: unknown, source: 'client' | 'server', now = D
     !['hybrid','lexical_only','semantic_only'].includes(String(p.retrieval_mode))||!Array.isArray(p.filter_keys)||
     p.filter_keys.length>10||p.filter_keys.some(k=>!['creatorId','brand','category','verifiedOnly','recentlyPublished','popular','priceMin','priceMax'].includes(String(k))))) throw new Error('invalid_search_summary');
   if (e.event_name==='merchant.outbound_resolved' && (!UUID.test(String(p.request_id))||typeof p.affiliate!=='boolean'||
-    !['affiliate','preferred','merchant','listing'].includes(String(p.destination_kind)))) throw new Error('invalid_destination');
+    !['configured','affiliate','preferred','merchant','listing','official_search','official_storefront','google_search'].includes(String(p.destination_kind)))) throw new Error('invalid_destination');
   return e;
 }

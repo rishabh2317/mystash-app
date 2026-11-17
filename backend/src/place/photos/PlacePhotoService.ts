@@ -4,7 +4,7 @@ import { SupabasePlaceRepository } from '../SupabasePlaceRepository';
 import { PlacePhotoError, type PlacePhotoProvider } from './GooglePlacePhotoProvider';
 import type { PlaceImageResponse } from './contract';
 
-export type OwnedPhotoPlace = (user: string, id: string, importId?: string) => Promise<PlaceRecord | null>;
+export type OwnedPhotoPlace = (user: string, id: string, importId?: string) => Promise<Pick<PlaceRecord, 'provider' | 'providerPlaceId'> | null>;
 
 /** Reuse canonical identity. This authorization path performs SELECTs only. */
 export function supabaseOwnedPhotoPlace(db: SupabaseClient): OwnedPhotoPlace {

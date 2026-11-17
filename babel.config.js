@@ -1,5 +1,6 @@
 module.exports = function(api) {
   const buildProfile = api.cache.using(() => process.env.EAS_BUILD_PROFILE || '');
+  const publicWeb = api.cache.using(() => process.env.MYSTASH_PUBLIC_WEB === 'true' || process.env.MYSTASH_PUBLIC_WEB_PROOF === 'true');
   const qaBackend = api.cache.using(() => process.env.MYSTASH_QA_BACKEND || 'render');
   if (buildProfile === 'universal-find-qa-core' && !['render', 'mac'].includes(qaBackend)) {
     throw new Error('Unknown QA backend selection');
@@ -9,7 +10,7 @@ module.exports = function(api) {
     : require('./eas.json').build['render-test'].env.EXPO_PUBLIC_MYSTASH_INGEST_URL;
   return {
     presets: ['expo'],
-    plugins: ['render-test', 'android-share-validation', 'universal-find-qa', 'universal-find-qa-core'].includes(buildProfile)
+    plugins: publicWeb ? [[require('./scripts/renderBuildEnv.cjs'),{sameOrigin:true}]] : ['render-test', 'android-share-validation', 'universal-find-qa', 'universal-find-qa-core'].includes(buildProfile)
       ? [[require('./scripts/renderBuildEnv.cjs'), {
           backendUrl,
         }]]

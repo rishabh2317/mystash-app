@@ -34,7 +34,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
   async setMembership(userId: string, saveId: string, restore: boolean): Promise<UserPlaceSaveRecord> {
     const row = this.saves.get(this.redirects.get(saveId) ?? saveId);
     if (!row || row.userId !== userId) throw new PlaceRepositoryError('Place save not found', 'not_found');
-    if (restore && this.hypotheses.get(row.contentSourcePlaceId)?.retiredAt) throw new PlaceRepositoryError('Place result retired', 'invalid');
+    if (restore && row.contentSourcePlaceId && this.hypotheses.get(row.contentSourcePlaceId)?.retiredAt) throw new PlaceRepositoryError('Place result retired', 'invalid');
     const next = { ...row, removedAt: restore ? null : now(), explicitActionAt: now() };
     this.saves.set(row.id, next); return { ...next };
   }
@@ -51,7 +51,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
     const sources = await this.listSourcesByUser(userId);
     const hypothesisIds = new Set([...saves.map(s => s.contentSourcePlaceId), ...sources.map(s => s.contentSourcePlaceId)]);
     const placeIds = new Set(saves.flatMap(s => s.placeId ? [s.placeId] : []));
-    const sourceIds = new Set([...saves.map(s => s.contentSourceId), ...sources.map(s => s.contentSourceId)]);
+    const sourceIds = new Set([...saves.flatMap(s => s.contentSourceId ? [s.contentSourceId] : []), ...sources.map(s => s.contentSourceId)]);
     return { saves, sources,
       hypotheses: [...this.hypotheses.values()].filter(h => hypothesisIds.has(h.id)),
       places: [...this.places.values()].filter(p => placeIds.has(p.id)),
@@ -264,6 +264,7 @@ export class InMemoryPlaceRepository implements PlaceRepository {
     assertImportWorkActive();
     const save = this.saves.get(saveId) ?? this.saves.get(this.redirects.get(saveId) ?? '');
     if (!save) throw new PlaceRepositoryError('place save not found', 'not_found');
+    if (!save.contentSourcePlaceId) throw new PlaceRepositoryError('Direct save already resolved', 'invalid');
     await this.markHypothesisResolved(save.contentSourcePlaceId, placeId);
     const after = await this.findSaveByUserAndPlace(save.userId, placeId);
     if (!after) throw new PlaceRepositoryError('place save not found', 'not_found');

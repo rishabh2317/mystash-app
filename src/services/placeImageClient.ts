@@ -85,10 +85,10 @@ export function createPlaceImageClient(deps: {
     clear,
     recordDisplay(ms: number) { if (Number.isFinite(ms) && ms >= 0) { metrics.displayLoads++; metrics.displayTimeMs += ms; } },
     metrics: () => ({ ...metrics, failures: { ...metrics.failures }, activeRequests: running, queuedRequests: waiting.length }),
-    invalidate(placeId: string, width: PlaceImageSize) { const key = aliases.get(`${placeId}:${width}`); if (key) remove(key); cooldowns.delete(`${placeId}:${width}`); },
-    acquire(requestOwner: string, placeId: string, width: PlaceImageSize, importId?: string) {
+    invalidate(placeId: string, width: PlaceImageSize, kind?: 'lead') { const key = aliases.get(`${kind === 'lead' ? 'lead:' : ''}${placeId}:${width}`); if (key) remove(key); cooldowns.delete(`${kind === 'lead' ? 'lead:' : ''}${placeId}:${width}`); },
+    acquire(requestOwner: string, placeId: string, width: PlaceImageSize, importId?: string, kind?: 'lead') {
       // Caller state is checked against the real session before ANY cache delivery.
-      const requestKey = JSON.stringify([requestOwner, placeId, width]);
+      const requestKey = JSON.stringify([requestOwner, placeId, width, importId, kind]);
       let entry = pending.get(requestKey);
       if (entry) { metrics.coalesced++; metrics.avoidedApiRequests++; }
       if (!entry) {
@@ -98,7 +98,7 @@ export function createPlaceImageClient(deps: {
           if (controller.signal.aborted || session?.userId !== requestOwner) return null;
           setOwner(session.userId, controller);
           if (controller.signal.aborted) return null;
-          const generation = epoch, id = `${placeId}:${width}`, alias = aliases.get(id), cached = alias ? cache.get(alias) : undefined;
+          const generation = epoch, id = `${kind === 'lead' ? 'lead:' : ''}${placeId}:${width}`, alias = aliases.get(id), cached = alias ? cache.get(alias) : undefined;
           if (cached) {
             cache.delete(alias!); cache.set(alias!, cached); metrics.hits++; metrics.avoidedApiRequests++;
             return cached.image;
@@ -115,7 +115,7 @@ export function createPlaceImageClient(deps: {
             try {
               if (!resource) {
                 metrics.apiRequests++;
-                const query = new URLSearchParams({ width: String(width), ...(importId ? { importId } : {}) });
+                const query = new URLSearchParams({ width: String(width), ...(kind ? { kind } : {}), ...(importId ? { importId } : {}) });
                 const { response, result } = await fetchTimed(`${base}/places/${encodeURIComponent(placeId)}/photo?${query}`, {
                   cache: 'no-store', headers: { Authorization: `Bearer ${session.accessToken}`, Accept: 'application/json', 'Cache-Control': 'no-store' },
                 }, 15000, controller.signal, async response => ({response,result:response.ok?await response.json() as PlaceImageResponse:null}));

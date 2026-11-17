@@ -1,3 +1,5 @@
+import { publicImageUrl } from '../public-stash/publicMedia';
+import { discoveryDestination } from '../shopping/discoveryDestination';
 import {countryOfferRefreshPending,type CountryOfferService} from '../shopping/CountryOfferService';
 import {resolveCountryCode} from '../merchant-pricing/country';
 import type { CatalogProduct } from '../product-intelligence/domain/types';
@@ -85,7 +87,7 @@ export class ProductPageService {
     query: ProductPageQuery,
   ): Promise<ProductPageView> {
     const country=resolveCountryCode({explicit:query.country});
-    const metadata=await this.countryOffers?.resolve({...product,kind:'catalog',source:catalogShoppingSource(product)},country)??product.metadata;
+    const metadata=query.publicRead ? product.metadata : await this.countryOffers?.resolve({...product,kind:'catalog',source:catalogShoppingSource(product)},country)??product.metadata;
     product={...product,metadata};
     const offers = projectPageOffers(listStoredShoppingDestinations(catalogShoppingSource(product),country), 'buy');
     const canShop = offers.some((offer) => offer.action !== 'none') || this.shop.canShopCatalog(product);
@@ -103,20 +105,21 @@ export class ProductPageService {
       title: product.name,
       brand: product.brand,
       category: resolvePersistableCategory(product.category) ?? product.category ?? null,
-      heroImage: product.imageUrl,
-      galleryImages: extractGallery(product.metadata, product.imageUrl),
+      heroImage: query.publicRead ? publicImageUrl(product.imageUrl) : product.imageUrl,
+      galleryImages: query.publicRead ? extractGallery(product.metadata,product.imageUrl).map(publicImageUrl).filter((url):url is string=>!!url) : extractGallery(product.metadata, product.imageUrl),
       price: listed.price,
       currency: listed.currency,
       merchant: product.merchant,
       description: product.description,
       specifications: extractSpecifications(product.metadata),
       offers,
+      ...(query.publicRead ? {discovery:discoveryDestination({name:product.name,brand:product.brand,country, evidence:product.brand && (('verificationStatus' in product && product.verificationStatus==='VERIFIED') || (Array.isArray(product.metadata.merchant_evidence) && product.metadata.merchant_evidence.some((e:Record<string,unknown>)=>e.state==='PAGE_VERIFIED'))) ? {attributes:[{attribute:'brand',value:product.brand,origin:'observed'}]} : null})} : {}),
       canShop,
       source,
       relatedMedia,
       reviews,
       compareAvailable: true,
-      detailsUpdating: !!this.countryOffers&&(this.countryOffers.isPending('catalog',product.id,country)||countryOfferRefreshPending(product.metadata,country)),
+      detailsUpdating: !query.publicRead && !!this.countryOffers&&(this.countryOffers.isPending('catalog',product.id,country)||countryOfferRefreshPending(product.metadata,country)),
     };
   }
 
@@ -125,7 +128,7 @@ export class ProductPageService {
     query: ProductPageQuery,
   ): Promise<ProductPageView> {
     const country=resolveCountryCode({explicit:query.country});
-    const metadata=await this.countryOffers?.resolve({...product,kind:'discovered',source:discoveredShoppingSource(product)},country)??product.metadata;
+    const metadata=query.publicRead ? product.metadata : await this.countryOffers?.resolve({...product,kind:'discovered',source:discoveredShoppingSource(product)},country)??product.metadata;
     product={...product,metadata};
     const offers = projectPageOffers(
       listStoredShoppingDestinations(discoveredShoppingSource(product),country),
@@ -148,20 +151,21 @@ export class ProductPageService {
       title: product.name,
       brand: product.brand,
       category: resolvePersistableCategory(product.category) ?? product.category,
-      heroImage: product.imageUrl,
-      galleryImages: product.imageUrl ? [product.imageUrl] : [],
+      heroImage: query.publicRead ? publicImageUrl(product.imageUrl) : product.imageUrl,
+      galleryImages: (query.publicRead ? publicImageUrl(product.imageUrl) : product.imageUrl) ? [(query.publicRead ? publicImageUrl(product.imageUrl) : product.imageUrl)!] : [],
       price: listed.price,
       currency: listed.currency,
       merchant: product.merchant,
       description: null,
       specifications: extractSpecifications(product.metadata),
       offers,
+      ...(query.publicRead ? {discovery:discoveryDestination({name:product.name,brand:product.brand,country, evidence:product.brand && (('verificationStatus' in product && product.verificationStatus==='VERIFIED') || (Array.isArray(product.metadata.merchant_evidence) && product.metadata.merchant_evidence.some((e:Record<string,unknown>)=>e.state==='PAGE_VERIFIED'))) ? {attributes:[{attribute:'brand',value:product.brand,origin:'observed'}]} : null})} : {}),
       canShop: offers.some((offer) => offer.action !== 'none'),
       source,
       relatedMedia,
       reviews,
       compareAvailable: true,
-      detailsUpdating: (!!this.countryOffers&&(this.countryOffers.isPending('discovered',product.id,country)||countryOfferRefreshPending(product.metadata,country)))||detailsUpdatingFromMetadata(product.metadata),
+      detailsUpdating: !query.publicRead && ((!!this.countryOffers&&(this.countryOffers.isPending('discovered',product.id,country)||countryOfferRefreshPending(product.metadata,country)))||detailsUpdatingFromMetadata(product.metadata)),
     };
   }
 
@@ -170,12 +174,15 @@ export class ProductPageService {
     discoveredProductId: string | null;
     query: ProductPageQuery;
   }): Promise<{ source: ProductPageSource | null; relatedMedia: ProductPageRelatedMedia[] }> {
+    if (input.query.publicRead) return {source:null,relatedMedia:[]};
+    if (input.query.publicMediaOnly) return {source:null,relatedMedia:input.catalogProductId ? await this.relatedMedia.listForCatalogProduct(input.catalogProductId,RELATED_MEDIA_LIMIT).catch(()=>[]) : []};
     const userImportId = input.query.userImportId ?? null;
-    const boundIds = await this.contentSources.listBoundSourceIds({
+    const allBoundIds = await this.contentSources.listBoundSourceIds({
       catalogProductId: input.catalogProductId,
       discoveredProductId: input.discoveredProductId,
     });
 
+    const boundIds=input.query.ownedContentSourceId ? allBoundIds.filter(id=>id===input.query.ownedContentSourceId) : allBoundIds;
     let source: ProductPageSource | null = null;
     const preferred = input.query.contentSourceId?.trim();
     if (preferred) {

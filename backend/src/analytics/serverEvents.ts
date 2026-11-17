@@ -28,7 +28,8 @@ export async function recordSearchResponse(admin:SupabaseClient,req:Request,user
   results:{id:string;entityType:string}[];matchingCount:number;fallbackCount:number;latencyMs:number;
   retrievalMode:string;filterKeys:string[];queryLength:number;
 }):Promise<string|null>{
-  const ctx=requestMeasurement(req);if(!ctx||(req.headers.authorization&&!userId)||!serverLimiter.allow(req.socket?.remoteAddress??'unknown',1))return null;
+  if(req.query?.publicStashId&&/bot|crawler|spider|facebookexternalhit|whatsapp|slackbot|twitterbot|preview/i.test(String(req.headers['user-agent']??'')))return null;
+ const ctx=requestMeasurement(req);if(!ctx||(req.headers.authorization&&!userId)||!serverLimiter.allow(req.socket?.remoteAddress??'unknown',1))return null;
   const supplied=String(req.headers['x-mystash-search-id']);const id=UUID.test(supplied)?supplied:randomUUID();
   const envelope=common(req,id);if(!envelope)return null;
   const event:AnalyticsEvent={...envelope,event_name:'search.results_served',entity_type:'search',entity_id:id,surface:'search',properties:{
@@ -43,10 +44,11 @@ export async function recordSearchResponse(admin:SupabaseClient,req:Request,user
 export async function recordOutboundObservation(admin:SupabaseClient,req:Request,userId:string|null,input:{
  productId:string;namespace:'catalog'|'discovered';collectionId?:string|null;destinationKind:string;affiliate:boolean;
 }){
+ if(req.query?.publicStashId&&/bot|crawler|spider|facebookexternalhit|whatsapp|slackbot|twitterbot|preview/i.test(String(req.headers['user-agent']??'')))return;
  const ctx=requestMeasurement(req);if(!ctx||(req.headers.authorization&&!userId)||!serverLimiter.allow(req.socket?.remoteAddress??'unknown',1))return;
  const supplied=String(req.headers['x-mystash-outbound-id']);const id=UUID.test(supplied)?supplied:randomUUID();
  const envelope=common(req,id);if(!envelope)return;
  await bounded(ingestMeasurement(admin,userId,ctx,[{...envelope,event_name:'merchant.outbound_resolved',entity_type:'product',
-  entity_id:input.productId,namespace:input.namespace,collection_id:input.collectionId??undefined,surface:process.env.FIND_MEASUREMENT_ENABLED==='true'&&req.headers['x-mystash-surface']==='find'?'find':'product',
-  properties:{destination_kind:input.destinationKind,affiliate:input.affiliate,request_id:id}}],'server'));
+  entity_id:input.productId,namespace:input.namespace,collection_id:input.collectionId??undefined,surface:process.env.PUBLIC_STASH_ENABLED==='true'&&UUID.test(String(req.query?.publicStashId))?'public_stash':process.env.FIND_MEASUREMENT_ENABLED==='true'&&req.headers['x-mystash-surface']==='find'?'find':'product',
+  properties:{destination_kind:input.destinationKind,affiliate:input.affiliate,request_id:id,...(process.env.PUBLIC_STASH_ENABLED==='true'&&UUID.test(String(req.query?.publicStashId))?{public_stash_id:String(req.query?.publicStashId)}:{})}}],'server'));
 }

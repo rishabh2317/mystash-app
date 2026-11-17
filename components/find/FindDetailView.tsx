@@ -73,7 +73,7 @@ export function FindDetailView(props: FindDetailViewProps) {
 </>;
       const thumbnail=(() => { const thumbnail = safeFindUrl(row.image) ? <FindImage url={row.image} cacheKey={row.key} style={{width:64,height:64,borderRadius:tokens.radius.md}} /> : <View style={{width:64,height:64,borderRadius:tokens.radius.md,backgroundColor:tokens.color.surfaceSubtle,alignItems:'center',justifyContent:'center'}}><Ionicons name={row.key.startsWith('place:')?'location-outline':'cube-outline'} size={24} color={tokens.color.textMuted}/></View>; return row.openProductId ? <Pressable accessibilityRole="button" accessibilityLabel={`View product ${row.title} image`} onPress={()=>props.onProduct(row.openProductId!)}>{thumbnail}</Pressable> : thumbnail; })();
       return <MeasuredFindResult row={row} style={{ ...outlineCardChrome(tokens), borderWidth: tokens.stroke.thin, borderRadius: tokens.radius.lg, padding: tokens.space.sm, flexDirection:'row',gap:tokens.space.sm,alignItems:'center' }}>
-        {row.key.startsWith('place:') ? <PlaceImage placeId={row.placeId??null} name={row.title} importId={data.id} width={128} style={{width:64,height:64,borderRadius:tokens.radius.md}}>
+        {row.key.startsWith('place:') ? <PlaceImage placeId={row.placeId??null} leadId={row.photoLeadId} name={row.title} importId={data.id} width={128} style={{width:64,height:64,borderRadius:tokens.radius.md}}>
           {({image,attribution})=>content(image,attribution)}
         </PlaceImage> : content(thumbnail)}
       </MeasuredFindResult>;

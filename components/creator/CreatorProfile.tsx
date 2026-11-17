@@ -1,7 +1,9 @@
 import { FailureState } from '@/components/status/FailureState';
-import React from 'react';
+import React, { useState } from 'react';
+import { usePrefersReducedMotion } from '@/src/ui/usePrefersReducedMotion';
 import {
   FlatList,
+  LayoutAnimation,
   StyleSheet,
   View,
   useWindowDimensions,
@@ -87,6 +89,17 @@ export function CreatorProfile({
 }: Props) {
   const { tokens } = useThemeMode();
   const onBuy = useProductBuyHandler();
+  const [discoverExpanded, setDiscoverExpanded] = useState(false);
+  const reduceMotion = usePrefersReducedMotion();
+  const toggleDiscover = () => {
+    if (!reduceMotion) LayoutAnimation.configureNext({
+      duration: 220,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
+    setDiscoverExpanded(value => !value);
+  };
   const { width: screenWidth } = useWindowDimensions();
   const gutter = tokens.space.md;
   const gap = tokens.space.sm;
@@ -113,7 +126,9 @@ export function CreatorProfile({
         onFollowPress={onFollowPress}
         onSharePress={onSharePress}
         onTabChange={onTabChange}
-        afterIdentity={<DiscoverCreatorsSection items={discover.items} loading={discover.loading} />}
+        discoverExpanded={discoverExpanded}
+        onToggleDiscover={toggleDiscover}
+        afterIdentity={discoverExpanded ? <DiscoverCreatorsSection items={discover.items} loading={discover.loading} /> : null}
       />
     </View>
   );

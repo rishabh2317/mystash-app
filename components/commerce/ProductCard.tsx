@@ -39,6 +39,7 @@ import { CardMediaActions } from './CardMediaActions';
 export type ProductCardVariant = 'compact' | 'standard' | 'collection' | 'related' | 'mini' | 'publicProfile';
 
 type Props = {
+  publicRead?: boolean;
   product: CatalogProductViewModel;
   measurementCollectionId?: string | null;
   /** @deprecated Colors come from ThemeMode tokens. */
@@ -85,6 +86,7 @@ const RELATED_MEDIA_ASPECT = PRODUCT_CARD_LAYOUT.relatedMediaAspect;
 const MINI_MEDIA_ASPECT = PRODUCT_CARD_LAYOUT.miniMediaAspect;
 
 export function ProductCard({
+  publicRead=false,
   product,
   onPress,
   variant = 'standard',
@@ -100,7 +102,7 @@ export function ProductCard({
   onViewMoreMerchants,
   measurementCollectionId,
 }: Props) {
-  const exposureRef=useQualifiedExposure('product.impression','product',product.catalogProductId??product.id,
+  const exposureRef=useQualifiedExposure('product.impression','product',publicRead?undefined:product.catalogProductId??product.id,
     {namespace:'auto',collection_id:measurementCollectionId??undefined});
   const { tokens, isLight } = useThemeMode();
   const [buyPressed, setBuyPressed] = React.useState(false);
@@ -171,7 +173,8 @@ export function ProductCard({
             >
               <ProductHeroImage
                 productId={product.id}
-                uri={displayHeroUri(product)}
+                allowPlaceholder={!publicRead}
+                uri={publicRead ? product.heroImage : displayHeroUri(product)}
                 alt={product.title}
                 style={[styles.collectionThumb, { borderRadius: tokens.radius.md }]}
               />
@@ -322,7 +325,8 @@ export function ProductCard({
       >
         <ProductHeroImage
           productId={product.id}
-          uri={displayHeroUri(product)}
+          allowPlaceholder={!publicRead}
+                uri={publicRead ? product.heroImage : displayHeroUri(product)}
           alt={product.title}
           contentFit="cover"
           style={StyleSheet.absoluteFill}
@@ -422,7 +426,8 @@ export function ProductCard({
           >
             <ProductHeroImage
               productId={product.id}
-              uri={displayHeroUri(product)}
+              allowPlaceholder={!publicRead}
+                uri={publicRead ? product.heroImage : displayHeroUri(product)}
               alt={product.title}
               contentFit="cover"
               style={styles.miniMedia}
@@ -488,7 +493,8 @@ export function ProductCard({
           >
             <ProductHeroImage
               productId={product.id}
-              uri={displayHeroUri(product)}
+              allowPlaceholder={!publicRead}
+                uri={publicRead ? product.heroImage : displayHeroUri(product)}
               alt={product.title}
               contentFit="cover"
               style={styles.relatedMedia}
@@ -571,7 +577,8 @@ export function ProductCard({
       >
         <ProductHeroImage
           productId={product.id}
-          uri={displayHeroUri(product)}
+          allowPlaceholder={!publicRead}
+                uri={publicRead ? product.heroImage : displayHeroUri(product)}
           alt={product.title}
           style={isCompact ? styles.thumbCompact : styles.thumb}
         />

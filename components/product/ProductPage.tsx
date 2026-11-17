@@ -61,6 +61,8 @@ import { railCardWidth } from '@/src/ui/rail';
 
 type Props = {
   page: ProductPageView;
+  /** Public read adapter suppresses automatic search/pricing/review generation. */
+  publicActions?: { onSave: () => void; onShop: (offerId?: string) => Promise<void>; saved?: boolean; canSave?:boolean };
 };
 
 type OfferDisplay = ProductPageOffer & {
@@ -106,8 +108,8 @@ function mergeLiveOffer(
   };
 }
 
-export function ProductPage({ page,measurementSurface='product' }: Props&{measurementSurface?:'product'|'find'}) {
-  useMeasuredOpen('product.opened','product',page.productId,{namespace:'auto',surface:measurementSurface});
+export function ProductPage({ page,publicActions,measurementSurface='product' }: Props&{measurementSurface?:'product'|'find'}) {
+  useMeasuredOpen('product.opened','product',publicActions?undefined:page.productId,{namespace:'auto',surface:measurementSurface});
   const router = useRouter();
   const { tokens } = useThemeMode();
   const { width: screenWidth } = useWindowDimensions();
@@ -117,7 +119,7 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
   const sections = productPageSections(page);
   const priceLabel = productPagePriceLabel(page);
   // Catalogue shopping id when linked; otherwise discovered id for on-demand AI Review.
-  const showAiBanner = Boolean(page.shoppingProductId ?? page.productId);
+  const showAiBanner = Boolean(page.shoppingProductId ?? page.productId) && (!publicActions || Boolean(page.reviews));
 
   const relatedWidth = railCardWidth({
     screenWidth,
@@ -139,7 +141,7 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
   const [reviewOpen, setReviewOpen] = useState(false);
   const [playingSource, setPlayingSource] = useState<PlaceSourceVideo | null>(null);
   const [liveByOfferId, setLiveByOfferId] = useState<Record<string, LivePriceResult>>({});
-  const [pricesLoading, setPricesLoading] = useState(page.offers.length > 0);
+  const [pricesLoading, setPricesLoading] = useState(!publicActions && page.offers.length > 0);
   const [countryCtx, setCountryCtx] = useState<{
     country: string;
     profileCountry: string | null;
@@ -168,7 +170,7 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
   const buyingFreshness = productPageBuyingFreshnessLine(displayOffers.map((o) => o.freshness));
 
   useEffect(() => {
-    if (!sections.similar) {
+    if (publicActions || !sections.similar) {
       setSimilar([]);
       return;
     }
@@ -194,10 +196,10 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
     return () => {
       cancelled = true;
     };
-  }, [page, sections.similar]);
+  }, [page, sections.similar, publicActions]);
 
   useEffect(() => {
-    if (page.offers.length === 0) {
+    if (publicActions || page.offers.length === 0) {
       setPricesLoading(false);
       return;
     }
@@ -226,9 +228,10 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
     return () => {
       cancelled = true;
     };
-  }, [page.productId, page.offers]);
+  }, [page.productId, page.offers, publicActions]);
 
   const onShop = async (offerId: string) => {
+    if (publicActions) { await publicActions.onShop(offerId); return; }
     try {
       await openProductShopping({
         measurementSurface,
@@ -282,6 +285,7 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
           ]}
         >
           <ProductHeroImage
+            allowPlaceholder={!publicActions}
             productId={page.productId}
             uri={page.heroImage ?? page.galleryImages[0] ?? null}
             alt={page.title}
@@ -320,19 +324,22 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
           {priceLabel && !sections.offers ? (
             <Text style={typeStyle(tokens, 'tilePrice')}>{priceLabel}</Text>
           ) : null}
-          {page.shoppingProductId ? (
+          {(page.shoppingProductId || publicActions) && publicActions?.canSave!==false ? (
             <Pressable
-              onPress={() => void onAddToCart(product)}
+              onPress={() => publicActions ? publicActions.onSave() : void onAddToCart(product)}
               accessibilityRole="button"
-              accessibilityLabel={BAG_COPY.add}
+              accessibilityLabel={publicActions?.saved ? 'Saved' : BAG_COPY.add}
               style={{ marginTop: tokens.space.xs }}
             >
-              <Text style={typeStyle(tokens, 'link')}>{BAG_COPY.add}</Text>
+              <Text style={typeStyle(tokens, 'link')}>{publicActions?.saved ? 'Saved' : BAG_COPY.add}</Text>
             </Pressable>
           ) : null}
         </View>
       </View>
 
+      {publicActions && page.galleryImages.length>1 ? <ContentRail gutter={GUTTER} itemPitch={144}>
+        {page.galleryImages.map((uri,index)=><ProductHeroImage key={`${uri}:${index}`} allowPlaceholder={false} productId={`${page.productId}:${index}`} uri={uri} alt={`${page.title}, image ${index+1}`} style={{width:128,height:128,borderRadius:tokens.radius.md}} />)}
+      </ContentRail> : null}
       {/* 2. Buying options */}
       {sections.offers ? (
         <View style={{ gap: tokens.space.sm }}>
@@ -400,6 +407,7 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
         </View>
       ) : null}
 
+      {publicActions && page.discovery ? <Pressable accessibilityRole="link" onPress={() => void publicActions.onShop()}><Text style={typeStyle(tokens,'link')}>{page.discovery.label} →</Text></Pressable> : null}
       {/* 3. AI review — catalogue or discovered (on-demand) */}
       {showAiBanner ? (
         <ProductAiReviewCard
@@ -470,7 +478,7 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
       ) : null}
 
       {/* 6. Compare — quiet, gated */}
-      {sections.compare ? (
+      {sections.compare && !publicActions ? (
         <View style={{ gap: tokens.space.xs }}>
           <Pressable
             onPress={() => router.push(comparePath([page.productId]) as Href)}
@@ -483,13 +491,13 @@ export function ProductPage({ page,measurementSurface='product' }: Props&{measur
         </View>
       ) : null}
 
-      <AiReviewSheet
+      {!publicActions || reviewResult ? <AiReviewSheet
         visible={reviewOpen}
         product={product}
         onClose={() => setReviewOpen(false)}
         preloaded={reviewResult}
         hideInternalStatus
-      />
+      /> : null}
       {playingSource ? <PlaceSourceVideoModal key={playingSource.url} source={playingSource} onClose={() => setPlayingSource(null)} /> : null}
     </ScrollView>
   );

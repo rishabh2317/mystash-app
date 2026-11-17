@@ -20,6 +20,7 @@ import { PlaceCardSkeleton } from './PlaceCardSkeleton';
 import { PlaceSourceVideoModal } from './PlaceSourceVideoModal';
 
 type Props = {
+  renderPublication?: (item:PlaceStashItem)=>React.ReactNode;
   items: PlaceStashItem[];
   status: 'idle' | 'loading' | 'ready' | 'error';
   error?: unknown;
@@ -36,7 +37,7 @@ type ShelfRow = { kind: 'categories'; key: string; items: PlaceCategoryShelf[] }
   | { kind: 'filters'; key: string };
 
 /** One virtualized shelf surface for resolved and unverified entries on Android/iOS. */
-export function StashPlacesContent({ items, status, error, refreshing, bottomInset, onRefresh, onRetry, onSearch, onRemove }: Props) {
+export function StashPlacesContent({ renderPublication, items, status, error, refreshing, bottomInset, onRefresh, onRetry, onSearch, onRemove }: Props) {
   const { tokens } = useThemeMode();
   const dimensions = useWindowDimensions();
   const [contentWidth, setContentWidth] = useState(dimensions.width);
@@ -130,6 +131,7 @@ export function StashPlacesContent({ items, status, error, refreshing, bottomIns
             : row.items.map(item => <View key={placeStashItemKey(item)} style={styles.cell}>
               <PlaceCard item={item} onSearch={onSearch} onOpenSource={openSource}
                 onRemove={onRemove && (item.saveId || item.groupedSaveIds?.length) ? () => onRemove(item) : undefined} />
+              {renderPublication?.(item)}
             </View>)}
           {row.items.length < columns ? <View style={styles.cell} /> : null}
         </View>}

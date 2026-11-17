@@ -89,12 +89,13 @@ export type InsertUnresolvedHypothesisRow = {
 export type UserPlaceSaveRecord = {
   removedAt?: string | null;
   explicitActionAt?: string | null;
+  saveOrigin?: 'import' | 'direct';
   id: string;
   userId: string;
-  contentSourcePlaceId: string;
+  contentSourcePlaceId: string | null;
   placeId: string | null;
-  contentSourceId: string;
-  userImportId: string;
+  contentSourceId: string | null;
+  userImportId: string | null;
   createdAt: string;
   updatedAt: string;
   schemaVersion: number;

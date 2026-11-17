@@ -63,6 +63,8 @@ export type ProductPageReviews = {
 };
 
 export type ProductPageView = {
+  viewerSaved?: boolean;
+  discovery?: import('../../shopping/discoveryContract').DiscoveryDestination | null;
   productId: string;
   /** Catalogue id for ShoppingResolver / AI review. Null when shopping is listing-only. */
   shoppingProductId: string | null;
@@ -89,6 +91,10 @@ export type ProductPageView = {
 };
 
 export type ProductPageQuery = {
+  /** Internal policy; never accepted directly from query parameters. */
+  publicRead?: boolean;
+  publicMediaOnly?: boolean;
+  ownedContentSourceId?: string;
   country?: string | null;
   contentSourceId?: string | null;
   userImportId?: string | null;

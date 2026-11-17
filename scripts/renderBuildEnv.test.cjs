@@ -61,3 +61,5 @@ test('rejects insecure or credential-bearing build targets', () => {
     }), /public HTTPS/);
   }
 });
+
+test("public web uses its current origin for every shared API read",()=>{const code=transformSync("const url=process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL;",{configFile:false,babelrc:false,plugins:[[require("./renderBuildEnv.cjs"),{sameOrigin:true}]]}).code;assert.match(code,/window.location.origin/);assert.ok(!code.includes("mystash.in"));});

@@ -89,7 +89,7 @@ async function replay(fixture: Fixture, baseline: boolean) {
   const productNames = (await sources.listProducts(source.id)).filter((p) => p.catalogProductId).map((p) => p.name).sort();
   const saves = await places.listSavesByUser(userImport.userId);
   const placeNames = await Promise.all(saves.map(async (s) => s.placeId ? (await places.findPlaceById(s.placeId))!.name
-    : (await places.findHypothesisById(s.contentSourcePlaceId))!.extractedName));
+    : (await places.findHypothesisById(s.contentSourcePlaceId ?? ''))!.extractedName));
   const cold = { ...calls };
   await (baseline ? baselineExtract : runProgressiveExtract)({ admin: {} as SupabaseClient, platform: 'youtube', externalVideoId: 'recorded-id',
     sourceUrl: source.canonicalUrl!, correlationId: source.id, traceId: 'replay', cacheScope: 'user-import' }, runtime);

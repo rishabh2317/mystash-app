@@ -29,7 +29,7 @@ export function startAnalyticsMaintenance(admin:SupabaseClient,options:{rpcTimeo
  };
  const maintain=async()=>{if(closed||!maintenanceEnabled()||maintenanceBusy||Date.now()-lastMaintenance<(options.maintenanceIntervalMs??3600000))return;
   maintenanceBusy=true;try{const {error}=await analyticsRpc(admin,'analytics_maintenance',undefined,timeout);
-   if(error)logger.warn({code:error.code},'analytics.maintenance_failed');else {lastMaintenance=Date.now();logger.info('analytics.maintenance_completed');}
+   if(error)logger.warn({code:error.code},'analytics.maintenance_failed');else { const stash=await analyticsRpc(admin,'public_stash_measurement_maintenance',undefined,timeout);if(stash.error&&!['42883','PGRST202'].includes(stash.error.code??''))throw new Error('Stash maintenance unavailable');lastMaintenance=Date.now();logger.info('analytics.maintenance_completed');}
   }catch{logger.warn('analytics.maintenance_failed');}finally{maintenanceBusy=false;}
  };
  if(!maintenanceEnabled()&&!creatorRollupsEnabled()&&!adminRollupsEnabled()&&!interestWorkerEnabled())return {close(){}};

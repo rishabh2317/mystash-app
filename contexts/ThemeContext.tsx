@@ -21,8 +21,8 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-export function ThemeModeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>(DEFAULT_THEME_MODE);
+export function ThemeModeProvider({ children,initialMode=DEFAULT_THEME_MODE }: { children: React.ReactNode;initialMode?:ThemeMode }) {
+  const [mode, setMode] = useState<ThemeMode>(initialMode);
 
   const transitionProgress = useSharedValue(1);
   const fromLight = useSharedValue(mode === 'titanium' ? 1 : 0);

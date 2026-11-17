@@ -1,0 +1,46 @@
+DO $$ DECLARE stash uuid;event jsonb;response jsonb;n bigint;BEGIN
+ SELECT public_id INTO stash FROM public_stashes WHERE user_id='11111111-1111-4111-8111-111111111111';
+ UPDATE public_stashes SET visibility='public' WHERE public_id=stash;
+ event:=jsonb_build_object('event_id',gen_random_uuid(),'event_name','stash.opened','occurred_at',now(),'session_id','55555555-5555-4555-8555-555555555555','entity_type','app','surface','public_stash','platform','web','app_version','1.0.0','properties',jsonb_build_object('public_stash_id',stash));
+ response:=analytics_ingest(NULL,NULL,jsonb_build_array(event),'client',NULL);
+ IF jsonb_array_length(response->'accepted')<>1 THEN RAISE EXCEPTION 'Stash view rejected: %',response;END IF;
+ response:=analytics_ingest(NULL,NULL,jsonb_build_array(event),'client',NULL);
+ SELECT sum(value) INTO n FROM analytics_public_stash_daily WHERE public_stash_id=stash AND metric='views';
+ IF n<>1 THEN RAISE EXCEPTION 'Retry inflated view count';END IF;
+ event:=event||jsonb_build_object('event_id',gen_random_uuid());
+ PERFORM analytics_ingest(NULL,NULL,jsonb_build_array(event),'client',NULL);
+ SELECT sum(value) INTO n FROM analytics_public_stash_daily WHERE public_stash_id=stash AND metric='views';
+ IF n<>1 THEN RAISE EXCEPTION 'Session view dedup failed';END IF;
+ UPDATE analytics_events SET received_at=now()-interval '31 minutes';
+ PERFORM analytics_ingest(NULL,NULL,jsonb_build_array(event),'client',NULL);
+ SELECT sum(value) INTO n FROM analytics_public_stash_daily WHERE public_stash_id=stash AND metric='views';
+ IF n<>1 THEN RAISE EXCEPTION 'Late retry of a suppressed view inflated counts';END IF;
+ -- A canonical Place may be public for a visitor without belonging to that visitor.
+ UPDATE user_place_saves SET removed_at=NULL,published_at=now() WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+ event:=event||jsonb_build_object('event_id',gen_random_uuid(),'event_name','place.opened','entity_type','place','entity_id','44444444-4444-4444-8444-444444444444');
+ response:=analytics_ingest(NULL,NULL,jsonb_build_array(event),'client',NULL);
+ IF jsonb_array_length(response->'accepted')<>1 THEN RAISE EXCEPTION 'Public Place view rejected: %',response;END IF;
+ -- Exercise all five counters through the installed ingestion contract.
+ UPDATE cart_items SET removed_at=NULL,published_at=now() WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+ event:=event||jsonb_build_object('event_id',gen_random_uuid(),'event_name','product.opened','entity_type','product','namespace','catalog','entity_id','22222222-2222-4222-8222-222222222222');
+ response:=analytics_ingest(NULL,NULL,jsonb_build_array(event),'client',NULL);
+ IF jsonb_array_length(response->'accepted')<>1 THEN RAISE EXCEPTION 'Public Product open rejected: %',response;END IF;
+ event:=event||jsonb_build_object('event_id',gen_random_uuid(),'event_name','stash.item_saved');
+ response:=analytics_ingest(NULL,NULL,jsonb_build_array(event),'client',NULL);
+ IF jsonb_array_length(response->'accepted')<>0 THEN RAISE EXCEPTION 'Client forged generated save';END IF;
+ response:=analytics_ingest(NULL,NULL,jsonb_build_array(event),'server',NULL);
+ IF jsonb_array_length(response->'accepted')<>1 THEN RAISE EXCEPTION 'Generated save rejected: %',response;END IF;
+ event:=event||jsonb_build_object('event_id',gen_random_uuid(),'event_name','merchant.outbound_resolved','properties',jsonb_build_object('public_stash_id',stash,'request_id',gen_random_uuid(),'destination_kind','google_search','affiliate',false));
+ response:=analytics_ingest(NULL,NULL,jsonb_build_array(event),'server',NULL);
+ IF jsonb_array_length(response->'accepted')<>1 THEN RAISE EXCEPTION 'Shopping click rejected: %',response;END IF;
+ PERFORM analytics_ingest(NULL,NULL,jsonb_build_array(event),'server',NULL);
+ SELECT count(*) INTO n FROM analytics_public_stash_daily WHERE public_stash_id=stash AND value=1;
+ IF n<>5 THEN RAISE EXCEPTION 'Five basic metrics missing or inflated: %',n;END IF;
+ UPDATE public_stashes SET visibility='private' WHERE public_id=stash;
+ event:=event||jsonb_build_object('event_id',gen_random_uuid());
+ response:=analytics_ingest(NULL,NULL,jsonb_build_array(event),'client',NULL);
+ IF jsonb_array_length(response->'accepted')<>0 THEN RAISE EXCEPTION 'Private Stash measurement accepted';END IF;
+ UPDATE users SET account_status='DELETED',deleted_at=now() WHERE id='11111111-1111-4111-8111-111111111111';
+ IF EXISTS(SELECT 1 FROM analytics_public_stash_daily WHERE public_stash_id=stash) THEN RAISE EXCEPTION 'Deleted owner retained rollups';END IF;
+ UPDATE users SET account_status='ACTIVE',deleted_at=NULL WHERE id='11111111-1111-4111-8111-111111111111';
+END $$;

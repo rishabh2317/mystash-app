@@ -7,6 +7,7 @@ module.exports = function renderBuildEnv({ types: t }) {
       MemberExpression(path, state) {
         if (!path.matchesPattern('process.env.EXPO_PUBLIC_MYSTASH_INGEST_URL')) return;
         if (path.parentPath.isAssignmentExpression({ left: path.node })) return;
+        if(state.opts.sameOrigin){path.replaceWith(t.memberExpression(t.memberExpression(t.identifier('window'),t.identifier('location')),t.identifier('origin')));return;}
         const url = new URL(state.opts.backendUrl);
         if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
           throw path.buildCodeFrameError('Render build requires a public HTTPS backend URL');

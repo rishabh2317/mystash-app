@@ -48,6 +48,7 @@ export function registerAnalyticsRoutes(app:Express,admin:SupabaseClient=createS
     const events=req.body?.events,ctx=requestMeasurement(req);
     if(!ctx||!Array.isArray(events)||events.length<1||events.length>50||Object.keys(req.body).some(k=>k!=='events')){diagnostics.add('payload_rejected_batches');res.status(400).json({error:'Invalid batch'});return;}
     if(!limiter.allow(req.socket.remoteAddress??'unknown',events.length)){diagnostics.add('rate_limited_events',events.length);res.status(429).json({error:'Rate limited'});return;}
+    if(events.some((event:{surface?:string})=>event?.surface==='public_stash')&&/bot|crawler|spider|facebookexternalhit|whatsapp|slackbot|twitterbot|preview/i.test(String(req.headers['user-agent']??''))){res.json({accepted:[]});return;}
     const userId=await optionalVerifiedUserId(req);
     if(req.headers.authorization&&!userId){res.status(401).json({error:'Verified session required'});return;}
     try { events.forEach(e=>validateEvent(e,'client'));

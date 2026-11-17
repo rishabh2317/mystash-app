@@ -15,19 +15,20 @@ import { placeImages } from '@/src/services/placeImages';
 import type { PlaceImageResource } from '@/backend/src/place/photos/contract';
 import { attributionLink } from '@/backend/src/place/photos/contract';
 
-type Props={placeId:string|null;name:string;importId?:string;style:StyleProp<ViewStyle>;width?:128|256|640;
+type Props={placeId:string|null;leadId?:string|null;name:string;importId?:string;style:StyleProp<ViewStyle>;width?:128|256|640;
   /** Small thumbnails put attribution beside the image, in the same card. */
   children?:(slots:{image:React.ReactNode;attribution:React.ReactNode})=>React.ReactNode};
 
 /** Provider-neutral card boundary. Future licensed sources change its resource adapter. */
-export function PlaceImage({placeId,name,importId,style,width=640,children}:Props) {
+export function PlaceImage({placeId:canonicalId,leadId,name,importId,style,width=640,children}:Props) {
+  const placeId=canonicalId??leadId??null, kind=canonicalId?undefined:leadId?'lead' as const:undefined;
   const {tokens}=useThemeMode(),{user}=useAuth(),owner=user?.id??null,reduceMotion=usePrefersReducedMotion();
   const visibility=useVisibleResource(Boolean(owner&&placeId));
   const [state,setState]=useState<{key:string;photo:PlaceImageResource|null;loaded:boolean;readyAt?:number}|null>(null);
   const [retry,setRetry]=useState<{key:string;count:number}>({key:'',count:0}),[credits,setCredits]=useState(false);
   const [measuredWidth,setMeasuredWidth]=useState(0);
   const variant=measuredWidth?placeImageSize(measuredWidth,PixelRatio.get(),width):width;
-  const key=JSON.stringify([owner,placeId,importId,variant]);
+  const key=JSON.stringify([owner,placeId,importId,variant,kind]);
   const attempts=retry.key===key?retry.count:0;
   useEffect(()=>{
     if(!owner||!placeId){setState(null);setCredits(false);return;}
@@ -39,13 +40,13 @@ export function PlaceImage({placeId,name,importId,style,width=640,children}:Prop
     if(state?.key===key&&state.photo)return;
     let alive=true,release:(()=>void)|undefined;
     const cancel=schedulePlaceImage(()=>{
-      const request=placeImages.acquire(owner,placeId,variant,importId);release=request.release;
+      const request=placeImages.acquire(owner,placeId,variant,importId,kind);release=request.release;
       void request.promise.then(photo=>{if(alive)setState({key,photo,loaded:false,readyAt:Date.now()});});
     });
     return()=>{alive=false;cancel();release?.();};
     // Completed state deliberately survives visibility changes; the service owns session reuse.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[visibility.visible,owner,placeId,variant,importId,key,attempts]);
+  },[visibility.visible,owner,placeId,variant,importId,key,attempts,kind]);
   const current=owner&&placeId&&state?.key===key?state:null,photo=current?.photo;
   const activePhoto=useRef<{key:string;uri:string|null}>({key,uri:null});activePhoto.current={key,uri:photo?.uri??null};
   const openLink=(url:string|null)=>{const safe=attributionLink(url);if(safe)void Linking.openURL(safe).catch(()=>{});};
@@ -67,7 +68,7 @@ export function PlaceImage({placeId,name,importId,style,width=640,children}:Prop
       onLoad={()=>{if(activePhoto.current.key!==key||activePhoto.current.uri!==photo.uri)return;
         if(!current?.loaded&&current?.readyAt)placeImages.recordDisplay?.(Date.now()-current.readyAt);
         setState(previous=>previous?.key===key&&previous.photo?.uri===photo.uri?{...previous,loaded:true}:previous);}}
-      onError={()=>{if(activePhoto.current.key!==key||activePhoto.current.uri!==photo.uri)return;placeImages.invalidate(placeId!,variant);setState(null);if(attempts<1)setRetry({key,count:attempts+1});}}/>:null}
+      onError={()=>{if(activePhoto.current.key!==key||activePhoto.current.uri!==photo.uri)return;placeImages.invalidate(placeId!,variant,kind);setState(null);if(attempts<1)setRetry({key,count:attempts+1});}}/>:null}
     {!children&&credit?<View style={{position:'absolute',left:4,top:4,paddingHorizontal:6,borderRadius:tokens.radius.sm,backgroundColor:'rgba(0,0,0,0.75)'}}>{credit}</View>:null}
   </View>;
   return <>{children?children({image,attribution:credit}):image}

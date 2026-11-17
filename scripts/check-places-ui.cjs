@@ -425,7 +425,7 @@ try {
   const photo={source:'google_places',uri:'https://lh3.googleusercontent.com/photo-fixture',width:1200,height:800,cachePolicy:'none',attribution:{provider:'Google Maps',sourceUrl:'https://www.google.com/maps/photo/fixture',reportUrl:'https://www.google.com/maps/report/fixture',authors:[{name:'Fixture photographer',url:'https://www.google.com/maps/contrib/fixture',avatar:'https://lh3.googleusercontent.com/avatar'}],providers:[]}};
   for(const theme of ['titanium','nebula'])for(const os of ['android','ios'])for(const width of [320,360,414])for(const scale of [1,1.7]){
     tokens=getThemeTokens(theme);dimensions={width,height:844,scale:1,fontScale:scale};nativeAdapters.Platform={...nativeWeb.Platform,OS:os};photoVisible=true;photoOwner='owner';
-    const key=JSON.stringify(['owner','canonical',undefined,640]);
+    const key=JSON.stringify(['owner','canonical',undefined,640,undefined]);
     controlled={count:5,values:new Map([[0,false],[1,{key,photo,loaded:true}],[2,{key:'',count:0}],[3,false],[4,0]])};
     const props={placeId:'canonical',name:'Fixture venue',style:{width:(width-48)/2,height:(width-48)/2,borderRadius:tokens.radius.md}};
     let html=renderControlled(PlaceImage,props);

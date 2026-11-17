@@ -92,8 +92,8 @@ describe('discover creators architecture', () => {
     assert.match(personal, /useDiscoverCreators/);
     assert.match(personal, /ProfileContentTabs/);
     assert.doesNotMatch(personal, /loadDiscoverCreatorSuggestions/);
-    assert.doesNotMatch(header, /DiscoverCreators/);
-    assert.doesNotMatch(publicHeader, /DiscoverCreators/);
+    assert.doesNotMatch(header, /DiscoverCreatorsSection/);
+    assert.doesNotMatch(publicHeader, /DiscoverCreatorsSection/);
     assert.match(publicHeader, /afterIdentity/);
     assert.match(publicProfile, /DiscoverCreatorsSection/);
     assert.match(publicProfile, /useDiscoverCreators/);

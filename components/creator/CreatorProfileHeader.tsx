@@ -1,4 +1,5 @@
 import React from 'react';
+import { DiscoverCreatorsToggle } from '@/components/profile/DiscoverCreatorsToggle';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { FollowControl } from '@/components/engagement/FollowControl';
@@ -23,6 +24,8 @@ type Props = {
   onFollowPress: () => void;
   onSharePress: () => void;
   onTabChange: (tab: CreatorProfileTab) => void;
+  discoverExpanded: boolean;
+  onToggleDiscover: () => void;
   /** Inserted between identity/actions and Collection/Products tabs. */
   afterIdentity?: React.ReactNode;
 };
@@ -37,6 +40,8 @@ function ProfileActionRow({
   followPending,
   onFollowPress,
   onSharePress,
+  discoverExpanded,
+  onToggleDiscover,
 }: {
   isSelf: boolean;
   isLight: boolean;
@@ -44,6 +49,8 @@ function ProfileActionRow({
   followPending?: boolean;
   onFollowPress: () => void;
   onSharePress: () => void;
+  discoverExpanded: boolean;
+  onToggleDiscover: () => void;
 }) {
   const { tokens } = useThemeMode();
 
@@ -102,6 +109,7 @@ function ProfileActionRow({
           Share
         </Text>
       </Pressable>
+      <DiscoverCreatorsToggle expanded={discoverExpanded} onPress={onToggleDiscover} />
     </View>
   );
 }
@@ -114,6 +122,8 @@ export function CreatorProfileHeader({
   activeTab,
   onFollowPress,
   onSharePress,
+  discoverExpanded,
+  onToggleDiscover,
   onTabChange,
   afterIdentity,
 }: Props) {
@@ -144,6 +154,8 @@ export function CreatorProfileHeader({
             followPending={followPending}
             onFollowPress={onFollowPress}
             onSharePress={onSharePress}
+            discoverExpanded={discoverExpanded}
+            onToggleDiscover={onToggleDiscover}
           />
         }
       />
