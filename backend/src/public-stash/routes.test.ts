@@ -38,3 +38,8 @@ test('owner preview requires authentication and private reads expose only unavai
  const guest=harness(null);assert.equal((await guest.request('GET /public-stashes/:publicId',{}, {preview:'1'})).status,401);assert.equal(guest.calls.length,0);
  const hidden=harness(id,'P0002');const r=await hidden.request('GET /public-stashes/:publicId');assert.equal(r.status,404);assert.deepEqual(r.result,{error:'Stash unavailable'});
 });
+
+test('expected-version conflict preserves HTTP 409 from PostgREST',async t=>{
+ const old=process.env.PUBLIC_STASH_ENABLED;process.env.PUBLIC_STASH_ENABLED='true';t.after(()=>{if(old===undefined)delete process.env.PUBLIC_STASH_ENABLED;else process.env.PUBLIC_STASH_ENABLED=old;});
+ const h=harness(id,'PT409');assert.equal((await h.request('PUT /public-stashes/me/visibility',{visibility:'public',expectedVersion:0})).status,409);
+});

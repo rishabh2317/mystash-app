@@ -3,7 +3,7 @@ import {publicImageUrl} from './publicMedia';
 import {StashError,parsePage,type StashPage,type StashSettings,type StashPlace} from './contracts';
 export class PublicStashService {
  constructor(readonly db:SupabaseClient){}
- async rpc<T>(name:string,args:Record<string,unknown>):Promise<T>{const {data,error}=await this.db.rpc(name,args).abortSignal(AbortSignal.timeout(15000));if(error)throw new StashError(error.code==='P0002'?404:error.code==='40001'?409:error.code==='23514'||error.code==='22023'?400:503,error.code==='40001'?'Refresh publication state':'Stash unavailable');return data as T;}
+ async rpc<T>(name:string,args:Record<string,unknown>):Promise<T>{const {data,error}=await this.db.rpc(name,args).abortSignal(AbortSignal.timeout(15000));if(error)throw new StashError(error.code==='P0002'?404:['40001','PT409'].includes(error.code)?409:error.code==='23514'||error.code==='22023'?400:503,['40001','PT409'].includes(error.code)?'Refresh publication state':'Stash unavailable');return data as T;}
  settings(user:string){return this.rpc<StashSettings>('public_stash_settings',{p_user:user});}
  async page(publicId:string,query:Record<string,unknown>,preview:string|null=null):Promise<StashPage>{
   const p=parsePage(query,publicId);

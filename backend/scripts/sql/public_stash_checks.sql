@@ -15,7 +15,7 @@ DO $$ DECLARE s jsonb;v jsonb;public_id uuid;denied boolean;BEGIN
  denied:=false;BEGIN PERFORM public_stash_item(public_id,'product','catalog','22222222-2222-4222-8222-222222222222');EXCEPTION WHEN no_data_found THEN denied:=true;END;IF NOT denied THEN RAISE EXCEPTION 'Private detail leaked';END IF;
  PERFORM public_stash_visibility('11111111-1111-4111-8111-111111111111','public',2);
  v:=public_stash_read(public_id);IF jsonb_array_length(v->'items')<>1 THEN RAISE EXCEPTION 'Selection not restored';END IF;
- denied:=false;BEGIN PERFORM public_stash_publish('11111111-1111-4111-8111-111111111111','product','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',false,0);EXCEPTION WHEN serialization_failure THEN denied:=true;END;IF NOT denied THEN RAISE EXCEPTION 'Stale mutation accepted';END IF;
+ denied:=false;BEGIN PERFORM public_stash_publish('11111111-1111-4111-8111-111111111111','product','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',false,0);EXCEPTION WHEN SQLSTATE 'PT409' THEN denied:=true;END;IF NOT denied THEN RAISE EXCEPTION 'Stale mutation accepted';END IF;
  PERFORM find_cart_remove('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',NULL);
  IF EXISTS(SELECT 1 FROM cart_items WHERE published_at IS NOT NULL) THEN RAISE EXCEPTION 'Unsave retained selection';END IF;
  UPDATE cart_items SET removed_at=NULL;IF EXISTS(SELECT 1 FROM cart_items WHERE published_at IS NOT NULL) THEN RAISE EXCEPTION 'Restore republished';END IF;

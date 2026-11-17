@@ -34,6 +34,7 @@ try:
   start=foundations.index('CREATE FUNCTION public.'+name+'(');end=foundations.index('$$;',start)+3
   sql(foundations[start:end])
  sql((ROOT/'supabase/migrations/20261117120000_public_stash.sql').read_text())
+ sql((ROOT/'supabase/migrations/20261117140000_public_stash_conflict_transport.sql').read_text())
  sql((ROOT/'backend/scripts/sql/public_stash_checks.sql').read_text())
  sql("""CREATE TABLE product_clicks(id uuid PRIMARY KEY,event_id uuid UNIQUE,user_id uuid,created_at timestamptz);
  CREATE TABLE collections(id uuid PRIMARY KEY,creator_id uuid,status text,visibility text,moderation_state text,deleted_at timestamptz);
