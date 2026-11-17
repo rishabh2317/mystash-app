@@ -1,5 +1,7 @@
 # Public Stash
 
+Current status: deployed to the existing live development infrastructure. The latest evidence and Android build details are recorded at the end of this runbook.
+
 Public Stash is independent of creator accounts, creator collections and profile navigation.
 Canonical destination: `https://mystash.in/stash/{publicId}`. The UUID is immutable and unrelated to a username.
 
@@ -185,3 +187,34 @@ Supabase and GitHub access are verified. Linked migration history matches all ex
 Local rollout fixes: Express `/` now serves independent placeholder HTML; the Expo root renders a landing placeholder. The public-web Babel configuration rewrites shared API-base reads to the browser's current origin, leaving native Render profile handling unchanged. Android cloud-release workflow enables Public Stash and App Links. Client/backend TypeScript checks passed; six API-origin/profile transform tests pass. The Render backend environment currently has the existing server Supabase variables, not the new public build-variable names: configure public build values or an explicit safe Docker argument mapping before deploying.
 
 DNS read-only lookup confirms `dina.ns.cloudflare.com` and `lennon.ns.cloudflare.com`; apex is currently proxied by Cloudflare. Cloudflare in-app browser redirects to sign-in and no local Cloudflare DNS API credential/certificate is configured. User sign-in to Cloudflare is the current access blocker. Render remains signed in in the in-app browser. No deployment, remote flag, DNS edit, migration application or APK build occurred in this rollout attempt.
+
+## Live development rollout evidence — 17 November 2026
+
+Completed against the existing infrastructure, with no new paid services or plan changes:
+
+- Supabase migrations `20261117120000`, `20261117130000` and follow-up `20261117140000` are applied. Migration history reports no unapplied versions. No reset, historical backfill or data deletion was used.
+- Render service `srv-dbjc8rh42hec73cjrscg` remains Docker Free in Singapore, on `codex/share-v2-pilot`. Root Directory is now blank/repository-root, Dockerfile `Dockerfile.public-stash`, context `.`, existing command `npm run start:render-free-test`, health `/ready/ingestion`, auto-deploy Off and onrender subdomain Enabled. Existing server keys, queue, five consumers, notification materializer, QA search and analytics maintenance were retained. The obsolete suspended website backend was not resumed.
+- Runtime `PUBLIC_STASH_ENABLED=true` and the verified Android SHA-256 fingerprint are configured. Web build ARGs safely map the existing public Supabase URL/anon key; service-role/provider keys remain server-side.
+- `mystash.in` and `www.mystash.in` are attached to that service, Verified with Certificate Issued. Cloudflare apex A changed from `216.198.79.1` to Render's `216.24.57.1`; www CNAME changed from `7df6e70319aa32e9.vercel-dns-017.com` to `mystash-free-test.onrender.com`. Both are Proxied again after the approved temporary DNS-only certificate verification. `api-dev` and its tunnel target were preserved unchanged; no other records existed or were removed.
+- Root HTML is independent of Stash visibility. Public-web API-base transforms use the browser origin; native embeds `https://mystash-free-test.onrender.com`.
+- `/health`, `/ready/ingestion`, `/ready/search`, private Cart/Places/Find, notifications/settings and analytics preferences responded successfully. The search provider remains the explicitly configured `postgres_qa`; no paid OpenSearch deployment was created.
+- Two dedicated development QA accounts tested real password authentication, private defaults, explicit Product/Place publication, authenticated saving, already-saved idempotence, direct Place membership, privileged RPC grants, stale-version rejection, privacy revocation on both service and Cloudflare hosts, visibility restoration and unsave/restoration publication clearing. No other user's membership/publication state was changed.
+- Live owner Insights returned all five counters. Retrying an event receipt did not increase the qualified view count. Only QA account measurement consent was enabled; existing users' consent was untouched.
+- The documented development video was accepted into a private QA Find and completed with two saved Products using existing extraction results. This exercises ingestion acceptance and Stash synchronization, not a claim that a new video download or fresh AI extraction was performed.
+- Browser verified real Product imagery/stored merchant and Google actions, sign-in-to-save returning with Saved, full Place details and automatic Google photo display with provider/author/report attribution. Public photos use DOM intersection on web and avoid a custom image-request header that would force a cross-origin preflight. Native image request behavior is unchanged.
+
+Runtime follow-ups were ordinary compatibility fixes found during live testing: PostgREST conflicts use `PT409` rather than a retryable HTTP-500 serialization code; public web photo demand uses IntersectionObserver and browser image loading omits native-only custom request headers. Follow-up SQL privacy/concurrency checks and 30 backend tests passed; client types and 100 private Places/Create/Profile UI checks passed.
+
+Physical-device checklist: install/update the signed APK; sign in with the existing account; check private Source/Product/Place cards; share a supported URL into Find and wait for Activity/Stash saving; enable Public (no automatic publication); publish one Product and resolved Place; share the link through WhatsApp and open in a signed-out browser; verify details, images, country/shopping actions and sign-in-to-save; unpublish/switch Private and refresh the browser; check Insights after consented visitor activity. Cold/warm App Link behavior, Android gestures and OS background scheduling still require the actual phone. Push remains disabled in the existing QA preset because FCM registration credentials were not configured; in-app notification functionality is retained.
+
+### Final verified Android artifact
+
+- APK: `output/Mystash-Public-Stash-2026111109.apk` (114,921,169 bytes). Package `com.anonymous.Mystash`, version name `1.0.0`, version code `2026111109`.
+- SHA-256: `a722431a5fca7513adbc53ec72be5316dc9ce03852e794826f0dc57e8ce3feea`.
+- Existing release signing SHA-256: `944e3a590c54e1d72721b84454060c5de6cc56fce23c03d8dca4608ef1bb33ea`. GitHub's apksigner verification passed; local artifact checksum matches.
+- Android source: `9d16be521f16c33c87d9fb3c82590c06b10c58a2`. [Successful build 9](https://github.com/rishabh2317/mystash-app/actions/runs/44090021288), [artifact download (ZIP)](https://github.com/rishabh2317/mystash-app/actions/runs/44090021288/artifacts/14332212962). Artifacts follow the workflow's 14-day retention.
+- Current web/backend source: `8366c9b99135db56e37640b4d86ac7527d4894d6`, [live Render deployment](https://dashboard.render.com/web/srv-dbjc8rh42hec73cjrscg/deploys/dep-dbu5buek1f9s73ac8d5g). The subsequent change removes an image request header on web only; native behavior matches the APK.
+- Binary manifest parsing verified HTTPS host `mystash.in`, path prefix `/stash/` and `autoVerify=true`. Bundle inspection verified Public Stash code and the Render endpoint, absence of the Mac endpoint, and absence of scanned backend secret values.
+- `output/public-stash-android-9/deployment-verification.json` records artifact, service/source hashes and link verification. No APK/signing key/output artifact was committed to Git.
+
+Final browser validation confirms the photo loads automatically with Google Maps logo, author and report attribution. Both custom domains have working HTTPS and restored Cloudflare proxying. The test Find reached completed/saving complete with two saved Products; its private Source card is present and all automatically synchronized visitor memberships remain unpublished.
