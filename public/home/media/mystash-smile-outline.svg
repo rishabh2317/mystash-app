@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="8 7 48 48" role="img" aria-label="Mystash original smile bookmark outline">
+  <title>Mystash — Original Smile Outline</title>
+  <desc>Small-size-optimized original smile mark, transparent and centered. The bookmark notch and smile are symmetrical around x=32, and the outline inherits currentColor.</desc>
+  <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 23 9 H 37 V 19 Q 37 22 40 22 H 49 V 52 L 33.2 42.2 Q 32 41.4 30.8 42.2 L 15 52 V 17 Q 15 9 23 9 Z"/>
+    <path d="M 41 10 L 49 18 H 41 Z"/>
+    <path d="M 24.2 33 Q 32 38 39.8 33"/>
+  </g>
+</svg>

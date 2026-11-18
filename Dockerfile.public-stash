@@ -6,6 +6,7 @@ RUN npm ci --include=dev
 COPY app.config.js app.json babel.config.js eas.json tsconfig.json ./
 COPY scripts/renderBuildEnv.cjs ./scripts/renderBuildEnv.cjs
 COPY public-web ./public-web
+COPY public ./public
 COPY components ./components
 COPY contexts ./contexts
 COPY src ./src

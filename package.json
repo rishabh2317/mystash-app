@@ -24,7 +24,8 @@
     "public-stash:proof:stage": "node scripts/public-stash-proof.cjs stage",
     "public-stash:web:export": "node scripts/export-public-stash-web.cjs",
     "public-stash:test:sql": "python3 backend/scripts/publicStashSqlScratch.py",
-    "public-stash:test:ui": "node scripts/check-public-product-page.cjs"
+    "public-stash:test:ui": "node scripts/check-public-product-page.cjs",
+    "homepage:preview": "node scripts/preview-homepage.cjs"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",

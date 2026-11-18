@@ -8,7 +8,20 @@ import {publicStashEnabled,publicStashRateAllowed} from './routes';
 export const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 export function registerPublicStashWeb(app:Express){
  const directory=resolve(process.env.PUBLIC_STASH_WEB_DIR??'public-web'),entry=resolve(directory,'index.html'),svc=new PublicStashService(createSupabaseAdmin());
- app.get('/',(_req,res)=>res.set('Cache-Control','public, max-age=300').type('html').send('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mystash</title><link rel="canonical" href="https://mystash.in/"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:18px system-ui;background:#111;color:#fff}main{padding:32px;max-width:640px}p{color:#bbb;line-height:1.6}</style></head><body><main><h1>Mystash</h1><p>A home for everything you want to come back to.</p><p>Our website is on its way. Shared Public Stash links are available at their own addresses.</p></main></body></html>'));
+ // The marketing homepage has its own static entry; shared links keep the Expo entry.
+ const homepage=resolve(directory,'home/index.html');
+ app.use('/home',express.static(resolve(directory,'home'),{maxAge:'1h',fallthrough:false}));
+ app.get('/',(_req,res)=>{
+  res.set('Cache-Control','public, max-age=300');
+  if(existsSync(homepage)){res.sendFile(homepage);return;}
+  res.status(503).type('html').send('<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mystash</title><main><h1>Mystash</h1><p>A home for everything that catches your eye.</p><p>The homepage is temporarily unavailable.</p></main></html>');
+ });
+ // Editable legal/support shells use explicit routes, separate from shared content.
+ for(const page of ['privacy','terms','cookies','account-deletion','contact','content-policy']){
+  app.get(`/${page}`,(_req,res)=>res.set('Cache-Control','public, max-age=300').sendFile(resolve(directory,'home/legal',`${page}.html`)));
+ }
+ app.get('/robots.txt',(_req,res)=>res.type('text').send('User-agent: *\nAllow: /\nDisallow: /auth/\nSitemap: https://mystash.in/sitemap.xml\n'));
+ app.get('/sitemap.xml',(_req,res)=>res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://mystash.in/</loc></url></urlset>'));
  app.get('/.well-known/assetlinks.json',(_req,res)=>{
   const fingerprints=(process.env.MYSTASH_ANDROID_APP_LINK_FINGERPRINTS??'').split(',').map(s=>s.trim()).filter(s=>/^(?:[0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$/.test(s));
   if(!fingerprints.length){res.status(404).json({error:'Association not configured'});return;}
