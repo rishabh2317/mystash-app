@@ -16,11 +16,11 @@ test('static homepage is independent of Stash availability and preserves public 
  process.env.SUPABASE_SERVICE_ROLE_KEY='offline-test-key';
  delete process.env.MYSTASH_ANDROID_APP_LINK_FINGERPRINTS;
  delete process.env.MYSTASH_APPLE_TEAM_ID;
- mkdirSync(join(directory,'home'));
+ mkdirSync(join(directory,'home/media'),{recursive:true});
  writeFileSync(join(directory,'home/index.html'),'<h1>Homepage fixture</h1>');
  writeFileSync(join(directory,'home/style.css'),'body{color:black}');
  writeFileSync(join(directory,'index.html'),'<h1>Expo fixture</h1>');
- writeFileSync(join(directory,'favicon.ico'),'favicon fixture');
+ writeFileSync(join(directory,'home/media/favicon-sage-fold-v2.ico'),'favicon fixture');
  mkdirSync(join(directory,'home/legal'));
  for(const page of ['privacy','terms','cookies','account-deletion','contact','content-policy']) writeFileSync(join(directory,'home/legal',`${page}.html`),`<meta name="robots" content="noindex,follow"><h1>${page} placeholder</h1>`);
  const app=express();registerPublicStashWeb(app);
@@ -50,8 +50,8 @@ test('public Expo pages use versioned smile icons while retaining the app bundle
  const source='<html><head><link rel="icon" href="/favicon.ico" /></head><body><script src="/_expo/entry.js"></script></body></html>';
  const html=withPublicFavicon(source);
  assert.doesNotMatch(html,/href="\/favicon.ico"/);
- assert.match(html,/favicon-smile-v1.svg/);
- assert.match(html,/favicon-smile-v1.png/);
+ assert.match(html,/favicon-sage-fold-v2.svg/);
+ assert.match(html,/favicon-sage-fold-v2.png/);
  assert.match(html,/_expo\/entry.js/);
  assert.equal(withPublicFavicon(html),html);
 });

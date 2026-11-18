@@ -8,7 +8,7 @@ import {publicStashEnabled,publicStashRateAllowed} from './routes';
 export const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 /** Versioned icon URLs bypass the browser's old Expo-favicon cache. */
 export function withPublicFavicon(source:string){
- const icons='<link rel="icon" type="image/png" sizes="40x40" href="/home/media/favicon-smile-v1.png"><link rel="icon" type="image/svg+xml" sizes="any" href="/home/media/favicon-smile-v1.svg">';
+ const icons='<link rel="icon" type="image/png" sizes="32x32" href="/home/media/favicon-sage-fold-v2.png"><link rel="icon" type="image/svg+xml" sizes="any" href="/home/media/favicon-sage-fold-v2.svg">';
  return source.replace(/<link\b[^>]*rel=["'](?:shortcut icon|icon)["'][^>]*>/gi,'').replace('</head>',`${icons}</head>`);
 }
 export function registerPublicStashWeb(app:Express){
@@ -25,7 +25,7 @@ export function registerPublicStashWeb(app:Express){
  for(const page of ['privacy','terms','cookies','account-deletion','contact','content-policy']){
   app.get(`/${page}`,(_req,res)=>res.set('Cache-Control','public, max-age=300').sendFile(resolve(directory,'home/legal',`${page}.html`)));
  }
- app.get('/favicon.ico',(_req,res)=>res.set('Cache-Control','public, max-age=300').sendFile(resolve(directory,'favicon.ico')));
+ app.get('/favicon.ico',(_req,res)=>res.set('Cache-Control','public, max-age=300').sendFile(resolve(directory,'home/media/favicon-sage-fold-v2.ico')));
  app.get('/robots.txt',(_req,res)=>res.type('text').send('User-agent: *\nAllow: /\nDisallow: /auth/\nSitemap: https://mystash.in/sitemap.xml\n'));
  app.get('/sitemap.xml',(_req,res)=>res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://mystash.in/</loc></url></urlset>'));
  app.get('/.well-known/assetlinks.json',(_req,res)=>{
