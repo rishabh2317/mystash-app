@@ -6,6 +6,11 @@ import {createSupabaseAdmin} from '../supabase';
 import {uuid,StashError} from './contracts';
 import {publicStashEnabled,publicStashRateAllowed} from './routes';
 export const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
+/** Versioned icon URLs bypass the browser's old Expo-favicon cache. */
+export function withPublicFavicon(source:string){
+ const icons='<link rel="icon" type="image/png" sizes="40x40" href="/home/media/favicon-smile-v1.png"><link rel="icon" type="image/svg+xml" sizes="any" href="/home/media/favicon-smile-v1.svg">';
+ return source.replace(/<link\b[^>]*rel=["'](?:shortcut icon|icon)["'][^>]*>/gi,'').replace('</head>',`${icons}</head>`);
+}
 export function registerPublicStashWeb(app:Express){
  const directory=resolve(process.env.PUBLIC_STASH_WEB_DIR??'public-web'),entry=resolve(directory,'index.html'),svc=new PublicStashService(createSupabaseAdmin());
  // The marketing homepage has its own static entry; shared links keep the Expo entry.
@@ -20,6 +25,7 @@ export function registerPublicStashWeb(app:Express){
  for(const page of ['privacy','terms','cookies','account-deletion','contact','content-policy']){
   app.get(`/${page}`,(_req,res)=>res.set('Cache-Control','public, max-age=300').sendFile(resolve(directory,'home/legal',`${page}.html`)));
  }
+ app.get('/favicon.ico',(_req,res)=>res.set('Cache-Control','public, max-age=300').sendFile(resolve(directory,'favicon.ico')));
  app.get('/robots.txt',(_req,res)=>res.type('text').send('User-agent: *\nAllow: /\nDisallow: /auth/\nSitemap: https://mystash.in/sitemap.xml\n'));
  app.get('/sitemap.xml',(_req,res)=>res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://mystash.in/</loc></url></urlset>'));
  app.get('/.well-known/assetlinks.json',(_req,res)=>{
@@ -31,7 +37,7 @@ export function registerPublicStashWeb(app:Express){
   const team=process.env.MYSTASH_APPLE_TEAM_ID;if(!team||!/^[A-Z0-9]{10}$/.test(team)){res.status(404).json({error:'Association not configured'});return;}
   res.json({applinks:{apps:[],details:[{appID:`${team}.com.anonymous.Mystash`,paths:['/stash/*']}]}});
  });
- app.get('/auth/callback',(_req,res)=>{res.set('Cache-Control','private, no-store').set('Referrer-Policy','no-referrer');if(!existsSync(entry)||!publicStashEnabled()){res.status(404).send('Unavailable');return;}res.type('html').send(readFileSync(entry,'utf8'));});
+ app.get('/auth/callback',(_req,res)=>{res.set('Cache-Control','private, no-store').set('Referrer-Policy','no-referrer');if(!existsSync(entry)||!publicStashEnabled()){res.status(404).send('Unavailable');return;}res.type('html').send(withPublicFavicon(readFileSync(entry,'utf8')));});
  app.get('/public-stash-share.png',(_req,res)=>res.sendFile(resolve(directory,'public-stash-share.png')));
  app.use('/_expo',express.static(resolve(directory,'_expo'),{immutable:true,maxAge:'1y',fallthrough:false}));
  app.use('/assets',express.static(resolve(directory,'assets'),{immutable:true,maxAge:'1y',fallthrough:false}));
@@ -49,7 +55,7 @@ export function registerPublicStashWeb(app:Express){
    }
    const canonical=`https://mystash.in${req.path}`;
    const head=`<title>Public Stash on Mystash</title><meta name="description" content="Discover curated Products and Places on Mystash."><meta property="og:title" content="Public Stash on Mystash"><meta property="og:description" content="Discover curated Products and Places on Mystash."><meta property="og:image" content="https://mystash.in/public-stash-share.png"><meta property="og:type" content="website"><meta property="og:url" content="${escapeHtml(canonical)}"><link rel="canonical" href="${escapeHtml(canonical)}"><meta name="robots" content="noindex,follow">`;
-   const source=readFileSync(entry,'utf8').replace(/<title>.*?<\/title>/s,'').replace('</head>',`${head}</head>`).replace('</body>',`<noscript><h1>Public Stash</h1><p>${summary}</p><p>Enable JavaScript to browse Products and Places.</p></noscript></body>`);
+   const source=withPublicFavicon(readFileSync(entry,'utf8')).replace(/<title>.*?<\/title>/s,'').replace('</head>',`${head}</head>`).replace('</body>',`<noscript><h1>Public Stash</h1><p>${summary}</p><p>Enable JavaScript to browse Products and Places.</p></noscript></body>`);
    res.type('html').send(source);
   }catch(error){res.status(error instanceof StashError?error.status:503).type('html').send('<!doctype html><html><head><meta name="robots" content="noindex"><title>Stash unavailable</title></head><body><h1>Stash unavailable</h1><p>This Stash may be private or no longer available.</p></body></html>');}
  };

@@ -3,7 +3,7 @@ const { existsSync, readFileSync } = require('node:fs');
 /** Prepared internal QA profile only. No Firebase Auth, signing or identifier changes. */
 module.exports = ({ config }) => {
   if (process.env.MYSTASH_PUBLIC_WEB_PROOF === 'true' || process.env.MYSTASH_PUBLIC_WEB === 'true') {
-    return { ...config, plugins: [['expo-router', { root: './public-web/app', sitemap: false }]], web: { ...config.web, output: 'single' } };
+    return { ...config, plugins: [['expo-router', { root: './public-web/app', sitemap: false }]], web: { ...config.web, output: 'single', favicon: './public/home/media/favicon-smile-v1.png' } };
   }
   if (process.env.MYSTASH_APP_LINKS_ENABLED === 'true') {
     config = { ...config, android: { ...config.android, intentFilters: [...(config.android?.intentFilters || []), { action: 'VIEW', autoVerify: true, data: [{ scheme: 'https', host: 'mystash.in', pathPrefix: '/stash/' }], category: ['BROWSABLE', 'DEFAULT'] }] }, ios: { ...config.ios, associatedDomains: [...new Set([...(config.ios?.associatedDomains || []), 'applinks:mystash.in'])] } };
