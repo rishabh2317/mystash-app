@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="8 7 48 48" role="img" aria-label="Mystash dark sage solid bookmark with cream smile and original detached folded corner">
+  <title>Mystash — Dark Sage Original Fold Favicon</title>
+  <desc>Solid dark sage bookmark, warm cream smile, and the distinctive detached triangular page-fold from the original mark. Warm cream background.</desc>
+  <!-- Preserve the original fold silhouette and the established dark-sage favicon palette. -->
+  <rect x="8" y="7" width="48" height="48" fill="#F6F0E5"/>
+  <path fill="#354F45" d="M 23 9 H 37 V 19 Q 37 22 40 22 H 49 V 52 L 33.2 42.2 Q 32 41.4 30.8 42.2 L 15 52 V 17 Q 15 9 23 9 Z"/>
+  <path fill="#354F45" d="M 41 10 L 49 18 H 41 Z"/>
+  <path fill="none" stroke="#F6F0E5" stroke-width="3.5" stroke-linecap="round" d="M 24.2 32.6 Q 32 38.6 39.8 32.6"/>
+</svg>
