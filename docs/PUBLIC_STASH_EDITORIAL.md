@@ -1,52 +1,58 @@
-# Browser Public Stash editorial presentation
+# Browser Public Stash — compact pin board
 
-Implemented 19 November 2026. The standalone public-web collection entry renders the editorial component; the normal native route and shared native cards are unchanged.
+Updated 19 November 2026 after the editorial hero layout review. The web collection now uses a Pinterest-style masonry board. The earlier full-width hero and forced image crops have been removed.
 
-## Files
+## Header and previous copy
 
-- `public-web/app/stash/[publicId]/index.tsx`: browser collection entry only.
-- `public-web/components/PublicStashEditorial.tsx`: public API loading, header, URL-backed tabs, deterministic cards, explicit provider-photo demand, loading/empty/error states and pagination.
-- `public-web/components/public-stash-editorial.css`: warm paper presentation, responsive editorial grid, focus states and reduced motion.
-- `public-web/components/editorialActions.ts`: existing identity routes, ordered stored offer selection, country preference, authorized affiliate/discovery redirects and canonical sharing.
-- `public-web/app/_layout.tsx`: collection-only warm privacy footer; the collection is intentionally light. Detail/auth appearance and privacy controls remain available.
-- `public/home/media/attribution/google-maps-dark.png`: unchanged existing attribution asset copied to the static web path.
-- `scripts/check-public-stash-editorial.cjs`: offline action regression checks.
-- `scripts/preview-public-stash-editorial.cjs`: localhost-only fixture API and preview server. Never used by the production runtime.
+The original live header contained “Public Stash”, “Curated by @username”, Products/Places counts and Share, plus Back and an owner-only preview notice. The first editorial revision retained the public identifier, curator, counts and Share but simplified Back/preview copy. Back and the full “Only you can see this preview” notice are restored.
 
-## Reference comparison
+The latest requested header is `Sonam’s Stash`, then `@username`, then the optional public profile bio, followed by published counts. First name is the first whitespace-separated part of the profile display name; there is no separate first-name field. Missing names fall back to `@username’s Stash`. Missing bios leave no empty description block. These fields come from the existing public `/users/by-username/:username` endpoint after the authorized Stash read. No email, private settings or raw user UUID is rendered. Profile results are scoped to the current username/account and discarded when obsolete. Profile lookup failure leaves the Stash usable.
 
-Preserves the warm canvas, rounded paper container, subtle border, circular curator initial/avatar, restrained typography, header-side Share button, large first photograph, two smaller photographs underneath, and small bookmark footer. The sheet is upright rather than decoratively rotated. Published counts, Products/Places tabs, readable item captions, and always-visible Shop/Explore controls are deliberate functional additions. Mobile retains the hero-plus-pair identity with adapted framing. Two-item collections use balanced paired photographs on larger screens and stack on mobile. A stable six-item sequence continues the layout for pagination.
+## Changed files
 
-Live titles, counts, usernames, avatars, item names and photographs come from the existing public API. There is no illustrative live curator or content. The contract does not currently expose a custom Stash title, so the header uses `@username’s Stash`.
+- `public-web/components/PublicStashEditorial.tsx`: pin board, restored Back/preview notice, public name/handle/bio, scoped data loading and Shop orchestration.
+- `public-web/components/public-stash-editorial.css`: compact masonry columns, natural product framing, hover/focus/touch actions and browser bottom-sheet styles.
+- `public-web/components/BuyOptionsSheet.tsx`: accessible browser-only merchant-choice sheet.
+- `public-web/components/editorialActions.ts`: first-name title, stored offer loading and explicit selected-offer outbound resolution.
+- `scripts/check-public-stash-editorial.cjs`: offline title, single/multiple offers, selected merchant, fallback and sharing tests.
+- `scripts/preview-public-stash-editorial.cjs`: local-only public profile and multiple-merchant fixtures.
+- This report.
 
-## Behavior and safety
+The prior web collection route, warm web-only privacy footer and approved attribution asset remain in place. No native card, screen, app route, API contract, publication rule, database schema or merchant redirect handler changed.
 
-Product image/title links open the existing Product Page. Shop fetches that same authorized stored Product Page on demand, respects the same saved country preference, selects the first ordered actionable offer, and resolves it through the existing outbound route with the offer ID and outbound event headers. Existing supported discovery destinations are used when there is no actionable offer; if neither exists, the existing Product Page opens. No merchant destination is fabricated. No offer, image or detail API contract changed.
+## Pin layout and interactions
 
-Place title/Explore links open the existing Place detail screen with its original address, map, directions, search and saving behavior. Place photos require an explicit Show photo action; scrolling the grid does not fetch provider photos. The existing four-task queue, width cap, public membership authorization and image/attribution validators remain in use. Attributions and report links are separate from the detail link. No provider response is persisted.
+At larger widths, cards have five compact equal-width columns; smaller desktop/tablet use four/three and mobile uses two. Stable index-to-column assignment keeps existing cards in their columns when pagination appends items. Photos use their natural proportions with contain framing for products, bounded minimum/maximum heights, and no stretched hero crop. The initial placeholder reserves space while intrinsic dimensions load; the current public item API does not expose image dimensions, so a pin may adjust height when its image metadata arrives.
 
-Tabs use query parameters and real hrefs, support Left/Right/Home/End keys, and preserve browser Back/Forward. Each tab has independent load state. Fetches are cancelled on scope/focus changes; pageshow and visibility restoration revalidate. A 404 during pagination clears all loaded cards and curator metadata. Public/authenticated API and publication checks are unchanged.
+Each pin has a readable two-line product label and brand/location below the image. Shop and View appear on hover and keyboard focus. Actions remain visible on touch devices and narrow screens. Links and buttons are siblings, not nested interactive controls. Product and Place detail links retain their existing routes and saving/authentication behavior. Failed images have a compact explicit fallback.
 
-Share uses only the canonical `https://mystash.in/stash/:publicId` URL. Native browser sharing is attempted when available. Copy Link is available after opening Share, and copying announces success through a live status region. If clipboard access is denied, the canonical URL is displayed for manual copying. Preview-only collections do not expose sharing or direct shopping.
+Place photography is still opt-in via Show photo. Scrolling does not issue provider-photo requests. Existing queue limits, membership checks and image/attribution validators remain. Provider credits stay separate from the detail link.
+
+## Buying options
+
+The same native `shoppableProductOffers` and `feedShopPresentation` helpers decide presentation:
+
+- One actionable stored offer opens directly.
+- Multiple actionable offers open Buy options and wait for a merchant choice.
+- Offers with action `none` are excluded.
+- No actionable offer uses the existing supported discovery destination, or opens Product Page if no destination exists.
+
+The sheet shows product name, merchant, stored formatted price, availability, and country context. It reuses the Product Page price formatter. Selecting an offer resolves that exact offer ID through the existing public outbound endpoint with outbound analytics headers. Country preferences match Product Page; affiliate routing stays server-side. No merchant URL is fabricated and no live pricing/search requests are started for the sheet.
+
+The native HTML dialog provides a modal focus boundary. Close, Escape and backdrop dismissal are supported; keyboard focus returns to the triggering Shop button. In-flight outbound requests are aborted on dismissal/unmount. Header/close controls remain available while a long offer list scrolls. No request resolves a merchant until a visitor chooses it.
 
 ## Verification
 
-- Client TypeScript passed.
-- Targeted ESLint passed without warnings.
-- Production-format Expo web export passed using dummy offline auth configuration for preview; deployment builds use the existing production environment.
-- Backend TypeScript build and all 32 existing Public Stash/ProductPage regression tests passed.
-- `node scripts/check-public-product-page.cjs` passed: stored public offers retained, public search/pricing effects suppressed, standard/native effect behavior preserved.
-- `node scripts/check-public-stash-editorial.cjs` passed: namespace identity routes; ordered actionable offers; discovery and no-offer fallbacks; saved country; outbound attribution; canonical share/copy; share cancellation; clipboard failure fallback.
-- Browser visual review: 320, 375, 390, 430, 768, 1280 and 1440px; no horizontal overflow. No nested interactive elements in the collection DOM. Focusable links/buttons, tab ARIA, explicit image dimensions/aspect ratios and reduced-motion CSS checked.
-- Reviewed 0, 1, 2, 3, 5 and 25-item fixture collections. Pagination appended 20 to 25 items without duplicates. A separate open fixture was revoked before pagination: next read showed unavailable with zero remaining cards.
-- Browser checks: anonymous collection; Products/Places switching and ArrowLeft navigation; Back to Places after detail navigation; existing Product Page, country selector and stored buying option; Place detail with maps/directions/search; anonymous Save leads to existing sign-in; direct Shop reaches the fixture verified-offer destination; Copy Link shows accessible success.
-- Local fixture request log showed zero photo endpoint calls for scrolling the 25-item Places grid. No production paid photo/search work was triggered for testing.
-- Browser console contained no errors/warnings in final collection review.
+- Client TypeScript, targeted lint, production-format Expo web export and backend build passed.
+- All 32 existing Public Stash/ProductPage backend regressions passed.
+- Existing Product Page behavior check passed: stored public offers preserved and public live search/pricing suppressed.
+- Offline web action checks passed: first-name/username fallback; namespace routes; single versus multiple buying options; excluded inactive offers; explicit second-offer selection; rejected unknown offer ID; saved country; discovery/no-offer fallbacks; canonical share/copy/cancel/failure.
+- Browser checks covered public name/handle/bio, compact five-column desktop pins, two-column mobile pins, keyboard-revealed actions, multiple-merchant sheet, selecting the second merchant, Escape and restored Shop focus. Anonymous detail/save behavior, tabs, pagination and private revocation use the same previously verified paths.
+- Responsive checks at 320, 375, 390, 430, 768, 1280 and 1440px passed without horizontal overflow or nested controls. Pagination appended 20 to 25 pins while preserving the first pin in each column. The 320px bottom sheet spans the viewport and retains its 27px heading.
+- Screenshots and responsive evidence are in ignored `output/public-stash-pins/`. They use isolated localhost API fixtures, not live user data.
 
-Screenshots are in ignored `output/public-stash-editorial/`, including `desktop-1440.jpg`, `desktop-1280.jpg`, `tablet-768.jpg`, `mobile-320.jpg`, `mobile-375.jpg`, `mobile-390.jpg`, `mobile-430.jpg`, and collection-size examples. Screenshots use clearly isolated local API fixtures, not real user collections.
+## Limits and native scope
 
-## Verification limits
+Production purchase/save writes, authenticated owner sessions and paid imagery were not exercised. Profile first names are derived from display names; unusual or business display names may not represent a personal first name. Missing public name/bio safely falls back without blocking the collection. Store prices are stored data and the sheet advises confirming price/availability at the merchant.
 
-Native share sheet appearance depends on the browser/OS; its success, failure and cancellation paths are tested through injected adapters. No message was sent to a recipient. Live merchant purchases, production save writes, authenticated owner sessions and paid Google imagery were intentionally not exercised. Their existing endpoints/screens are retained, and contract regressions passed. Public Stash data offers no focal-point metadata, so photographs use stable centered cover framing without stretching. Place photographs remain opt-in to honor the no-scroll-cost requirement.
-
-No Android/iOS app was built, installed or deployed. No shared native screen/card, API, publication permission, identity, database schema, or native save/shopping implementation was edited.
+No Android/iOS build, install or deployment was run. Existing native UI and shopping/saving implementations are unchanged; only their pure offer-selection/formatting helpers are reused by the web presentation.
