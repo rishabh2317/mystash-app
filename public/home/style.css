@@ -1932,3 +1932,6 @@ footer>a:not(.wordmark),footer>span{
     margin-top: -12px;
   }
 }
+
+/* Solid sage original-fold brand mark; preserve the quiet CTA watermark. */
+.giant-mark{opacity:.14}
